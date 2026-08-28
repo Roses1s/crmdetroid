@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM - Воронка Лидов</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: #f0f1f5;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            background-color: #714B67;
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 14px;
+        }
+
+        .nav-links { display: flex; align-items: center; }
+        .nav-links strong { cursor: pointer; font-size: 16px; letter-spacing: 0.5px; opacity: 0.9; }
+        .nav-links strong:hover { opacity: 1; }
+
+        .breadcrumb {
+            padding: 10px 20px;
+            background: white;
+            border-bottom: 1px solid #ddd;
+            font-size: 13px;
+            color: #666;
+            display: flex;
+            align-items: center;
+        }
+        .breadcrumb span { cursor: pointer; color: #714B67; font-weight: 500; }
+        .breadcrumb span:hover { text-decoration: underline; }
+
+        .toolbar {
+            background-color: white;
+            padding: 10px 20px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-primary { background-color: #714B67; color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 500; }
+        .btn-primary:hover { background-color: #5a3b52; }
+
+        .btn-success { background-color: #28a745; color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 500; }
+        .btn-success:hover { background-color: #218838; }
+
+        .btn-secondary { background-color: #f1f1f1; color: #333; border: 1px solid #ccc; padding: 6px 14px; border-radius: 4px; cursor: pointer; }
+        .btn-secondary:hover { background-color: #e4e4e4; }
+
+        .btn-icon { padding: 6px 10px; font-size: 14px; }
+        .btn-sm { padding: 3px 8px; font-size: 11px; border-radius: 3px; }
+
+        /* Выпадающее меню Шестеренки */
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 4px;
+            background-color: white;
+            min-width: 160px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            z-index: 100;
+            overflow: hidden;
+        }
+
+        .dropdown-menu.show {
+            display: block;
+        }
+
+        .dropdown-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            color: #dc3545;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 500;
+        }
+
+        .dropdown-item:hover {
+            background-color: #fff0f0;
+        }
+
+        .kanban-container { display: flex; flex: 1; flex-direction: column; overflow: hidden; }
+        .kanban-board { display: flex; flex: 1; overflow-x: auto; padding: 15px; gap: 12px; }
+
+        .column { background-color: #e3e5ec; min-width: 260px; max-width: 260px; border-radius: 6px; display: flex; flex-direction: column; max-height: 100%; }
+        .column-header { padding: 10px 12px; font-weight: bold; color: #4c4c4c; display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+        .cards-container { padding: 8px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+
+        .card { background: white; border-radius: 4px; padding: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); cursor: pointer; font-size: 12px; border-left: 3px solid #714B67; transition: transform 0.1s; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .card-title { font-weight: bold; color: #2c3e50; margin-bottom: 5px; font-size: 14px; }
+        .card-tag { display: inline-block; background: #e4e7eb; color: #555; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-bottom: 8px; }
+
+        .detail-container { display: none; flex: 1; background: #fff; overflow: hidden; flex-direction: column; }
+
+        .detail-toolbar {
+            padding: 10px 20px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #f9f9f9;
+            flex-wrap: wrap;
+        }
+
+        .stage-btn {
+            padding: 6px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 12px;
+            border: 1px solid #ccc;
+            background: #fff;
+            color: #555;
+            transition: all 0.2s;
+        }
+        .stage-btn:hover { background: #e8e8e8; }
+        .stage-btn.active { background: #714B67; color: #fff; border-color: #714B67; }
+        .stage-btn.active:hover { background: #5a3b52; }
+
+        .detail-body { display: flex; flex: 1; overflow: hidden; }
+
+        .form-panel { flex: 1.5; padding: 20px 40px; overflow-y: auto; border-right: 1px solid #ddd; }
+
+        .editable-title {
+            font-size: 24px; font-weight: bold; color: #333; width: 100%; border: 1px solid transparent;
+            padding: 4px 8px; border-radius: 4px; margin-bottom: 20px; font-family: inherit;
+        }
+        .editable-title:hover, .editable-title:focus { border-color: #714B67; background: #fff; outline: none; }
+
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .form-group { display: flex; align-items: center; margin-bottom: 12px; font-size: 13px; }
+        .form-label { width: 140px; color: #555; font-weight: bold; }
+
+        .editable-input {
+            flex: 1; border: 1px solid transparent; background: transparent; padding: 5px 8px;
+            border-radius: 4px; font-size: 13px; color: #000; transition: all 0.2s;
+        }
+        .editable-input:hover { border-color: #ccc; background: #fff; }
+        .editable-input:focus { border-color: #714B67; background: #fff; outline: none; box-shadow: 0 0 3px rgba(113, 75, 103, 0.3); }
+
+        .chatter-panel { flex: 1; background: #f9f9fb; display: flex; flex-direction: column; }
+        
+        .chatter-tabs {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #ddd;
+            background: #fff;
+            padding-right: 15px;
+        }
+
+        .chatter-tabs .tab-title {
+            padding: 10px 15px;
+            font-size: 12px;
+            font-weight: bold;
+            color: #714B67;
+            border-bottom: 2px solid #714B67;
+        }
+
+        .apps-counter-box {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        .apps-counter-input {
+            width: 50px;
+            padding: 3px 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 12px;
+            text-align: center;
+            font-weight: bold;
+            color: #714B67;
+            outline: none;
+            background: #fff;
+            transition: border-color 0.2s;
+        }
+
+        .apps-counter-input:hover, .apps-counter-input:focus {
+            border-color: #714B67;
+        }
+
+        .chatter-input-area { padding: 15px; background: #fff; border-bottom: 1px solid #ddd; }
+        .chatter-input-area textarea { width: 100%; height: 60px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; resize: none; font-size: 13px; margin-bottom: 8px; }
+        
+        .files-preview-area {
+            display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;
+        }
+        .file-chip {
+            background: #eef1f6; border: 1px solid #cbd5e1; border-radius: 4px;
+            padding: 3px 8px; font-size: 11px; color: #334155; display: flex; align-items: center; gap: 6px;
+        }
+        .remove-chip {
+            cursor: pointer; font-weight: bold; color: #ef4444; font-size: 14px; line-height: 1;
+        }
+        .remove-chip:hover { color: #dc2626; }
+
+        .chatter-history { flex: 1; overflow-y: auto; padding: 20px; }
+
+        .log-entry { display: flex; margin-bottom: 20px; }
+        .log-avatar { width: 32px; height: 32px; background: #5c8b8a; color: white; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: bold; margin-right: 12px; font-size: 14px; flex-shrink: 0; }
+        .log-content { flex: 1; background: white; padding: 10px; border-radius: 4px; border: 1px solid #e0e0e0; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .log-header { display: flex; justify-content: space-between; font-size: 11px; color: #888; margin-bottom: 5px; align-items: center; }
+        .log-author { font-weight: bold; color: #333; font-size: 12px; }
+        .log-text { font-size: 13px; color: #333; white-space: pre-wrap; word-break: break-word; }
+
+        .log-attachments {
+            display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0;
+        }
+        .attachment-item {
+            display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; border: 1px solid #cbd5e1;
+            border-radius: 4px; padding: 4px 8px; font-size: 11px; color: #334155; text-decoration: none; transition: background 0.2s;
+        }
+        .attachment-item:hover { background: #e2e8f0; text-decoration: none; }
+        .attachment-item.image-item { flex-direction: column; align-items: flex-start; background: transparent; border: none; padding: 0; }
+        .attachment-item img { max-width: 180px; max-height: 120px; border-radius: 4px; object-fit: cover; border: 1px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .attachment-size { color: #94a3b8; font-size: 10px; }
+
+        .log-actions { display: flex; gap: 8px; font-size: 11px; }
+        .log-btn { color: #888; cursor: pointer; }
+        .log-btn:hover { color: #714B67; text-decoration: underline; }
+        .log-btn.delete:hover { color: #dc3545; }
+
+        .inline-edit-textarea {
+            width: 100%; min-height: 55px; padding: 6px 8px; border: 1px solid #714B67;
+            border-radius: 4px; font-size: 13px; resize: vertical; margin-bottom: 6px;
+            font-family: inherit; outline: none;
+        }
+        .inline-edit-btns { display: flex; gap: 6px; justify-content: flex-end; }
+
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;
+        }
+        .modal-box {
+            background: #fff; padding: 25px; border-radius: 8px; width: 450px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        .modal-box h2 { margin-bottom: 20px; font-size: 18px; color: #333; }
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; margin-bottom: 5px; font-size: 12px; font-weight: bold; color: #555; }
+        .input-group input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 25px; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="nav-links">
+            <strong onclick="closeLead()">CRM</strong>
+        </div>
+        <div style="cursor: pointer; font-weight: 500;" onclick="closeLead()">ООО "Детроид"</div>
+    </header>
+
+    <div id="kanban-view" class="kanban-container">
+        <div class="breadcrumb">
+            <span class="active" onclick="closeLead()">CRM / Лиды</span>
+        </div>
+        <div class="toolbar">
+            <button class="btn-primary" onclick="openCreateModal()">+ Создать лид</button>
+        </div>
+        <div class="kanban-board" id="board"></div>
+    </div>
+
+    <div id="detail-view" class="detail-container">
+        <div class="breadcrumb">
+            <span onclick="closeLead()">CRM / Лиды</span>&nbsp; / &nbsp;<b id="bread-lead-name">...</b>
+        </div>
+
+        <div class="detail-toolbar">
+            <div class="dropdown">
+                <button class="btn-secondary btn-icon" onclick="toggleSettingsMenu(event)" title="Действия">⚙️</button>
+                <div class="dropdown-menu" id="settings-menu">
+                    <div class="dropdown-item" onclick="deleteCurrentLead()">🗑️ Удалить карточку</div>
+                </div>
+            </div>
+            <button class="btn-success" onclick="saveLeadDetails(true)">💾 Сохранить</button>
+            <div id="detail-stage-buttons"></div>
+        </div>
+
+        <div class="detail-body">
+            <div class="form-panel">
+                <input type="text" id="edit-title" class="editable-title" placeholder="Название компании..." onchange="saveLeadDetails()">
+
+                <div class="form-grid">
+                    <div>
+                        <div class="form-group">
+                            <div class="form-label">Компания</div>
+                            <input type="text" class="editable-input" value='ООО "Детроид"' readonly style="color: #666; cursor: default;">
+                        </div>
+                        <div class="form-group">
+                            <div class="form-label">ИНН</div>
+                            <input type="text" id="edit-inn" class="editable-input" placeholder="Введите ИНН..." onchange="saveLeadDetails()">
+                        </div>
+                        <div class="form-group">
+                            <div class="form-label">Продавец</div>
+                            <input type="text" id="edit-manager" class="editable-input" placeholder="Ответственный..." onchange="saveLeadDetails()">
+                        </div>
+                    </div>
+                    <div>
+                        <div class="form-group">
+                            <div class="form-label">Email логиста</div>
+                            <input type="email" id="edit-email" class="editable-input" placeholder="mail@example.com..." onchange="saveLeadDetails()">
+                        </div>
+                        <div class="form-group">
+                            <div class="form-label">Телефон логиста</div>
+                            <input type="text" id="edit-phone" class="editable-input" placeholder="+7 (999) 000-00-00..." onchange="saveLeadDetails()">
+                        </div>
+                    </div>
+                </div>
+
+                <h3 style="margin: 30px 0 15px 0; color:#555; border-bottom: 1px solid #eee; padding-bottom: 5px; font-size:14px;">ИНФОРМАЦИЯ О КЛИЕНТЕ</h3>
+                <div class="form-grid">
+                    <div>
+                        <div class="form-group">
+                            <div class="form-label">Что возят?</div>
+                            <input type="text" id="edit-cargo" class="editable-input" placeholder="например: Напитки..." onchange="saveLeadDetails()">
+                        </div>
+                        <div class="form-group">
+                            <div class="form-label">Формат перевозки</div>
+                            <input type="text" id="edit-format" class="editable-input" placeholder="например: Фуры 20т..." onchange="saveLeadDetails()">
+                        </div>
+                    </div>
+                    <div>
+                        <div class="form-group">
+                            <div class="form-label">Тип оплаты</div>
+                            <input type="text" id="edit-payment" class="editable-input" placeholder="например: По выгрузке..." onchange="saveLeadDetails()">
+                        </div>
+                        <div class="form-group">
+                            <div class="form-label">Тип клиента (АТИ)</div>
+                            <input type="text" id="edit-ati" class="editable-input" placeholder="например: Хорошая АТИ..." onchange="saveLeadDetails()">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chatter-panel">
+                <div class="chatter-tabs">
+                    <div class="tab-title">Лог примечания</div>
+                    <div class="apps-counter-box">
+                        <span>Заявки:</span>
+                        <input type="number" id="edit-apps-count" class="apps-counter-input" min="0" value="0" onchange="saveLeadDetails()">
+                    </div>
+                </div>
+                <div class="chatter-input-area">
+                    <textarea id="new-comment" placeholder="Оставьте комментарий... (Enter — отправить)"></textarea>
+                    
+                    <div id="selected-files-preview" class="files-preview-area"></div>
+                    
+                    <!-- Поменяли местами кнопки -->
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <button class="btn-primary" onclick="saveComment()">Записать в лог</button>
+                        
+                        <div>
+                            <label for="comment-file-input" class="btn-secondary btn-sm" style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                                📎 Прикрепить файл
+                            </label>
+                            <input type="file" id="comment-file-input" multiple style="display:none;" onchange="handleFileSelect(event)">
+                        </div>
+                    </div>
+                </div>
+                <div class="chatter-history" id="chatter-history"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="create-modal" class="modal-overlay">
+        <div class="modal-box">
+            <h2>Новый лид</h2>
+            <div class="input-group">
+                <label>Название компании *</label>
+                <input type="text" id="modal-title" placeholder='Например: ООО "Ромашка"'>
+            </div>
+            <div class="input-group">
+                <label>ИНН</label>
+                <input type="text" id="modal-inn" placeholder="1234567890">
+            </div>
+            <div class="input-group">
+                <label>Телефон логиста</label>
+                <input type="text" id="modal-phone" placeholder="+7 (999) 000-00-00">
+            </div>
+            <div class="input-group">
+                <label>Email логиста</label>
+                <input type="email" id="modal-email" placeholder="mail@example.com">
+            </div>
+            <div class="modal-buttons">
+                <button class="btn-secondary" onclick="closeCreateModal()">Отмена</button>
+                <button class="btn-primary" onclick="saveNewLead()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STAGES = [
+            "Новый",
+            "Вышел на ЛПР",
+            "Потенциальный клиент",
+            "Сделали просчет",
+            "Разместили заявку",
+            "Уехали, ждем заявку"
+        ];
+
+        let leads = JSON.parse(localStorage.getItem('crm_leads_v8'));
+        if (!leads) {
+            leads = [
+                {
+                    id: 1, title: 'ООО "Ярославский ликеро-водочный завод"', stage: 'Сделали просчет',
+                    manager: 'Костылев Иван', inn: '7606118934', phone: '+7 (905) 634-64-70',
+                    email: 'muratova@yalvz.ru', cargo: 'Алкогольные напитки', format: 'Стандартные фуры',
+                    payment: 'По выгрузке 1-5 дней', ati: 'Хорошая атишка', tag: 'завод',
+                    applicationsCount: 1,
+                    comments: [
+                        { id: 101, text: 'Лид создан', author: 'Система', time: new Date().toLocaleString(), attachments: [] }
+                    ]
+                }
+            ];
+        }
+
+        let currentLeadId = null;
+        let editingCommentId = null;
+        let pendingAttachments = [];
+
+        function saveDb() { localStorage.setItem('crm_leads_v8', JSON.stringify(leads)); }
+
+        function renderBoard() {
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+
+            STAGES.forEach(stage => {
+                const stageLeads = leads.filter(l => l.stage === stage);
+                const col = document.createElement('div');
+                col.className = 'column';
+                col.ondragover = (e) => e.preventDefault();
+                col.ondrop = (e) => dropCard(e, stage);
+
+                col.innerHTML = `
+                    <div class="column-header">
+                        <span>${stage}</span>
+                        <span style="background:#ccc; padding:2px 6px; border-radius:10px; font-size:11px">${stageLeads.length}</span>
+                    </div>
+                    <div class="cards-container"></div>
+                `;
+
+                const container = col.querySelector('.cards-container');
+                stageLeads.forEach(lead => {
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    card.draggable = true;
+                    card.onclick = () => openLead(lead.id);
+                    card.ondragstart = (e) => { e.dataTransfer.setData('text/plain', lead.id); e.stopPropagation(); };
+
+                    card.innerHTML = `
+                        <div class="card-title">${lead.title}</div>
+                        ${lead.tag ? `<div class="card-tag">${lead.tag}</div>` : ''}
+                        <div style="display:flex; justify-content:space-between; color:#888; margin-top:10px; font-size:11px;">
+                            <span>📱 ${lead.phone || 'Нет номера'}</span>
+                            <b>${lead.manager || 'Я'}</b>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+                board.appendChild(col);
+            });
+        }
+
+        function dropCard(e, targetStage) {
+            e.preventDefault();
+            const id = e.dataTransfer.getData('text/plain');
+            const lead = leads.find(l => l.id == id);
+            if (lead && lead.stage !== targetStage) {
+                lead.comments.push({ id: Date.now(), text: `Статус изменен: ${lead.stage} ➔ ${targetStage}`, author: 'Система', time: new Date().toLocaleString(), attachments: [] });
+                lead.stage = targetStage;
+                saveDb();
+                renderBoard();
+            }
+        }
+
+        function openCreateModal() { document.getElementById('create-modal').style.display = 'flex'; }
+        function closeCreateModal() {
+            document.getElementById('create-modal').style.display = 'none';
+            ['modal-title','modal-inn','modal-phone','modal-email'].forEach(id => document.getElementById(id).value = '');
+        }
+
+        function saveNewLead() {
+            const title = document.getElementById('modal-title').value.trim();
+            if (!title) { alert("Введите название компании."); return; }
+            leads.push({
+                id: Date.now(), title,
+                inn: document.getElementById('modal-inn').value.trim(),
+                phone: document.getElementById('modal-phone').value.trim(),
+                email: document.getElementById('modal-email').value.trim(),
+                cargo: '', format: '', payment: '', ati: '',
+                applicationsCount: 0,
+                stage: 'Новый', manager: 'Костылев Иван', tag: '',
+                comments: []
+            });
+            saveDb(); renderBoard(); closeCreateModal();
+        }
+
+        function openLead(id) {
+            currentLeadId = id;
+            editingCommentId = null;
+            pendingAttachments = [];
+            renderPendingAttachments();
+            closeSettingsMenu();
+            
+            const lead = leads.find(l => l.id == id);
+
+            document.getElementById('kanban-view').style.display = 'none';
+            document.getElementById('detail-view').style.display = 'flex';
+
+            document.getElementById('bread-lead-name').innerText = lead.title;
+            document.getElementById('edit-title').value = lead.title;
+            document.getElementById('edit-inn').value = lead.inn || '';
+            document.getElementById('edit-phone').value = lead.phone || '';
+            document.getElementById('edit-email').value = lead.email || '';
+            document.getElementById('edit-manager').value = lead.manager || '';
+            document.getElementById('edit-cargo').value = lead.cargo || '';
+            document.getElementById('edit-format').value = lead.format || '';
+            document.getElementById('edit-payment').value = lead.payment || '';
+            document.getElementById('edit-ati').value = lead.ati || '';
+            document.getElementById('edit-apps-count').value = lead.applicationsCount || 0;
+
+            const container = document.getElementById('detail-stage-buttons');
+            container.innerHTML = '';
+            container.style.display = 'flex';
+            container.style.gap = '6px';
+            container.style.flexWrap = 'wrap';
+
+            STAGES.forEach(stage => {
+                const btn = document.createElement('button');
+                btn.className = 'stage-btn' + (stage === lead.stage ? ' active' : '');
+                btn.innerText = stage;
+                btn.onclick = () => {
+                    if (lead.stage !== stage) {
+                        saveLeadDetails();
+                        lead.comments.push({ id: Date.now(), text: `Статус изменен: ${lead.stage} ➔ ${stage}`, author: 'Пользователь', time: new Date().toLocaleString(), attachments: [] });
+                        lead.stage = stage;
+                        saveDb();
+                        openLead(id);
+                    }
+                };
+                container.appendChild(btn);
+            });
+
+            renderComments();
+        }
+
+        function saveLeadDetails(showAlert = false) {
+            if (!currentLeadId) return;
+            const lead = leads.find(l => l.id == currentLeadId);
+            if (!lead) return;
+            
+            const newTitle = document.getElementById('edit-title').value.trim() || 'Без названия';
+            const fields = ['inn','phone','email','manager','cargo','format','payment','ati'];
+            let isChanged = lead.title !== newTitle;
+            if (isChanged) lead.title = newTitle;
+
+            fields.forEach(f => {
+                const val = document.getElementById('edit-' + f).value.trim();
+                if (lead[f] !== val) { isChanged = true; lead[f] = val; }
+            });
+
+            const appsCountVal = parseInt(document.getElementById('edit-apps-count').value) || 0;
+            if (lead.applicationsCount !== appsCountVal) {
+                isChanged = true;
+                lead.applicationsCount = appsCountVal;
+            }
+
+            if (isChanged) {
+                document.getElementById('bread-lead-name').innerText = lead.title;
+                saveDb();
+            }
+            if (showAlert) alert("Изменения сохранены!");
+        }
+
+        function toggleSettingsMenu(e) {
+            e.stopPropagation();
+            const menu = document.getElementById('settings-menu');
+            menu.classList.toggle('show');
+        }
+
+        function closeSettingsMenu() {
+            const menu = document.getElementById('settings-menu');
+            if (menu) menu.classList.remove('show');
+        }
+
+        window.addEventListener('click', function() {
+            closeSettingsMenu();
+        });
+
+        function deleteCurrentLead() {
+            closeSettingsMenu();
+            if (!currentLeadId) return;
+            if (confirm("Вы точно хотите удалить карточку?")) {
+                leads = leads.filter(l => l.id !== currentLeadId);
+                saveDb();
+                currentLeadId = null;
+                editingCommentId = null;
+                document.getElementById('detail-view').style.display = 'none';
+                document.getElementById('kanban-view').style.display = 'flex';
+                renderBoard();
+            }
+        }
+
+        function closeLead() {
+            if (currentLeadId) saveLeadDetails();
+            currentLeadId = null;
+            editingCommentId = null;
+            closeSettingsMenu();
+            document.getElementById('detail-view').style.display = 'none';
+            document.getElementById('kanban-view').style.display = 'flex';
+            renderBoard();
+        }
+
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function handleFileSelect(event) {
+            const files = Array.from(event.target.files);
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    pendingAttachments.push({
+                        name: file.name,
+                        size: file.size,
+                        type: file.type,
+                        dataUrl: e.target.result
+                    });
+                    renderPendingAttachments();
+                };
+                reader.readAsDataURL(file);
+            });
+            event.target.value = '';
+        }
+
+        function renderPendingAttachments() {
+            const container = document.getElementById('selected-files-preview');
+            if (!container) return;
+            container.innerHTML = '';
+            pendingAttachments.forEach((att, index) => {
+                const chip = document.createElement('div');
+                chip.className = 'file-chip';
+                chip.innerHTML = `
+                    <span>📎 ${escapeHtml(att.name)} (${formatBytes(att.size)})</span>
+                    <span class="remove-chip" onclick="removePendingAttachment(${index})">×</span>
+                `;
+                container.appendChild(chip);
+            });
+        }
+
+        function removePendingAttachment(index) {
+            pendingAttachments.splice(index, 1);
+            renderPendingAttachments();
+        }
+
+        function renderComments() {
+            const lead = leads.find(l => l.id == currentLeadId);
+            if (!lead) return;
+            const history = document.getElementById('chatter-history');
+            history.innerHTML = '';
+
+            lead.comments.forEach((c, idx) => { if (!c.id) c.id = Date.now() + idx; });
+
+            [...lead.comments].reverse().forEach(c => {
+                const initial = c.author === 'Система' ? '⚙️' : c.author.charAt(0).toUpperCase();
+                const bgColor = c.author === 'Система' ? '#ccc' : '#5c8b8a';
+                const isEditing = (c.id === editingCommentId);
+
+                let attachmentsHtml = '';
+                if (c.attachments && c.attachments.length > 0) {
+                    attachmentsHtml = '<div class="log-attachments">';
+                    c.attachments.forEach(att => {
+                        const isImage = att.type && att.type.startsWith('image/');
+                        if (isImage) {
+                            attachmentsHtml += `
+                                <div class="attachment-item image-item">
+                                    <a href="${att.dataUrl}" target="_blank" download="${escapeHtml(att.name)}">
+                                        <img src="${att.dataUrl}" alt="${escapeHtml(att.name)}" title="Открыть / Скачать ${escapeHtml(att.name)}"/>
+                                    </a>
+                                </div>
+                            `;
+                        } else {
+                            attachmentsHtml += `
+                                <a class="attachment-item" href="${att.dataUrl}" download="${escapeHtml(att.name)}" title="Скачать файл">
+                                    📄 <span>${escapeHtml(att.name)}</span>
+                                    <span class="attachment-size">(${formatBytes(att.size)})</span>
+                                    ⬇️
+                                </a>
+                            `;
+                        }
+                    });
+                    attachmentsHtml += '</div>';
+                }
+
+                history.innerHTML += `
+                    <div class="log-entry">
+                        <div class="log-avatar" style="background:${bgColor}">${initial}</div>
+                        <div class="log-content">
+                            <div class="log-header">
+                                <div>
+                                    <span class="log-author">${c.author}</span>
+                                    <span style="margin-left:8px;">${c.time}</span>
+                                </div>
+                                ${!isEditing ? `
+                                <div class="log-actions">
+                                    <span class="log-btn" onclick="startEditComment(${c.id})">✎ Редактировать</span>
+                                    <span class="log-btn delete" onclick="deleteComment(${c.id})">🗑️ Удалить</span>
+                                </div>
+                                ` : ''}
+                            </div>
+                            ${isEditing ? `
+                                <div style="margin-top: 5px;">
+                                    <textarea id="inline-edit-input-${c.id}" class="inline-edit-textarea">${escapeHtml(c.text)}</textarea>
+                                    <div class="inline-edit-btns">
+                                        <button class="btn-secondary btn-sm" onclick="cancelEditComment()">Отмена</button>
+                                        <button class="btn-success btn-sm" onclick="saveInlineComment(${c.id})">Сохранить</button>
+                                    </div>
+                                </div>
+                            ` : `
+                                <div class="log-text">${escapeHtml(c.text)}</div>
+                            `}
+                            ${attachmentsHtml}
+                        </div>
+                    </div>
+                `;
+            });
+
+            if (editingCommentId) {
+                setTimeout(() => {
+                    const el = document.getElementById(`inline-edit-input-${editingCommentId}`);
+                    if (el) {
+                        el.focus();
+                        el.setSelectionRange(el.value.length, el.value.length);
+                    }
+                }, 50);
+            }
+        }
+
+        function saveComment() {
+            const input = document.getElementById('new-comment');
+            const text = input.value.trim();
+            if ((text || pendingAttachments.length > 0) && currentLeadId) {
+                const lead = leads.find(l => l.id == currentLeadId);
+                lead.comments.push({
+                    id: Date.now(),
+                    text: text,
+                    author: 'Пользователь',
+                    time: new Date().toLocaleString(),
+                    attachments: [...pendingAttachments]
+                });
+                saveDb();
+                input.value = '';
+                pendingAttachments = [];
+                renderPendingAttachments();
+                renderComments();
+            }
+        }
+
+        function startEditComment(commentId) {
+            editingCommentId = commentId;
+            renderComments();
+        }
+
+        function cancelEditComment() {
+            editingCommentId = null;
+            renderComments();
+        }
+
+        function saveInlineComment(commentId) {
+            const lead = leads.find(l => l.id == currentLeadId);
+            if (!lead) return;
+
+            const comment = lead.comments.find(c => c.id === commentId);
+            const input = document.getElementById(`inline-edit-input-${commentId}`);
+
+            if (comment && input) {
+                const newText = input.value.trim();
+                if (newText) {
+                    comment.text = newText;
+                    comment.time = new Date().toLocaleString() + " (изм.)";
+                    saveDb();
+                }
+            }
+
+            editingCommentId = null;
+            renderComments();
+        }
+
+        function deleteComment(commentId) {
+            if (!confirm("Вы уверены, что хотите удалить этот комментарий?")) return;
+            const lead = leads.find(l => l.id == currentLeadId);
+            if (lead) {
+                lead.comments = lead.comments.filter(c => c.id !== commentId);
+                saveDb();
+                renderComments();
+            }
+        }
+
+        document.getElementById('new-comment').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                saveComment();
+            }
+        });
+
+        document.getElementById('chatter-history').addEventListener('keydown', function(e) {
+            if (
+                e.target.classList.contains('inline-edit-textarea') &&
+                e.key === 'Enter' &&
+                !e.shiftKey &&
+                !e.isComposing
+            ) {
+                e.preventDefault();
+                const commentId = Number(e.target.id.replace('inline-edit-input-', ''));
+                saveInlineComment(commentId);
+            }
+        });
+
+        renderBoard();
+    </script>
+</body>
+</html>
