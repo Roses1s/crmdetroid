@@ -31,8 +31,12 @@
         }
 
         .nav-links { display: flex; align-items: center; }
-        .nav-links strong { cursor: pointer; font-size: 16px; letter-spacing: 0.5px; opacity: 0.9; }
-        .nav-links strong:hover { opacity: 1; }
+        .nav-btn {
+            background: none; border: none; color: inherit; font: inherit; cursor: pointer;
+            font-weight: 500; padding: 0;
+        }
+        .nav-btn.brand { font-size: 16px; font-weight: bold; letter-spacing: 0.5px; opacity: 0.9; }
+        .nav-btn:hover { opacity: 1; text-decoration: underline; }
 
         .breadcrumb {
             padding: 10px 20px;
@@ -43,8 +47,8 @@
             display: flex;
             align-items: center;
         }
-        .breadcrumb span { cursor: pointer; color: #714B67; font-weight: 500; }
-        .breadcrumb span:hover { text-decoration: underline; }
+        .breadcrumb span.link { cursor: pointer; color: #714B67; font-weight: 500; }
+        .breadcrumb span.link:hover { text-decoration: underline; }
 
         .toolbar {
             background-color: white;
@@ -53,7 +57,10 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
         }
+        .toolbar-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
         .btn-primary { background-color: #714B67; color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 500; }
         .btn-primary:hover { background-color: #5a3b52; }
@@ -111,13 +118,17 @@
         .kanban-board { display: flex; flex: 1; overflow-x: auto; padding: 15px; gap: 12px; }
 
         .column { background-color: #e3e5ec; min-width: 260px; max-width: 260px; border-radius: 6px; display: flex; flex-direction: column; max-height: 100%; }
-        .column-header { padding: 10px 12px; font-weight: bold; color: #4c4c4c; display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+        .column.column-extra { background-color: #fdf3e3; outline: 1px dashed #e0b36a; }
+        .column-header { padding: 10px 12px; font-weight: bold; color: #4c4c4c; display: flex; justify-content: space-between; align-items: center; font-size: 13px; gap: 8px; }
+        .column-header .column-title { overflow-wrap: anywhere; }
+        .column-count { background:#ccc; padding:2px 6px; border-radius:10px; font-size:11px; flex-shrink: 0; }
         .cards-container { padding: 8px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 
         .card { background: white; border-radius: 4px; padding: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); cursor: pointer; font-size: 12px; border-left: 3px solid #714B67; transition: transform 0.1s; }
         .card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .card-title { font-weight: bold; color: #2c3e50; margin-bottom: 5px; font-size: 14px; }
+        .card-title { font-weight: bold; color: #2c3e50; margin-bottom: 5px; font-size: 14px; overflow-wrap: anywhere; }
         .card-tag { display: inline-block; background: #e4e7eb; color: #555; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-bottom: 8px; }
+        .card-footer { display:flex; justify-content:space-between; gap: 8px; color:#888; margin-top:10px; font-size:11px; overflow-wrap: anywhere; }
 
         .detail-container { display: none; flex: 1; background: #fff; overflow: hidden; flex-direction: column; }
 
@@ -157,18 +168,23 @@
         .editable-title:hover, .editable-title:focus { border-color: #714B67; background: #fff; outline: none; }
 
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .form-group { display: flex; align-items: center; margin-bottom: 12px; font-size: 13px; }
-        .form-label { width: 140px; color: #555; font-weight: bold; }
+        .form-group { display: flex; align-items: flex-start; margin-bottom: 12px; font-size: 13px; }
+        .form-label { width: 140px; color: #555; font-weight: bold; padding-top: 6px; flex-shrink: 0; }
+        .form-field { flex: 1; min-width: 0; }
 
         .editable-input {
-            flex: 1; border: 1px solid transparent; background: transparent; padding: 5px 8px;
+            width: 100%; border: 1px solid transparent; background: transparent; padding: 5px 8px;
             border-radius: 4px; font-size: 13px; color: #000; transition: all 0.2s;
         }
         .editable-input:hover { border-color: #ccc; background: #fff; }
         .editable-input:focus { border-color: #714B67; background: #fff; outline: none; box-shadow: 0 0 3px rgba(113, 75, 103, 0.3); }
+        .editable-input.invalid { border-color: #dc3545 !important; }
+
+        .field-hint { display: none; color: #dc3545; font-size: 11px; margin-top: 3px; }
+        .field-hint.visible { display: block; }
 
         .chatter-panel { flex: 1; background: #f9f9fb; display: flex; flex-direction: column; }
-        
+
         .chatter-tabs {
             display: flex;
             justify-content: space-between;
@@ -215,13 +231,14 @@
 
         .chatter-input-area { padding: 15px; background: #fff; border-bottom: 1px solid #ddd; }
         .chatter-input-area textarea { width: 100%; height: 60px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; resize: none; font-size: 13px; margin-bottom: 8px; }
-        
+
         .files-preview-area {
             display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;
         }
         .file-chip {
             background: #eef1f6; border: 1px solid #cbd5e1; border-radius: 4px;
             padding: 3px 8px; font-size: 11px; color: #334155; display: flex; align-items: center; gap: 6px;
+            max-width: 100%; overflow-wrap: anywhere;
         }
         .remove-chip {
             cursor: pointer; font-weight: bold; color: #ef4444; font-size: 14px; line-height: 1;
@@ -232,9 +249,11 @@
 
         .log-entry { display: flex; margin-bottom: 20px; }
         .log-avatar { width: 32px; height: 32px; background: #5c8b8a; color: white; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: bold; margin-right: 12px; font-size: 14px; flex-shrink: 0; }
-        .log-content { flex: 1; background: white; padding: 10px; border-radius: 4px; border: 1px solid #e0e0e0; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-        .log-header { display: flex; justify-content: space-between; font-size: 11px; color: #888; margin-bottom: 5px; align-items: center; }
-        .log-author { font-weight: bold; color: #333; font-size: 12px; }
+        .log-content { flex: 1; background: white; padding: 10px; border-radius: 4px; border: 1px solid #e0e0e0; box-shadow: 0 1px 2px rgba(0,0,0,0.05); min-width: 0; }
+        .log-header { display: flex; justify-content: space-between; font-size: 11px; color: #888; margin-bottom: 5px; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .log-author { font-weight: bold; color: #333; font-size: 12px; overflow-wrap: anywhere; }
+        .log-time { margin-left: 8px; }
+        .edited-mark { color: #999; font-size: 11px; margin-left: 6px; }
         .log-text { font-size: 13px; color: #333; white-space: pre-wrap; word-break: break-word; }
 
         .log-attachments {
@@ -243,14 +262,19 @@
         .attachment-item {
             display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; border: 1px solid #cbd5e1;
             border-radius: 4px; padding: 4px 8px; font-size: 11px; color: #334155; text-decoration: none; transition: background 0.2s;
+            max-width: 100%; overflow-wrap: anywhere;
         }
         .attachment-item:hover { background: #e2e8f0; text-decoration: none; }
+        .attachment-item.attachment-missing { color: #94a3b8; border-style: dashed; background: #f1f5f9; cursor: not-allowed; }
         .attachment-item.image-item { flex-direction: column; align-items: flex-start; background: transparent; border: none; padding: 0; }
         .attachment-item img { max-width: 180px; max-height: 120px; border-radius: 4px; object-fit: cover; border: 1px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .attachment-size { color: #94a3b8; font-size: 10px; }
 
         .log-actions { display: flex; gap: 8px; font-size: 11px; }
-        .log-btn { color: #888; cursor: pointer; }
+        .log-btn {
+            background: none; border: none; padding: 0; font: inherit; font-size: 11px;
+            color: #888; cursor: pointer;
+        }
         .log-btn:hover { color: #714B67; text-decoration: underline; }
         .log-btn.delete:hover { color: #dc3545; }
 
@@ -266,38 +290,74 @@
             background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;
         }
         .modal-box {
-            background: #fff; padding: 25px; border-radius: 8px; width: 450px;
+            background: #fff; padding: 25px; border-radius: 8px; width: 450px; max-width: calc(100vw - 32px);
+            max-height: calc(100vh - 32px); overflow-y: auto;
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
         }
         .modal-box h2 { margin-bottom: 20px; font-size: 18px; color: #333; }
+        .modal-errors {
+            display: none; background: #fdecea; color: #b02a37; border: 1px solid #f5c2c7;
+            padding: 8px 10px; border-radius: 4px; font-size: 12px; margin-bottom: 12px; line-height: 1.5;
+        }
+        .modal-errors.visible { display: block; }
         .input-group { margin-bottom: 15px; }
         .input-group label { display: block; margin-bottom: 5px; font-size: 12px; font-weight: bold; color: #555; }
         .input-group input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
         .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 25px; }
+
+        .toast-container {
+            position: fixed; right: 20px; bottom: 20px; z-index: 2000;
+            display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+        }
+        .toast {
+            padding: 10px 14px; border-radius: 6px; color: #fff; font-size: 13px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25); max-width: 380px;
+            opacity: 1; transition: opacity 0.3s ease;
+        }
+        .toast.hide { opacity: 0; }
+        .toast-info { background: #333; }
+        .toast-success { background: #28a745; }
+        .toast-error { background: #dc3545; }
+
+        @media (max-width: 900px) {
+            .detail-body { flex-direction: column; overflow-y: auto; }
+            .form-panel { border-right: none; border-bottom: 1px solid #ddd; padding: 15px; flex: none; }
+            .form-grid { grid-template-columns: 1fr; gap: 8px; }
+            .form-label { width: 110px; }
+            .chatter-panel { flex: none; min-height: 420px; }
+            header, .breadcrumb, .toolbar, .detail-toolbar { padding-left: 12px; padding-right: 12px; }
+        }
     </style>
 </head>
 <body>
 
     <header>
         <div class="nav-links">
-            <strong onclick="closeLead()">CRM</strong>
+            <button type="button" class="nav-btn brand" onclick="closeLead()">CRM</button>
         </div>
-        <div style="cursor: pointer; font-weight: 500;" onclick="closeLead()">ООО "Детроид"</div>
+        <button type="button" class="nav-btn" onclick="closeLead()">ООО "Детроид"</button>
     </header>
 
     <div id="kanban-view" class="kanban-container">
         <div class="breadcrumb">
-            <span class="active" onclick="closeLead()">CRM / Лиды</span>
+            <span class="link" onclick="closeLead()">CRM / Лиды</span>
         </div>
         <div class="toolbar">
-            <button class="btn-primary" onclick="openCreateModal()">+ Создать лид</button>
+            <div class="toolbar-group">
+                <button class="btn-primary" onclick="openCreateModal()">+ Создать лид</button>
+            </div>
+            <div class="toolbar-group">
+                <button class="btn-secondary" onclick="exportData()" title="Скачать резервную копию лидов и вложений в JSON">⬇️ Экспорт</button>
+                <button class="btn-secondary" onclick="document.getElementById('import-file-input').click()" title="Загрузить лиды из ранее экспортированного JSON">⬆️ Импорт</button>
+                <input type="file" id="import-file-input" accept=".json,application/json" style="display:none;" onchange="handleImportFile(event)">
+            </div>
         </div>
         <div class="kanban-board" id="board"></div>
     </div>
 
     <div id="detail-view" class="detail-container">
         <div class="breadcrumb">
-            <span onclick="closeLead()">CRM / Лиды</span>&nbsp; / &nbsp;<b id="bread-lead-name">...</b>
+            <span class="link" onclick="closeLead()">CRM / Лиды</span>&nbsp; / &nbsp;<b id="bread-lead-name">...</b>
         </div>
 
         <div class="detail-toolbar">
@@ -319,25 +379,37 @@
                     <div>
                         <div class="form-group">
                             <div class="form-label">Компания</div>
-                            <input type="text" class="editable-input" value='ООО "Детроид"' readonly style="color: #666; cursor: default;">
+                            <div class="form-field">
+                                <input type="text" class="editable-input" value='ООО "Детроид"' readonly style="color: #666; cursor: default;">
+                            </div>
                         </div>
                         <div class="form-group">
                             <div class="form-label">ИНН</div>
-                            <input type="text" id="edit-inn" class="editable-input" placeholder="Введите ИНН..." onchange="saveLeadDetails()">
+                            <div class="form-field">
+                                <input type="text" id="edit-inn" class="editable-input" placeholder="Введите ИНН..." onchange="saveLeadDetails()">
+                                <div class="field-hint" id="hint-inn"></div>
+                            </div>
                         </div>
                         <div class="form-group">
                             <div class="form-label">Продавец</div>
-                            <input type="text" id="edit-manager" class="editable-input" placeholder="Ответственный..." onchange="saveLeadDetails()">
+                            <div class="form-field">
+                                <input type="text" id="edit-manager" class="editable-input" placeholder="Ответственный..." onchange="saveLeadDetails()">
+                            </div>
                         </div>
                     </div>
                     <div>
                         <div class="form-group">
                             <div class="form-label">Email логиста</div>
-                            <input type="email" id="edit-email" class="editable-input" placeholder="mail@example.com..." onchange="saveLeadDetails()">
+                            <div class="form-field">
+                                <input type="email" id="edit-email" class="editable-input" placeholder="mail@example.com..." onchange="saveLeadDetails()">
+                                <div class="field-hint" id="hint-email"></div>
+                            </div>
                         </div>
                         <div class="form-group">
                             <div class="form-label">Телефон логиста</div>
-                            <input type="text" id="edit-phone" class="editable-input" placeholder="+7 (999) 000-00-00..." onchange="saveLeadDetails()">
+                            <div class="form-field">
+                                <input type="text" id="edit-phone" class="editable-input" placeholder="+7 (999) 000-00-00..." onchange="saveLeadDetails()">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -347,21 +419,29 @@
                     <div>
                         <div class="form-group">
                             <div class="form-label">Что возят?</div>
-                            <input type="text" id="edit-cargo" class="editable-input" placeholder="например: Напитки..." onchange="saveLeadDetails()">
+                            <div class="form-field">
+                                <input type="text" id="edit-cargo" class="editable-input" placeholder="например: Напитки..." onchange="saveLeadDetails()">
+                            </div>
                         </div>
                         <div class="form-group">
                             <div class="form-label">Формат перевозки</div>
-                            <input type="text" id="edit-format" class="editable-input" placeholder="например: Фуры 20т..." onchange="saveLeadDetails()">
+                            <div class="form-field">
+                                <input type="text" id="edit-format" class="editable-input" placeholder="например: Фуры 20т..." onchange="saveLeadDetails()">
+                            </div>
                         </div>
                     </div>
                     <div>
                         <div class="form-group">
                             <div class="form-label">Тип оплаты</div>
-                            <input type="text" id="edit-payment" class="editable-input" placeholder="например: По выгрузке..." onchange="saveLeadDetails()">
+                            <div class="form-field">
+                                <input type="text" id="edit-payment" class="editable-input" placeholder="например: По выгрузке..." onchange="saveLeadDetails()">
+                            </div>
                         </div>
                         <div class="form-group">
                             <div class="form-label">Тип клиента (АТИ)</div>
-                            <input type="text" id="edit-ati" class="editable-input" placeholder="например: Хорошая АТИ..." onchange="saveLeadDetails()">
+                            <div class="form-field">
+                                <input type="text" id="edit-ati" class="editable-input" placeholder="например: Хорошая АТИ..." onchange="saveLeadDetails()">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -372,18 +452,17 @@
                     <div class="tab-title">Лог примечания</div>
                     <div class="apps-counter-box">
                         <span>Заявки:</span>
-                        <input type="number" id="edit-apps-count" class="apps-counter-input" min="0" value="0" onchange="saveLeadDetails()">
+                        <input type="number" id="edit-apps-count" class="apps-counter-input" min="0" step="1" value="0" onchange="saveLeadDetails()">
                     </div>
                 </div>
                 <div class="chatter-input-area">
                     <textarea id="new-comment" placeholder="Оставьте комментарий... (Enter — отправить)"></textarea>
-                    
+
                     <div id="selected-files-preview" class="files-preview-area"></div>
-                    
-                    <!-- Поменяли местами кнопки -->
+
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <button class="btn-primary" onclick="saveComment()">Записать в лог</button>
-                        
+
                         <div>
                             <label for="comment-file-input" class="btn-secondary btn-sm" style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
                                 📎 Прикрепить файл
@@ -400,6 +479,7 @@
     <div id="create-modal" class="modal-overlay">
         <div class="modal-box">
             <h2>Новый лид</h2>
+            <div class="modal-errors" id="modal-errors"></div>
             <div class="input-group">
                 <label>Название компании *</label>
                 <input type="text" id="modal-title" placeholder='Например: ООО "Ромашка"'>
@@ -410,7 +490,7 @@
             </div>
             <div class="input-group">
                 <label>Телефон логиста</label>
-                <input type="text" id="modal-phone" placeholder="+7 (999) 000-00-00">
+                <input type="text" id="modal-phone" placeholder="+7 (900) 000-00-00">
             </div>
             <div class="input-group">
                 <label>Email логиста</label>
@@ -423,7 +503,15 @@
         </div>
     </div>
 
+    <div id="toast-container" class="toast-container"></div>
+
     <script>
+        'use strict';
+
+        /* ============================================================
+         *  КОНСТАНТЫ И УТИЛИТЫ
+         * ============================================================ */
+
         const STAGES = [
             "Новый",
             "Вышел на ЛПР",
@@ -433,111 +521,444 @@
             "Уехали, ждем заявку"
         ];
 
-        let leads = JSON.parse(localStorage.getItem('crm_leads_v8'));
-        if (!leads) {
-            leads = [
-                {
-                    id: 1, title: 'ООО "Ярославский ликеро-водочный завод"', stage: 'Сделали просчет',
-                    manager: 'Костылев Иван', inn: '7606118934', phone: '+7 (905) 634-64-70',
-                    email: 'muratova@yalvz.ru', cargo: 'Алкогольные напитки', format: 'Стандартные фуры',
-                    payment: 'По выгрузке 1-5 дней', ati: 'Хорошая атишка', tag: 'завод',
-                    applicationsCount: 1,
-                    comments: [
-                        { id: 101, text: 'Лид создан', author: 'Система', time: new Date().toLocaleString(), attachments: [] }
-                    ]
-                }
-            ];
+        function uid() {
+            if (window.crypto && typeof crypto.randomUUID === 'function') {
+                return crypto.randomUUID();
+            }
+            return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
         }
 
-        let currentLeadId = null;
-        let editingCommentId = null;
-        let pendingAttachments = [];
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
+        }
 
-        function saveDb() { localStorage.setItem('crm_leads_v8', JSON.stringify(leads)); }
+        function formatBytes(bytes) {
+            if (!Number.isFinite(bytes) || bytes < 0) return '—';
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function clampNonNegInt(value) {
+            const n = parseInt(value, 10);
+            return Number.isFinite(n) && n > 0 ? n : 0;
+        }
+
+        function validateInn(value) {
+            const v = String(value || '').trim();
+            if (!v) return '';
+            return /^\d{10}$|^\d{12}$/.test(v) ? '' : 'ИНН должен содержать 10 или 12 цифр';
+        }
+
+        function validateEmail(value) {
+            const v = String(value || '').trim();
+            if (!v) return '';
+            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? '' : 'Некорректный email';
+        }
+
+        function blobToDataURL(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(reader.error || new Error('Ошибка чтения файла'));
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        function toast(message, type = 'info', timeout = 4000) {
+            const container = document.getElementById('toast-container');
+            const box = document.createElement('div');
+            box.className = 'toast toast-' + type;
+            box.textContent = message;
+            container.appendChild(box);
+            setTimeout(() => {
+                box.classList.add('hide');
+                setTimeout(() => box.remove(), 350);
+            }, timeout);
+        }
+
+        /* ============================================================
+         *  ХРАНИЛИЩЕ ВЛОЖЕНИЙ: IndexedDB (с фолбэком на localStorage)
+         * ============================================================ */
+
+        const AttachmentStore = (() => {
+            let dbPromise = null;
+
+            function ready() {
+                if (!dbPromise) {
+                    dbPromise = new Promise((resolve) => {
+                        try {
+                            if (!('indexedDB' in window)) { resolve(false); return; }
+                            const req = indexedDB.open('crm_detroid_files', 1);
+                            req.onupgradeneeded = () => {
+                                if (!req.result.objectStoreNames.contains('files')) {
+                                    req.result.createObjectStore('files');
+                                }
+                            };
+                            req.onsuccess = () => resolve(req.result);
+                            req.onerror = () => resolve(false);
+                        } catch (e) {
+                            resolve(false);
+                        }
+                    });
+                }
+                return dbPromise;
+            }
+
+            async function put(id, blob) {
+                const db = await ready();
+                if (!db) throw new Error('Хранилище вложений недоступно');
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction('files', 'readwrite');
+                    tx.objectStore('files').put(blob, id);
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = () => reject(tx.error || new Error('Ошибка записи вложения'));
+                });
+            }
+
+            async function get(id) {
+                const db = await ready();
+                if (!db) return null;
+                return new Promise((resolve) => {
+                    try {
+                        const req = db.transaction('files').objectStore('files').get(id);
+                        req.onsuccess = () => resolve(req.result || null);
+                        req.onerror = () => resolve(null);
+                    } catch (e) { resolve(null); }
+                });
+            }
+
+            async function del(id) {
+                const db = await ready();
+                if (!db) return;
+                return new Promise((resolve) => {
+                    try {
+                        const tx = db.transaction('files', 'readwrite');
+                        tx.objectStore('files').delete(id);
+                        tx.oncomplete = () => resolve();
+                        tx.onerror = () => resolve();
+                    } catch (e) { resolve(); }
+                });
+            }
+
+            return { ready, put, get, del };
+        })();
+
+        // Кэш object-URL вложений: id -> url (или явно null, если файл потерян)
+        const urlCache = new Map();
+
+        function attachmentUrl(att) {
+            if (urlCache.has(att.id)) return urlCache.get(att.id);
+            return att.dataUrl || null;
+        }
+
+        function forgetAttachment(id) {
+            const u = urlCache.get(id);
+            if (u && typeof u === 'string' && u.startsWith('blob:')) {
+                try { URL.revokeObjectURL(u); } catch (e) { /* noop */ }
+            }
+            urlCache.delete(id);
+            AttachmentStore.del(id).catch(() => {});
+        }
+
+        function forgetAttachments(list) {
+            (list || []).forEach(att => forgetAttachment(att.id));
+        }
+
+        /* ============================================================
+         *  ХРАНИЛИЩЕ ЛИДОВ: localStorage + миграции
+         * ============================================================ */
+
+        const DB_KEY = 'crm_leads_v9';
+        const LEGACY_KEY = 'crm_leads_v8'; // старая версия — только для миграции
+
+        function seedLeads() {
+            return [{
+                id: uid(), title: 'ООО «Ромашка»', stage: 'Сделали просчет',
+                manager: 'Костылев Иван', inn: '7700000000', phone: '+7 (900) 000-00-00',
+                email: 'demo@example.com', cargo: 'Напитки', format: 'Стандартные фуры',
+                payment: 'По выгрузке 1-5 дней', ati: 'Хорошая АТИ', tag: 'завод',
+                applicationsCount: 1,
+                comments: [
+                    { id: uid(), text: 'Лид создан', author: 'Система', time: new Date().toLocaleString(), attachments: [] }
+                ]
+            }];
+        }
+
+        // Приводит лид к актуальной форме: строковые ID, нормальные типы полей.
+        // Неизвестные стадии НЕ затираются — для них доска нарисует отдельную колонку.
+        function normalizeLead(l) {
+            if (!l || typeof l !== 'object') l = {};
+            l.id = String(l.id != null ? l.id : uid());
+            l.title = String(l.title != null ? l.title : '').trim() || 'Без названия';
+            if (typeof l.stage !== 'string' || !l.stage.trim()) l.stage = STAGES[0];
+            ['inn', 'phone', 'email', 'manager', 'cargo', 'format', 'payment', 'ati', 'tag'].forEach(f => {
+                l[f] = String(l[f] != null ? l[f] : '');
+            });
+            l.applicationsCount = clampNonNegInt(l.applicationsCount);
+            if (!Array.isArray(l.comments)) l.comments = [];
+            l.comments.forEach(c => {
+                if (!c || typeof c !== 'object') return;
+                c.id = String(c.id != null ? c.id : uid());
+                c.text = String(c.text != null ? c.text : '');
+                c.author = String(c.author != null ? c.author : 'Пользователь');
+                c.time = String(c.time != null ? c.time : new Date().toLocaleString());
+                if (c.editedAt != null) c.editedAt = String(c.editedAt);
+                if (!Array.isArray(c.attachments)) c.attachments = [];
+                c.attachments.forEach(a => {
+                    if (!a || typeof a !== 'object') return;
+                    a.id = String(a.id != null ? a.id : uid());
+                    a.name = String(a.name != null ? a.name : 'файл');
+                    a.size = Number(a.size) || 0;
+                    a.type = String(a.type || '');
+                });
+                c.attachments = c.attachments.filter(a => a && typeof a === 'object');
+            });
+            l.comments = l.comments.filter(c => c && typeof c === 'object');
+            return l;
+        }
+
+        function loadDb() {
+            let raw = localStorage.getItem(DB_KEY);
+            if (raw === null) raw = localStorage.getItem(LEGACY_KEY); // автоперенос с прошлой версии
+            if (raw === null) {
+                return { leads: seedLeads(), corrupted: false };
+            }
+            try {
+                const parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed)) throw new Error('Некорректный формат данных');
+                return { leads: parsed.map(normalizeLead), corrupted: false };
+            } catch (e) {
+                // Повреждённые данные не выбрасываем: сохраняем копию для ручного восстановления.
+                try {
+                    localStorage.setItem(DB_KEY + '_corrupted_' + Date.now(), raw);
+                } catch (e2) { /* noop */ }
+                return { leads: seedLeads(), corrupted: true };
+            }
+        }
+
+        const loadResult = loadDb();
+        let leads = loadResult.leads;
+
+        function saveDb() {
+            try {
+                localStorage.setItem(DB_KEY, JSON.stringify(leads));
+                return true;
+            } catch (e) {
+                toast('Не удалось сохранить данные: хранилище браузера переполнено. ' +
+                    'Удалите крупные вложения или выгрузите бэкап через «Экспорт».', 'error', 8000);
+                return false;
+            }
+        }
+
+        // Перенос старых вложений (dataUrl прямо в комментарии) в IndexedDB.
+        // Если IndexedDB недоступен — оставляем как есть (режим ограниченного хранилища).
+        async function hydrateAllAttachments() {
+            const storeOk = Boolean(await AttachmentStore.ready());
+            let changed = false;
+            for (const lead of leads) {
+                for (const c of lead.comments) {
+                    for (const att of c.attachments) {
+                        if (urlCache.has(att.id)) continue;
+                        if (att.dataUrl) {
+                            if (storeOk) {
+                                try {
+                                    const blob = await (await fetch(att.dataUrl)).blob();
+                                    await AttachmentStore.put(att.id, blob);
+                                    urlCache.set(att.id, URL.createObjectURL(blob));
+                                    delete att.dataUrl; // метаданные в localStorage, файл в IndexedDB
+                                    changed = true;
+                                    continue;
+                                } catch (e) { /* остаёмся на dataUrl */ }
+                            }
+                            urlCache.set(att.id, att.dataUrl);
+                            continue;
+                        }
+                        if (storeOk) {
+                            const blob = await AttachmentStore.get(att.id);
+                            if (blob) { urlCache.set(att.id, URL.createObjectURL(blob)); continue; }
+                        }
+                        urlCache.set(att.id, null); // файл потерян
+                    }
+                }
+            }
+            if (changed) saveDb();
+            if (currentLeadId) renderComments();
+        }
+
+        /* ============================================================
+         *  СОСТОЯНИЕ ИНТЕРФЕЙСА
+         * ============================================================ */
+
+        let currentLeadId = null;   // строка или null
+        let editingCommentId = null; // строка или null
+        let pendingAttachments = []; // { id, name, size, type, blob, previewUrl }
+
+        function findLead(id) {
+            return leads.find(l => l.id === id) || null;
+        }
+
+        /* ============================================================
+         *  КАНБАН-ДОСКА
+         * ============================================================ */
+
+        function allStages() {
+            const extra = [...new Set(leads.map(l => l.stage).filter(s => !STAGES.includes(s)))];
+            return [...STAGES, ...extra];
+        }
 
         function renderBoard() {
             const board = document.getElementById('board');
             board.innerHTML = '';
 
-            STAGES.forEach(stage => {
+            allStages().forEach(stage => {
+                const isExtra = !STAGES.includes(stage);
                 const stageLeads = leads.filter(l => l.stage === stage);
+
                 const col = document.createElement('div');
-                col.className = 'column';
+                col.className = 'column' + (isExtra ? ' column-extra' : '');
                 col.ondragover = (e) => e.preventDefault();
                 col.ondrop = (e) => dropCard(e, stage);
 
-                col.innerHTML = `
-                    <div class="column-header">
-                        <span>${stage}</span>
-                        <span style="background:#ccc; padding:2px 6px; border-radius:10px; font-size:11px">${stageLeads.length}</span>
-                    </div>
-                    <div class="cards-container"></div>
-                `;
+                const header = document.createElement('div');
+                header.className = 'column-header';
+                const title = document.createElement('span');
+                title.className = 'column-title';
+                title.textContent = isExtra ? '⚠️ ' + stage : stage;
+                if (isExtra) title.title = 'Стадия вне воронки (из старых данных)';
+                const count = document.createElement('span');
+                count.className = 'column-count';
+                count.textContent = String(stageLeads.length);
+                header.appendChild(title);
+                header.appendChild(count);
 
-                const container = col.querySelector('.cards-container');
-                stageLeads.forEach(lead => {
-                    const card = document.createElement('div');
-                    card.className = 'card';
-                    card.draggable = true;
-                    card.onclick = () => openLead(lead.id);
-                    card.ondragstart = (e) => { e.dataTransfer.setData('text/plain', lead.id); e.stopPropagation(); };
+                const container = document.createElement('div');
+                container.className = 'cards-container';
+                stageLeads.forEach(lead => container.appendChild(makeCard(lead)));
 
-                    card.innerHTML = `
-                        <div class="card-title">${lead.title}</div>
-                        ${lead.tag ? `<div class="card-tag">${lead.tag}</div>` : ''}
-                        <div style="display:flex; justify-content:space-between; color:#888; margin-top:10px; font-size:11px;">
-                            <span>📱 ${lead.phone || 'Нет номера'}</span>
-                            <b>${lead.manager || 'Я'}</b>
-                        </div>
-                    `;
-                    container.appendChild(card);
-                });
+                col.appendChild(header);
+                col.appendChild(container);
                 board.appendChild(col);
             });
+        }
+
+        function makeCard(lead) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.draggable = true;
+            card.addEventListener('click', () => openLead(lead.id));
+            card.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', lead.id);
+                e.stopPropagation();
+            });
+            card.innerHTML = `
+                <div class="card-title">${escapeHtml(lead.title)}</div>
+                ${lead.tag ? `<div class="card-tag">${escapeHtml(lead.tag)}</div>` : ''}
+                <div class="card-footer">
+                    <span>📱 ${escapeHtml(lead.phone || 'Нет номера')}</span>
+                    <b>${escapeHtml(lead.manager || 'Я')}</b>
+                </div>
+            `;
+            return card;
         }
 
         function dropCard(e, targetStage) {
             e.preventDefault();
             const id = e.dataTransfer.getData('text/plain');
-            const lead = leads.find(l => l.id == id);
+            const lead = findLead(id);
             if (lead && lead.stage !== targetStage) {
-                lead.comments.push({ id: Date.now(), text: `Статус изменен: ${lead.stage} ➔ ${targetStage}`, author: 'Система', time: new Date().toLocaleString(), attachments: [] });
+                lead.comments.push({
+                    id: uid(),
+                    text: `Статус изменен: ${lead.stage} ➔ ${targetStage}`,
+                    author: 'Система',
+                    time: new Date().toLocaleString(),
+                    attachments: []
+                });
                 lead.stage = targetStage;
                 saveDb();
                 renderBoard();
             }
         }
 
-        function openCreateModal() { document.getElementById('create-modal').style.display = 'flex'; }
+        /* ============================================================
+         *  МОДАЛКА СОЗДАНИЯ ЛИДА
+         * ============================================================ */
+
+        function openCreateModal() {
+            document.getElementById('create-modal').style.display = 'flex';
+            setTimeout(() => document.getElementById('modal-title').focus(), 30);
+        }
+
         function closeCreateModal() {
             document.getElementById('create-modal').style.display = 'none';
-            ['modal-title','modal-inn','modal-phone','modal-email'].forEach(id => document.getElementById(id).value = '');
+            ['modal-title', 'modal-inn', 'modal-phone', 'modal-email'].forEach(id => {
+                document.getElementById(id).value = '';
+            });
+            document.getElementById('modal-errors').classList.remove('visible');
+            document.getElementById('modal-errors').innerHTML = '';
+        }
+
+        function isCreateModalOpen() {
+            return document.getElementById('create-modal').style.display === 'flex';
         }
 
         function saveNewLead() {
             const title = document.getElementById('modal-title').value.trim();
-            if (!title) { alert("Введите название компании."); return; }
-            leads.push({
-                id: Date.now(), title,
-                inn: document.getElementById('modal-inn').value.trim(),
-                phone: document.getElementById('modal-phone').value.trim(),
-                email: document.getElementById('modal-email').value.trim(),
+            const inn = document.getElementById('modal-inn').value.trim();
+            const phone = document.getElementById('modal-phone').value.trim();
+            const email = document.getElementById('modal-email').value.trim();
+
+            const errors = [];
+            if (!title) errors.push('Укажите название компании.');
+            const innErr = validateInn(inn);
+            if (innErr) errors.push(innErr + '.');
+            const emailErr = validateEmail(email);
+            if (emailErr) errors.push(emailErr + '.');
+
+            const errBox = document.getElementById('modal-errors');
+            if (errors.length) {
+                errBox.innerHTML = errors.map(t => '• ' + escapeHtml(t)).join('<br>');
+                errBox.classList.add('visible');
+                return;
+            }
+            errBox.classList.remove('visible');
+            errBox.innerHTML = '';
+
+            leads.push(normalizeLead({
+                id: uid(), title, inn, phone, email,
                 cargo: '', format: '', payment: '', ati: '',
                 applicationsCount: 0,
-                stage: 'Новый', manager: 'Костылев Иван', tag: '',
+                stage: STAGES[0], manager: 'Костылев Иван', tag: '',
                 comments: []
-            });
-            saveDb(); renderBoard(); closeCreateModal();
+            }));
+            if (saveDb()) {
+                renderBoard();
+                closeCreateModal();
+            }
         }
 
+        /* ============================================================
+         *  ДЕТАЛЬНАЯ КАРТОЧКА ЛИДА
+         * ============================================================ */
+
         function openLead(id) {
+            const lead = findLead(id);
+            if (!lead) return;
+
             currentLeadId = id;
             editingCommentId = null;
+            pendingAttachments.forEach(p => {
+                if (p.previewUrl) { try { URL.revokeObjectURL(p.previewUrl); } catch (e) { /* noop */ } }
+            });
             pendingAttachments = [];
             renderPendingAttachments();
             closeSettingsMenu();
-            
-            const lead = leads.find(l => l.id == id);
 
             document.getElementById('kanban-view').style.display = 'none';
             document.getElementById('detail-view').style.display = 'flex';
@@ -552,7 +973,9 @@
             document.getElementById('edit-format').value = lead.format || '';
             document.getElementById('edit-payment').value = lead.payment || '';
             document.getElementById('edit-ati').value = lead.ati || '';
-            document.getElementById('edit-apps-count').value = lead.applicationsCount || 0;
+            document.getElementById('edit-apps-count').value = String(lead.applicationsCount || 0);
+            setFieldHint('inn', validateInn(lead.inn));
+            setFieldHint('email', validateEmail(lead.email));
 
             const container = document.getElementById('detail-stage-buttons');
             container.innerHTML = '';
@@ -560,14 +983,23 @@
             container.style.gap = '6px';
             container.style.flexWrap = 'wrap';
 
-            STAGES.forEach(stage => {
+            // Текущая стадия лида может быть вне стандартной воронки — добавим её кнопкой.
+            const stages = STAGES.includes(lead.stage) ? STAGES : [lead.stage, ...STAGES];
+            stages.forEach(stage => {
                 const btn = document.createElement('button');
+                btn.type = 'button';
                 btn.className = 'stage-btn' + (stage === lead.stage ? ' active' : '');
                 btn.innerText = stage;
                 btn.onclick = () => {
                     if (lead.stage !== stage) {
                         saveLeadDetails();
-                        lead.comments.push({ id: Date.now(), text: `Статус изменен: ${lead.stage} ➔ ${stage}`, author: 'Пользователь', time: new Date().toLocaleString(), attachments: [] });
+                        lead.comments.push({
+                            id: uid(),
+                            text: `Статус изменен: ${lead.stage} ➔ ${stage}`,
+                            author: 'Пользователь',
+                            time: new Date().toLocaleString(),
+                            attachments: []
+                        });
                         lead.stage = stage;
                         saveDb();
                         openLead(id);
@@ -579,38 +1011,59 @@
             renderComments();
         }
 
+        function setFieldHint(field, message) {
+            const hint = document.getElementById('hint-' + field);
+            const input = document.getElementById('edit-' + field);
+            if (!hint || !input) return;
+            if (message) {
+                hint.textContent = message;
+                hint.classList.add('visible');
+                input.classList.add('invalid');
+            } else {
+                hint.textContent = '';
+                hint.classList.remove('visible');
+                input.classList.remove('invalid');
+            }
+        }
+
         function saveLeadDetails(showAlert = false) {
             if (!currentLeadId) return;
-            const lead = leads.find(l => l.id == currentLeadId);
+            const lead = findLead(currentLeadId);
             if (!lead) return;
-            
+
             const newTitle = document.getElementById('edit-title').value.trim() || 'Без названия';
-            const fields = ['inn','phone','email','manager','cargo','format','payment','ati'];
-            let isChanged = lead.title !== newTitle;
-            if (isChanged) lead.title = newTitle;
+            const fields = ['inn', 'phone', 'email', 'manager', 'cargo', 'format', 'payment', 'ati'];
+            let isChanged = false;
+            if (lead.title !== newTitle) { lead.title = newTitle; isChanged = true; }
 
             fields.forEach(f => {
                 const val = document.getElementById('edit-' + f).value.trim();
-                if (lead[f] !== val) { isChanged = true; lead[f] = val; }
+                if ((lead[f] || '') !== val) { lead[f] = val; isChanged = true; }
             });
 
-            const appsCountVal = parseInt(document.getElementById('edit-apps-count').value) || 0;
-            if (lead.applicationsCount !== appsCountVal) {
+            const apps = clampNonNegInt(document.getElementById('edit-apps-count').value);
+            if (lead.applicationsCount !== apps) {
+                lead.applicationsCount = apps;
                 isChanged = true;
-                lead.applicationsCount = appsCountVal;
             }
+
+            // Подсказки валидации (не блокируют сохранение, только предупреждают).
+            setFieldHint('inn', validateInn(lead.inn));
+            setFieldHint('email', validateEmail(lead.email));
 
             if (isChanged) {
                 document.getElementById('bread-lead-name').innerText = lead.title;
                 saveDb();
+                renderBoard(); // чтобы карточка на доске сразу была актуальной
             }
-            if (showAlert) alert("Изменения сохранены!");
+            if (showAlert) {
+                toast(isChanged ? 'Изменения сохранены' : 'Нет изменений', isChanged ? 'success' : 'info', 2500);
+            }
         }
 
         function toggleSettingsMenu(e) {
             e.stopPropagation();
-            const menu = document.getElementById('settings-menu');
-            menu.classList.toggle('show');
+            document.getElementById('settings-menu').classList.toggle('show');
         }
 
         function closeSettingsMenu() {
@@ -618,14 +1071,17 @@
             if (menu) menu.classList.remove('show');
         }
 
-        window.addEventListener('click', function() {
+        window.addEventListener('click', function () {
             closeSettingsMenu();
         });
 
         function deleteCurrentLead() {
             closeSettingsMenu();
             if (!currentLeadId) return;
+            const lead = findLead(currentLeadId);
+            if (!lead) return;
             if (confirm("Вы точно хотите удалить карточку?")) {
+                lead.comments.forEach(c => forgetAttachments(c.attachments));
                 leads = leads.filter(l => l.id !== currentLeadId);
                 saveDb();
                 currentLeadId = null;
@@ -638,6 +1094,10 @@
 
         function closeLead() {
             if (currentLeadId) saveLeadDetails();
+            pendingAttachments.forEach(p => {
+                if (p.previewUrl) { try { URL.revokeObjectURL(p.previewUrl); } catch (e) { /* noop */ } }
+            });
+            pendingAttachments = [];
             currentLeadId = null;
             editingCommentId = null;
             closeSettingsMenu();
@@ -646,37 +1106,30 @@
             renderBoard();
         }
 
-        function escapeHtml(text) {
-            return String(text)
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;");
-        }
+        /* ============================================================
+         *  ВЛОЖЕНИЯ: ВЫБОР И ПРЕДПРОСМОТР
+         * ============================================================ */
 
-        function formatBytes(bytes) {
-            if (bytes === 0) return '0 B';
-            const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-        }
-
-        function handleFileSelect(event) {
-            const files = Array.from(event.target.files);
+        async function handleFileSelect(event) {
+            const files = Array.from(event.target.files || []);
+            const storeOk = Boolean(await AttachmentStore.ready());
             files.forEach(file => {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    pendingAttachments.push({
-                        name: file.name,
-                        size: file.size,
-                        type: file.type,
-                        dataUrl: e.target.result
-                    });
-                    renderPendingAttachments();
-                };
-                reader.readAsDataURL(file);
+                if (!storeOk && file.size > 1.5 * 1024 * 1024) {
+                    toast(`Файл «${file.name}» (${formatBytes(file.size)}) может не поместиться: ` +
+                        'резервное хранилище ограничено ~5 МБ.', 'error', 7000);
+                } else if (file.size > 100 * 1024 * 1024) {
+                    toast(`Файл «${file.name}» очень большой (${formatBytes(file.size)}), сохранение может занять время.`, 'info', 5000);
+                }
+                pendingAttachments.push({
+                    id: uid(),
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    blob: file,
+                    previewUrl: URL.createObjectURL(file)
+                });
             });
+            renderPendingAttachments();
             event.target.value = '';
         }
 
@@ -684,127 +1137,177 @@
             const container = document.getElementById('selected-files-preview');
             if (!container) return;
             container.innerHTML = '';
-            pendingAttachments.forEach((att, index) => {
+            pendingAttachments.forEach(att => {
                 const chip = document.createElement('div');
                 chip.className = 'file-chip';
                 chip.innerHTML = `
                     <span>📎 ${escapeHtml(att.name)} (${formatBytes(att.size)})</span>
-                    <span class="remove-chip" onclick="removePendingAttachment(${index})">×</span>
                 `;
+                const remove = document.createElement('span');
+                remove.className = 'remove-chip';
+                remove.textContent = '×';
+                remove.title = 'Убрать файл';
+                remove.addEventListener('click', () => removePendingAttachment(att.id));
+                chip.appendChild(remove);
                 container.appendChild(chip);
             });
         }
 
-        function removePendingAttachment(index) {
-            pendingAttachments.splice(index, 1);
+        function removePendingAttachment(id) {
+            const idx = pendingAttachments.findIndex(a => a.id === id);
+            if (idx === -1) return;
+            const [removed] = pendingAttachments.splice(idx, 1);
+            if (removed.previewUrl) { try { URL.revokeObjectURL(removed.previewUrl); } catch (e) { /* noop */ } }
             renderPendingAttachments();
         }
 
+        /* ============================================================
+         *  ЛОГ-«ЧАТТЕР»
+         * ============================================================ */
+
+        function attachmentsHtml(c) {
+            if (!c.attachments || c.attachments.length === 0) return '';
+            let html = '<div class="log-attachments">';
+            c.attachments.forEach(att => {
+                const url = attachmentUrl(att);
+                const name = escapeHtml(att.name);
+                if (!url) {
+                    html += `<span class="attachment-item attachment-missing" title="Файл не найден в хранилище">📄 <span>${name}</span> <span class="attachment-size">(недоступен)</span></span>`;
+                } else if (att.type && att.type.startsWith('image/')) {
+                    html += `
+                        <div class="attachment-item image-item">
+                            <a href="${url}" target="_blank" rel="noopener" download="${name}">
+                                <img src="${url}" alt="${name}" title="Открыть / Скачать ${name}"/>
+                            </a>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <a class="attachment-item" href="${url}" download="${name}" title="Скачать файл">
+                            📄 <span>${name}</span>
+                            <span class="attachment-size">(${formatBytes(att.size)})</span>
+                            ⬇️
+                        </a>
+                    `;
+                }
+            });
+            return html + '</div>';
+        }
+
+        function makeCommentNode(c) {
+            const isEditing = (c.id === editingCommentId);
+            const initial = c.author === 'Система' ? '⚙️' : (escapeHtml(c.author.charAt(0).toUpperCase()) || '?');
+            const bgColor = c.author === 'Система' ? '#ccc' : '#5c8b8a';
+            const editedMark = c.editedAt
+                ? `<span class="edited-mark">(изм. ${escapeHtml(c.editedAt)})</span>`
+                : '';
+
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `
+                <div class="log-avatar" style="background:${bgColor}">${initial}</div>
+                <div class="log-content">
+                    <div class="log-header">
+                        <div>
+                            <span class="log-author">${escapeHtml(c.author)}</span>
+                            <span class="log-time">${escapeHtml(c.time)}</span>
+                            ${editedMark}
+                        </div>
+                        ${!isEditing ? `
+                        <div class="log-actions">
+                            <button type="button" class="log-btn act-edit">✎ Редактировать</button>
+                            <button type="button" class="log-btn delete act-delete">🗑️ Удалить</button>
+                        </div>
+                        ` : ''}
+                    </div>
+                    ${isEditing ? `
+                        <div class="inline-edit-wrap">
+                            <textarea class="inline-edit-textarea" data-comment-id="${escapeHtml(c.id)}">${escapeHtml(c.text)}</textarea>
+                            <div class="inline-edit-btns">
+                                <button type="button" class="btn-secondary btn-sm act-cancel">Отмена</button>
+                                <button type="button" class="btn-success btn-sm act-save">Сохранить</button>
+                            </div>
+                        </div>
+                    ` : `
+                        <div class="log-text">${escapeHtml(c.text)}</div>
+                    `}
+                    ${attachmentsHtml(c)}
+                </div>
+            `;
+
+            const btnEdit = entry.querySelector('.act-edit');
+            if (btnEdit) btnEdit.addEventListener('click', () => { editingCommentId = c.id; renderComments(); });
+            const btnDelete = entry.querySelector('.act-delete');
+            if (btnDelete) btnDelete.addEventListener('click', () => deleteComment(c.id));
+            const btnCancel = entry.querySelector('.act-cancel');
+            if (btnCancel) btnCancel.addEventListener('click', cancelEditComment);
+            const btnSave = entry.querySelector('.act-save');
+            if (btnSave) btnSave.addEventListener('click', () => saveInlineComment(c.id));
+
+            return entry;
+        }
+
         function renderComments() {
-            const lead = leads.find(l => l.id == currentLeadId);
+            const lead = findLead(currentLeadId);
             if (!lead) return;
             const history = document.getElementById('chatter-history');
             history.innerHTML = '';
 
-            lead.comments.forEach((c, idx) => { if (!c.id) c.id = Date.now() + idx; });
-
-            [...lead.comments].reverse().forEach(c => {
-                const initial = c.author === 'Система' ? '⚙️' : c.author.charAt(0).toUpperCase();
-                const bgColor = c.author === 'Система' ? '#ccc' : '#5c8b8a';
-                const isEditing = (c.id === editingCommentId);
-
-                let attachmentsHtml = '';
-                if (c.attachments && c.attachments.length > 0) {
-                    attachmentsHtml = '<div class="log-attachments">';
-                    c.attachments.forEach(att => {
-                        const isImage = att.type && att.type.startsWith('image/');
-                        if (isImage) {
-                            attachmentsHtml += `
-                                <div class="attachment-item image-item">
-                                    <a href="${att.dataUrl}" target="_blank" download="${escapeHtml(att.name)}">
-                                        <img src="${att.dataUrl}" alt="${escapeHtml(att.name)}" title="Открыть / Скачать ${escapeHtml(att.name)}"/>
-                                    </a>
-                                </div>
-                            `;
-                        } else {
-                            attachmentsHtml += `
-                                <a class="attachment-item" href="${att.dataUrl}" download="${escapeHtml(att.name)}" title="Скачать файл">
-                                    📄 <span>${escapeHtml(att.name)}</span>
-                                    <span class="attachment-size">(${formatBytes(att.size)})</span>
-                                    ⬇️
-                                </a>
-                            `;
-                        }
-                    });
-                    attachmentsHtml += '</div>';
-                }
-
-                history.innerHTML += `
-                    <div class="log-entry">
-                        <div class="log-avatar" style="background:${bgColor}">${initial}</div>
-                        <div class="log-content">
-                            <div class="log-header">
-                                <div>
-                                    <span class="log-author">${c.author}</span>
-                                    <span style="margin-left:8px;">${c.time}</span>
-                                </div>
-                                ${!isEditing ? `
-                                <div class="log-actions">
-                                    <span class="log-btn" onclick="startEditComment(${c.id})">✎ Редактировать</span>
-                                    <span class="log-btn delete" onclick="deleteComment(${c.id})">🗑️ Удалить</span>
-                                </div>
-                                ` : ''}
-                            </div>
-                            ${isEditing ? `
-                                <div style="margin-top: 5px;">
-                                    <textarea id="inline-edit-input-${c.id}" class="inline-edit-textarea">${escapeHtml(c.text)}</textarea>
-                                    <div class="inline-edit-btns">
-                                        <button class="btn-secondary btn-sm" onclick="cancelEditComment()">Отмена</button>
-                                        <button class="btn-success btn-sm" onclick="saveInlineComment(${c.id})">Сохранить</button>
-                                    </div>
-                                </div>
-                            ` : `
-                                <div class="log-text">${escapeHtml(c.text)}</div>
-                            `}
-                            ${attachmentsHtml}
-                        </div>
-                    </div>
-                `;
-            });
+            const frag = document.createDocumentFragment();
+            [...lead.comments].reverse().forEach(c => frag.appendChild(makeCommentNode(c)));
+            history.appendChild(frag);
 
             if (editingCommentId) {
                 setTimeout(() => {
-                    const el = document.getElementById(`inline-edit-input-${editingCommentId}`);
+                    const el = history.querySelector('.inline-edit-textarea');
                     if (el) {
                         el.focus();
                         el.setSelectionRange(el.value.length, el.value.length);
                     }
-                }, 50);
+                }, 30);
             }
         }
 
-        function saveComment() {
+        async function saveComment() {
             const input = document.getElementById('new-comment');
             const text = input.value.trim();
-            if ((text || pendingAttachments.length > 0) && currentLeadId) {
-                const lead = leads.find(l => l.id == currentLeadId);
-                lead.comments.push({
-                    id: Date.now(),
-                    text: text,
-                    author: 'Пользователь',
-                    time: new Date().toLocaleString(),
-                    attachments: [...pendingAttachments]
-                });
-                saveDb();
-                input.value = '';
-                pendingAttachments = [];
-                renderPendingAttachments();
-                renderComments();
-            }
-        }
+            if (!currentLeadId || (!text && pendingAttachments.length === 0)) return;
+            const lead = findLead(currentLeadId);
+            if (!lead) return;
 
-        function startEditComment(commentId) {
-            editingCommentId = commentId;
+            const storeOk = Boolean(await AttachmentStore.ready());
+            const attachments = [];
+            try {
+                for (const p of pendingAttachments) {
+                    if (storeOk) {
+                        await AttachmentStore.put(p.id, p.blob);
+                        attachments.push({ id: p.id, name: p.name, size: p.size, type: p.type });
+                    } else {
+                        attachments.push({
+                            id: p.id, name: p.name, size: p.size, type: p.type,
+                            dataUrl: await blobToDataURL(p.blob)
+                        });
+                    }
+                    urlCache.set(p.id, p.previewUrl); // используем уже созданный object-URL
+                }
+            } catch (e) {
+                toast('Не удалось сохранить вложение: ' + ((e && e.message) || 'ошибка хранилища') +
+                    '. Комментарий не записан.', 'error', 7000);
+                return;
+            }
+
+            pendingAttachments = []; // превью-ссылки уже переданы в urlCache
+            renderPendingAttachments();
+
+            lead.comments.push({
+                id: uid(),
+                text: text,
+                author: 'Пользователь',
+                time: new Date().toLocaleString(),
+                attachments: attachments
+            });
+            saveDb();
+            input.value = '';
             renderComments();
         }
 
@@ -814,17 +1317,17 @@
         }
 
         function saveInlineComment(commentId) {
-            const lead = leads.find(l => l.id == currentLeadId);
+            const lead = findLead(currentLeadId);
             if (!lead) return;
 
             const comment = lead.comments.find(c => c.id === commentId);
-            const input = document.getElementById(`inline-edit-input-${commentId}`);
+            const input = document.querySelector(`.inline-edit-textarea[data-comment-id="${CSS.escape(commentId)}"]`);
 
             if (comment && input) {
                 const newText = input.value.trim();
-                if (newText) {
+                if (newText && newText !== comment.text) {
                     comment.text = newText;
-                    comment.time = new Date().toLocaleString() + " (изм.)";
+                    comment.editedAt = new Date().toLocaleString(); // исходное время создания сохраняется в time
                     saveDb();
                 }
             }
@@ -835,35 +1338,178 @@
 
         function deleteComment(commentId) {
             if (!confirm("Вы уверены, что хотите удалить этот комментарий?")) return;
-            const lead = leads.find(l => l.id == currentLeadId);
-            if (lead) {
-                lead.comments = lead.comments.filter(c => c.id !== commentId);
-                saveDb();
-                renderComments();
+            const lead = findLead(currentLeadId);
+            if (!lead) return;
+            const comment = lead.comments.find(c => c.id === commentId);
+            if (comment) forgetAttachments(comment.attachments);
+            lead.comments = lead.comments.filter(c => c.id !== commentId);
+            saveDb();
+            renderComments();
+        }
+
+        /* ============================================================
+         *  ЭКСПОРТ / ИМПОРТ (резервное копирование)
+         * ============================================================ */
+
+        async function exportData() {
+            try {
+                const storeOk = Boolean(await AttachmentStore.ready());
+                const data = {
+                    app: 'crm-detroid',
+                    version: 9,
+                    exportedAt: new Date().toISOString(),
+                    leads: leads.map(lead => {
+                        const copy = JSON.parse(JSON.stringify(lead));
+                        return copy;
+                    })
+                };
+                for (const lead of data.leads) {
+                    for (const c of lead.comments) {
+                        for (const att of c.attachments) {
+                            if (!att.dataUrl && storeOk) {
+                                try {
+                                    const blob = await AttachmentStore.get(att.id);
+                                    if (blob) att.dataUrl = await blobToDataURL(blob);
+                                } catch (e) { /* вложение не попадёт в бэкап */ }
+                            }
+                        }
+                    }
+                }
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'crm-leads-' + new Date().toISOString().slice(0, 10) + '.json';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+                toast('Резервная копия выгружена', 'success');
+            } catch (e) {
+                toast('Не удалось выполнить экспорт: ' + ((e && e.message) || 'неизвестная ошибка'), 'error', 6000);
             }
         }
 
-        document.getElementById('new-comment').addEventListener('keydown', function(e) {
+        function handleImportFile(event) {
+            const file = event.target.files && event.target.files[0];
+            event.target.value = '';
+            if (!file) return;
+            importData(file);
+        }
+
+        async function importData(file) {
+            let parsed;
+            try {
+                const text = await file.text();
+                parsed = JSON.parse(text);
+            } catch (e) {
+                toast('Не удалось прочитать файл: это не корректный JSON.', 'error', 6000);
+                return;
+            }
+
+            const rawLeads = Array.isArray(parsed) ? parsed : parsed.leads;
+            if (!Array.isArray(rawLeads)) {
+                toast('Не удалось импортировать: в файле нет списка лидов.', 'error', 6000);
+                return;
+            }
+
+            const storeOk = Boolean(await AttachmentStore.ready());
+            const imported = [];
+            for (const raw of rawLeads) {
+                const lead = normalizeLead(JSON.parse(JSON.stringify(raw || {})));
+                lead.id = uid(); // новые ID, чтобы не конфликтовать с существующими
+                for (const c of lead.comments) {
+                    c.id = uid();
+                    for (const att of c.attachments) {
+                        att.id = uid();
+                        if (att.dataUrl && storeOk) {
+                            try {
+                                const blob = await (await fetch(att.dataUrl)).blob();
+                                await AttachmentStore.put(att.id, blob);
+                                delete att.dataUrl;
+                            } catch (e) { /* останется в режиме dataUrl */ }
+                        }
+                    }
+                }
+                imported.push(lead);
+            }
+
+            if (!imported.length) {
+                toast('В файле не найдено ни одного лида.', 'info');
+                return;
+            }
+
+            leads = leads.concat(imported);
+            if (saveDb()) {
+                renderBoard();
+                await hydrateAllAttachments();
+                toast(`Импортировано лидов: ${imported.length}`, 'success');
+            }
+        }
+
+        /* ============================================================
+         *  ГОРЯЧИЕ КЛАВИШИ
+         * ============================================================ */
+
+        document.getElementById('new-comment').addEventListener('keydown', function (e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 saveComment();
             }
         });
 
-        document.getElementById('chatter-history').addEventListener('keydown', function(e) {
+        document.getElementById('chatter-history').addEventListener('keydown', function (e) {
             if (
+                e.target.classList &&
                 e.target.classList.contains('inline-edit-textarea') &&
                 e.key === 'Enter' &&
                 !e.shiftKey &&
                 !e.isComposing
             ) {
                 e.preventDefault();
-                const commentId = Number(e.target.id.replace('inline-edit-input-', ''));
-                saveInlineComment(commentId);
+                saveInlineComment(e.target.dataset.commentId);
             }
         });
 
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                if (isCreateModalOpen()) closeCreateModal();
+                closeSettingsMenu();
+            }
+        });
+
+        document.getElementById('create-modal').addEventListener('click', function (e) {
+            if (e.target === this) closeCreateModal(); // клик по подложке
+        });
+
+        document.getElementById('create-modal').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+                e.preventDefault();
+                saveNewLead();
+            }
+        });
+
+        /* ============================================================
+         *  ИНИЦИАЛИЗАЦИЯ
+         * ============================================================ */
+
         renderBoard();
+
+        // Фиксируем демо-данные / результат миграции сразу, чтобы состояние было определённым.
+        if (localStorage.getItem(DB_KEY) === null) {
+            saveDb();
+        }
+
+        (async () => {
+            if (loadResult.corrupted) {
+                toast('Сохранённые данные были повреждены. Создана резервная копия, ' +
+                    'загружены демо-данные.', 'error', 9000);
+            }
+            const storeOk = Boolean(await AttachmentStore.ready());
+            if (!storeOk) {
+                toast('IndexedDB недоступен: вложения будут храниться в localStorage (лимит ~5 МБ).', 'info', 8000);
+            }
+            await hydrateAllAttachments();
+        })();
     </script>
 </body>
 </html>
