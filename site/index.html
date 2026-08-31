@@ -176,6 +176,30 @@
   .users-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); margin-top: 15px; }
   .users-table th, .users-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
   .users-table th { background: #f9f9fb; font-weight: 700; color: #555; }
+
+  .routes-toolbar-search { max-width: 320px; }
+  .routes-toolbar-search input {
+    width: 100%; padding: 8px 12px; border: 1px solid var(--border);
+    border-radius: var(--radius); font-size: 14px;
+  }
+  .routes-grid {
+    flex: 1; overflow-y: auto; padding: 15px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px; align-content: start;
+  }
+  .route-card {
+    background: #fff; border-radius: var(--radius-lg); padding: 16px 18px;
+    box-shadow: var(--shadow-sm); cursor: pointer; border-left: 3px solid var(--primary);
+    transition: transform .1s, box-shadow .15s;
+  }
+  .route-card:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,.1); }
+  .route-card-title { font-weight: 700; font-size: 15px; color: #1e293b; }
+  .route-card-arrow { color: var(--primary); margin: 0 6px; }
+  .route-card-meta { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .routes-empty { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 40px 20px; }
+  .carriers-wrap { flex: 1; overflow-y: auto; padding: 20px; }
+  .carriers-wrap .users-table { margin-top: 0; }
+  .carrier-note { min-width: 160px; }
   .user-input { border: 1px solid transparent; background: transparent; padding: 4px 8px; width: 100%; font-size: 13px; border-radius: var(--radius); transition: border .2s; }
   .user-input:focus { border-color: var(--primary); background: #fff; outline: none; }
 
@@ -214,9 +238,10 @@
 <header>
   <div style="display:flex; align-items:center;">
     <span class="brand" data-action="go-home">CRM Детроид</span>
-    <div class="nav-menu" id="admin-nav" style="display:none;">
+    <div class="nav-menu" id="main-nav">
       <span class="nav-item active" data-action="go-home" id="nav-leads">Лиды</span>
-      <span class="nav-item" data-action="go-users" id="nav-users">Сотрудники</span>
+      <span class="nav-item" data-action="go-routes" id="nav-routes">Направления</span>
+      <span class="nav-item" data-action="go-users" id="nav-users" style="display:none;">Сотрудники</span>
     </div>
   </div>
   <div class="user-info">
@@ -291,6 +316,33 @@
   </div>
 </section>
 
+<section id="routes-view" class="view-section">
+  <div class="breadcrumb"><a data-action="go-home">CRM</a><span>/</span><b>Направления</b></div>
+  <div class="toolbar">
+    <button class="btn btn-primary" data-action="new-direction">+ Добавить направление</button>
+    <div class="routes-toolbar-search">
+      <input type="text" id="routes-search" placeholder="Поиск города" autocomplete="off" spellcheck="false">
+    </div>
+    <div></div>
+  </div>
+  <div class="routes-grid" id="routes-grid"></div>
+</section>
+
+<section id="route-view" class="view-section" style="background:#fff;">
+  <div class="breadcrumb"><a data-action="go-routes">CRM / Направления</a><span>/</span><b id="route-crumb"></b></div>
+  <div class="toolbar" style="background:#f9f9f9; padding:8px 20px;">
+    <button class="btn btn-secondary btn-sm" data-action="go-routes">← К направлениям</button>
+    <button class="btn btn-primary btn-sm" data-action="new-carrier" style="margin-left:10px;">+ Перевозчик</button>
+    <button class="btn btn-danger btn-sm" data-action="delete-direction" style="margin-left:auto;">🗑️ Удалить направление</button>
+  </div>
+  <div class="carriers-wrap">
+    <table class="users-table">
+      <thead><tr><th>Имя</th><th>Телефон</th><th>Компания</th><th>Комментарий</th><th>Кто добавил</th><th style="width:120px;">Действия</th></tr></thead>
+      <tbody id="carriers-tbody"></tbody>
+    </table>
+  </div>
+</section>
+
 <section id="users-view" class="view-section" style="padding: 20px; overflow-y: auto;">
   <div style="max-width: 900px; margin: 0 auto; width: 100%;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
@@ -305,6 +357,27 @@
 </section>
 
 <!-- МОДАЛКИ -->
+<div class="modal-backdrop" id="modal-direction">
+  <div class="modal">
+    <h2>Новое направление</h2>
+    <div class="field"><label>Откуда *</label><input id="d-from" placeholder="Челябинск"></div>
+    <div class="field"><label>Куда *</label><input id="d-to" placeholder="Уфа"></div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-direction">Создать</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-carrier">
+  <div class="modal">
+    <h2 id="carrier-modal-title">Новый перевозчик</h2>
+    <input type="hidden" id="k-id">
+    <div class="field"><label>Имя / название *</label><input id="k-name"></div>
+    <div class="field"><label>Телефон</label><input id="k-phone"></div>
+    <div class="field"><label>Компания</label><input id="k-company"></div>
+    <div class="field"><label>Комментарий</label><input id="k-note" placeholder="Ставка, машина, примечание"></div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-carrier">Сохранить</button></div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="modal-create">
   <div class="modal">
     <h2>Новый лид</h2>
@@ -415,8 +488,12 @@ const Net = {
     try {
       let url = `api.php?action=${encodeURIComponent(action)}`;
       if (action === 'get_data' && this.hash) url += `&hash=${encodeURIComponent(this.hash)}`;
-      if (action === 'search_leads') {
+      if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
+        data = null;
+      }
+      if (action === 'get_carriers') {
+        url += `&id=${encodeURIComponent((data && data.id) || '')}`;
         data = null;
       }
       const opts = { method: data ? 'POST' : 'GET', headers: {}, keepalive: true };
@@ -444,7 +521,7 @@ const Store = {
 
     $('#user-display-name').textContent = res.user.name;
     $('#login-overlay').classList.remove('show');
-    $('#admin-nav').style.display = res.user.role === 'admin' ? 'flex' : 'none';
+    $('#nav-users').style.display = res.user.role === 'admin' ? '' : 'none';
 
     if (UI.currentView === 'kanban') renderBoard();
     if (UI.currentView === 'lead' && UI.leadId) {
@@ -462,7 +539,7 @@ const Store = {
   }
 };
 
-const UI = { leadId: null, pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false };
+const UI = { leadId: null, routeId: null, pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false };
 
 function closeSearchDrop() { $('#search-drop')?.classList.remove('open'); }
 
@@ -552,7 +629,7 @@ function clearSearch() {
 
 function handleLogoutUI(msg) {
   stopPolling();
-  UI.leadId = null; UI.editingCommentId = null; UI.formDirty = false;
+  UI.leadId = null; UI.routeId = null; UI.editingCommentId = null; UI.formDirty = false;
   Store.state.user = null; Store.state.leads = []; Store.state.stages = [];
   clearSearch();
   history.replaceState(null, '', location.pathname);
@@ -570,6 +647,10 @@ function handleHashRouting() {
   if (hash.startsWith('#lead/')) {
     const targetLeadId = decodeURIComponent(hash.replace('#lead/', ''));
     if (Store.getLead(targetLeadId)) { openLead(targetLeadId, false); return; }
+  } else if (hash.startsWith('#route/')) {
+    openRoute(decodeURIComponent(hash.replace('#route/', '')), false); return;
+  } else if (hash === '#routes') {
+    switchView('routes-view', false); return;
   } else if (hash === '#users' && Store.state.user?.role === 'admin') {
     switchView('users-view', false); return;
   }
@@ -581,7 +662,7 @@ window.addEventListener('popstate', () => { if (Store.state.user) handleHashRout
 
 async function switchView(viewId, updateHash = true) {
   if (UI.leadId && UI.formDirty) await saveLeadForm(true);
-  UI.leadId = null; UI.pendingFiles = []; UI.formDirty = false; UI.editingCommentId = null;
+  UI.leadId = null; UI.routeId = null; UI.pendingFiles = []; UI.formDirty = false; UI.editingCommentId = null;
   UI.currentView = viewId.replace('-view', '');
 
   $$('.view-section').forEach(el => el.classList.remove('active'));
@@ -596,10 +677,88 @@ async function switchView(viewId, updateHash = true) {
     $('#nav-users')?.classList.add('active');
     if (updateHash) history.pushState(null, '', '#users');
     loadUsers();
+  } else if (viewId === 'routes-view') {
+    $('#nav-routes')?.classList.add('active');
+    if (updateHash) history.pushState(null, '', '#routes');
+    loadRoutes();
   }
 }
 
 function goHome(updateHash = true) { switchView('kanban-view', updateHash); }
+
+let _routesCache = [];
+let _routesFilter = '';
+
+async function loadRoutes() {
+  const res = await Net.req('get_directions', { q: _routesFilter });
+  if (!res || !res.success) return;
+  _routesCache = res.directions || [];
+  renderRoutes();
+}
+
+function renderRoutes() {
+  const grid = $('#routes-grid'); if (!grid) return;
+  const list = _routesCache;
+  if (!list.length) {
+    grid.innerHTML = `<div class="routes-empty">${_routesFilter ? 'Ничего не найдено' : 'Пока нет направлений. Добавьте первое — например Челябинск → Уфа.'}</div>`;
+    return;
+  }
+  grid.innerHTML = list.map(d => `
+    <div class="route-card" data-action="open-route" data-id="${esc(d.id)}">
+      <div class="route-card-title">${esc(d.cityFrom)}<span class="route-card-arrow">→</span>${esc(d.cityTo)}</div>
+      <div class="route-card-meta">${d.carriersCount} ${carrierWord(d.carriersCount)}</div>
+    </div>`).join('');
+}
+
+function carrierWord(n) {
+  n = Math.abs(n) % 100; const n1 = n % 10;
+  if (n > 10 && n < 20) return 'перевозчиков';
+  if (n1 === 1) return 'перевозчик';
+  if (n1 >= 2 && n1 <= 4) return 'перевозчика';
+  return 'перевозчиков';
+}
+
+async function openRoute(id, updateHash = true) {
+  if (UI.leadId && UI.formDirty) await saveLeadForm(true);
+  UI.leadId = null; UI.formDirty = false; UI.pendingFiles = [];
+  const res = await Net.req('get_carriers', { id });
+  if (!res || !res.success) { switchView('routes-view', updateHash); return; }
+  UI.routeId = id; UI.currentView = 'route';
+  $$('.view-section').forEach(el => el.classList.remove('active'));
+  $$('.nav-item').forEach(el => el.classList.remove('active'));
+  $('#route-view').classList.add('active');
+  $('#nav-routes')?.classList.add('active');
+  const d = res.direction;
+  $('#route-crumb').textContent = `${d.cityFrom} → ${d.cityTo}`;
+  if (updateHash && window.location.hash !== '#route/' + encodeURIComponent(id)) {
+    history.pushState(null, '', '#route/' + encodeURIComponent(id));
+  }
+  renderCarriers(res.carriers || []);
+}
+
+function renderCarriers(list) {
+  const tbody = $('#carriers-tbody'); if (!tbody) return;
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">Пока нет перевозчиков на этом направлении</td></tr>';
+    return;
+  }
+  tbody.innerHTML = '';
+  list.forEach(c => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input class="user-input" id="kname-${esc(c.id)}" value="${esc(c.name)}"></td>
+      <td><input class="user-input" id="kphone-${esc(c.id)}" value="${esc(c.phone)}"></td>
+      <td><input class="user-input" id="kco-${esc(c.id)}" value="${esc(c.company)}"></td>
+      <td><input class="user-input carrier-note" id="knote-${esc(c.id)}" value="${esc(c.note)}"></td>
+      <td>${esc(c.createdByName)}</td>
+      <td>
+        <button class="btn btn-primary btn-sm" data-action="save-carrier-row" data-id="${esc(c.id)}">💾</button>
+        <button class="btn btn-danger btn-sm" data-action="delete-carrier" data-id="${esc(c.id)}">🗑️</button>
+      </td>`;
+    tbody.appendChild(tr);
+    setupPhoneMask($(`#kphone-${c.id}`));
+  });
+}
 
 function openLead(id, updateHash = true) {
   const lead = Store.getLead(id); if (!lead) return goHome(updateHash);
@@ -805,6 +964,10 @@ function initEvents() {
     }
   });
   $('#board-search-clear').addEventListener('click', () => { clearSearch(); searchInp.focus(); });
+  const routesSearch = $('#routes-search');
+  const runRoutesSearch = debounce(() => { _routesFilter = routesSearch.value.trim(); loadRoutes(); }, 200);
+  routesSearch.addEventListener('input', runRoutesSearch);
+  setupPhoneMask($('#k-phone'));
   document.addEventListener('click', e => {
     if (!e.target.closest('#board-search-wrap') && !e.target.closest('#search-drop')) closeSearchDrop();
   });
@@ -860,7 +1023,58 @@ function initEvents() {
       case 'prev-lead': goNeighborLead(-1); break;
       case 'next-lead': goNeighborLead(1); break;
       case 'go-home': goHome(true); break;
+      case 'go-routes': switchView('routes-view', true); break;
       case 'go-users': switchView('users-view', true); break;
+      case 'open-route': if (actEl.dataset.id) openRoute(actEl.dataset.id, true); break;
+
+      case 'new-direction':
+        $('#d-from').value = ''; $('#d-to').value = '';
+        Modal.open('modal-direction'); setTimeout(() => $('#d-from').focus(), 50);
+        break;
+      case 'submit-direction': {
+        const from = $('#d-from').value.trim(), to = $('#d-to').value.trim();
+        if (!from || !to) return Toast.error('Укажите оба города');
+        const resD = await Net.req('save_direction', { cityFrom: from, cityTo: to });
+        if (resD?.success) { Modal.closeAll(); await loadRoutes(); openRoute(resD.id, true); }
+        else Toast.error(resD?.error || 'Ошибка');
+        break;
+      }
+      case 'delete-direction':
+        if (!UI.routeId) return;
+        if (!await askConfirm('Удалить направление?', 'Все перевозчики на нём тоже удалятся')) return;
+        const resDD = await Net.req('delete_direction', { id: UI.routeId });
+        if (resDD?.success) { UI.routeId = null; switchView('routes-view', true); }
+        else Toast.error(resDD?.error || 'Ошибка');
+        break;
+
+      case 'new-carrier':
+        if (!UI.routeId) return;
+        $('#k-id').value = ''; $('#k-name').value = ''; $('#k-phone').value = ''; $('#k-company').value = ''; $('#k-note').value = '';
+        $('#carrier-modal-title').textContent = 'Новый перевозчик';
+        Modal.open('modal-carrier'); setTimeout(() => $('#k-name').focus(), 50);
+        break;
+      case 'submit-carrier': {
+        const name = $('#k-name').value.trim();
+        if (!name) return Toast.error('Укажите имя или название');
+        const payload = { id: $('#k-id').value.trim(), directionId: UI.routeId, name, phone: $('#k-phone').value.trim(), company: $('#k-company').value.trim(), note: $('#k-note').value.trim() };
+        const resK = await Net.req('save_carrier', payload);
+        if (resK?.success) { Modal.closeAll(); await openRoute(UI.routeId, false); }
+        else Toast.error(resK?.error || 'Ошибка');
+        break;
+      }
+      case 'save-carrier-row': {
+        const id = actEl.dataset.id;
+        const name = $(`#kname-${id}`).value.trim();
+        if (!name) return Toast.error('Укажите имя или название');
+        const resKS = await Net.req('save_carrier', { id, directionId: UI.routeId, name, phone: $(`#kphone-${id}`).value.trim(), company: $(`#kco-${id}`).value.trim(), note: $(`#knote-${id}`).value.trim() });
+        if (resKS?.success) Toast.success('Сохранено'); else Toast.error(resKS?.error || 'Ошибка');
+        break;
+      }
+      case 'delete-carrier':
+        if (!await askConfirm('Удалить перевозчика?')) return;
+        const resDK = await Net.req('delete_carrier', { id: actEl.dataset.id });
+        if (resDK?.success) await openRoute(UI.routeId, false); else Toast.error(resDK?.error || 'Ошибка');
+        break;
       case 'logout': execLogout(); break;
       case 'new-lead': $$('#modal-create input').forEach(i => i.value = ''); Modal.open('modal-create'); setTimeout(() => $('#m-title').focus(), 50); break;
       case 'open-add-user': $$('#modal-add-user input').forEach(i => i.value = ''); Modal.open('modal-add-user'); setTimeout(() => $('#u-name').focus(), 50); break;

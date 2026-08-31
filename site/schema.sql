@@ -71,6 +71,54 @@ CREATE TABLE IF NOT EXISTS crm_attachments (
   CONSTRAINT fk_att_comment FOREIGN KEY (comment_id) REFERENCES crm_comments (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS crm_directions (
+  id VARCHAR(80) NOT NULL,
+  city_from VARCHAR(80) NOT NULL,
+  city_to VARCHAR(80) NOT NULL,
+  created_by INT UNSIGNED NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_dir (city_from, city_to),
+  KEY idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS crm_carriers (
+  id VARCHAR(80) NOT NULL,
+  direction_id VARCHAR(80) NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  phone VARCHAR(40) NOT NULL DEFAULT '',
+  company VARCHAR(200) NOT NULL DEFAULT '',
+  note VARCHAR(2000) NOT NULL DEFAULT '',
+  created_by INT UNSIGNED NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_dir (direction_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS crm_directions (
+  id VARCHAR(80) NOT NULL,
+  city_from VARCHAR(80) NOT NULL,
+  city_to VARCHAR(80) NOT NULL,
+  created_by INT UNSIGNED NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_dir (city_from, city_to),
+  KEY idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS crm_carriers (
+  id VARCHAR(80) NOT NULL,
+  direction_id VARCHAR(80) NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  phone VARCHAR(40) NOT NULL DEFAULT '',
+  company VARCHAR(200) NOT NULL DEFAULT '',
+  note VARCHAR(2000) NOT NULL DEFAULT '',
+  created_by INT UNSIGNED NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_dir (direction_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS crm_login_attempts (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   email VARCHAR(120) NOT NULL,

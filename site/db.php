@@ -16,6 +16,7 @@ function crm_pdo(): PDO {
     }
     crm_migrate($pdo);
     crm_migrate_owners($pdo);
+    crm_migrate_routes($pdo);
     crm_seed($pdo);
     return $pdo;
 }
@@ -122,6 +123,89 @@ function crm_migrate(PDO $pdo): void {
       PRIMARY KEY (id),
       KEY idx_email_time (email, attempted_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+function crm_migrate_routes(PDO $pdo): void {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_directions (
+      id VARCHAR(80) NOT NULL,
+      city_from VARCHAR(80) NOT NULL,
+      city_to VARCHAR(80) NOT NULL,
+      created_by INT UNSIGNED NOT NULL,
+      created_at BIGINT NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_dir (city_from, city_to),
+      KEY idx_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_carriers (
+      id VARCHAR(80) NOT NULL,
+      direction_id VARCHAR(80) NOT NULL,
+      name VARCHAR(120) NOT NULL,
+      phone VARCHAR(40) NOT NULL DEFAULT '',
+      company VARCHAR(200) NOT NULL DEFAULT '',
+      note VARCHAR(2000) NOT NULL DEFAULT '',
+      created_by INT UNSIGNED NOT NULL,
+      created_at BIGINT NOT NULL,
+      PRIMARY KEY (id),
+      KEY idx_dir (direction_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+function crm_norm_city(string $s): string {
+    $s = trim(preg_replace('/\s+/u', ' ', $s));
+    return $s;
+}
+
+function crm_direction_by_id(PDO $pdo, string $id): ?array {
+    $st = $pdo->prepare('SELECT d.*, u.name AS creator FROM crm_directions d LEFT JOIN crm_users u ON u.id = d.created_by WHERE d.id = ?');
+    $st->execute([$id]);
+    $row = $st->fetch();
+    return $row ?: null;
+}
+
+function crm_directions_list(PDO $pdo, string $q = ''): array {
+    $sql = 'SELECT d.id, d.city_from, d.city_to, d.created_by, d.created_at, u.name AS creator,
+            (SELECT COUNT(*) FROM crm_carriers c WHERE c.direction_id = d.id) AS carriers_count
+            FROM crm_directions d
+            LEFT JOIN crm_users u ON u.id = d.created_by';
+    $params = [];
+    $q = trim($q);
+    if ($q !== '') {
+        $sql .= ' WHERE d.city_from LIKE ? OR d.city_to LIKE ?';
+        $pat = crm_like_pat($q);
+        $params = [$pat, $pat];
+    }
+    $sql .= ' ORDER BY d.city_from ASC, d.city_to ASC';
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+    $out = [];
+    foreach ($st as $r) {
+        $out[] = [
+            'id' => $r['id'],
+            'cityFrom' => $r['city_from'],
+            'cityTo' => $r['city_to'],
+            'carriersCount' => (int) $r['carriers_count'],
+            'createdByName' => $r['creator'] ?: '',
+        ];
+    }
+    return $out;
+}
+
+function crm_carriers_list(PDO $pdo, string $directionId): array {
+    $st = $pdo->prepare('SELECT c.*, u.name AS creator FROM crm_carriers c LEFT JOIN crm_users u ON u.id = c.created_by WHERE c.direction_id = ? ORDER BY c.created_at ASC');
+    $st->execute([$directionId]);
+    $out = [];
+    foreach ($st as $r) {
+        $out[] = [
+            'id' => $r['id'],
+            'name' => $r['name'],
+            'phone' => $r['phone'],
+            'company' => $r['company'],
+            'note' => $r['note'],
+            'createdByName' => $r['creator'] ?: '',
+        ];
+    }
+    return $out;
 }
 
 function crm_seed(PDO $pdo): void {

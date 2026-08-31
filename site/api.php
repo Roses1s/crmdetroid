@@ -118,6 +118,93 @@ switch ($action) {
         ok(crm_search_leads($pdo, (int) $user['id'], $q));
     }
 
+    case 'get_directions': {
+        $q = strv($_GET['q'] ?? '', 80);
+        ok(['directions' => crm_directions_list($pdo, $q)]);
+    }
+
+    case 'save_direction': {
+        $in = body_json();
+        $from = crm_norm_city(strv($in['cityFrom'] ?? '', 80));
+        $to = crm_norm_city(strv($in['cityTo'] ?? '', 80));
+        if ($from === '' || $to === '') err('Укажите города откуда и куда');
+        $id = strv($in['id'] ?? '', 80);
+        $uid = (int) $user['id'];
+        if ($id === '') {
+            $dup = $pdo->prepare('SELECT id FROM crm_directions WHERE city_from = ? AND city_to = ?');
+            $dup->execute([$from, $to]);
+            if ($dup->fetch()) err('Такое направление уже есть');
+            $id = 'd_' . bin2hex(random_bytes(6));
+            $pdo->prepare('INSERT INTO crm_directions (id, city_from, city_to, created_by, created_at) VALUES (?,?,?,?,?)')
+                ->execute([$id, $from, $to, $uid, now_ms()]);
+        } else {
+            if (!crm_direction_by_id($pdo, $id)) err('Направление не найдено');
+            $dup = $pdo->prepare('SELECT id FROM crm_directions WHERE city_from = ? AND city_to = ? AND id <> ?');
+            $dup->execute([$from, $to, $id]);
+            if ($dup->fetch()) err('Такое направление уже есть');
+            $pdo->prepare('UPDATE crm_directions SET city_from = ?, city_to = ? WHERE id = ?')->execute([$from, $to, $id]);
+        }
+        ok(['id' => $id]);
+    }
+
+    case 'delete_direction': {
+        $in = body_json();
+        $id = strv($in['id'] ?? '', 80);
+        if (!crm_direction_by_id($pdo, $id)) err('Направление не найдено');
+        $pdo->prepare('DELETE FROM crm_carriers WHERE direction_id = ?')->execute([$id]);
+        $pdo->prepare('DELETE FROM crm_directions WHERE id = ?')->execute([$id]);
+        ok();
+    }
+
+    case 'get_carriers': {
+        $id = strv($_GET['id'] ?? '', 80);
+        $dir = crm_direction_by_id($pdo, $id);
+        if (!$dir) err('Направление не найдено');
+        ok([
+            'direction' => [
+                'id' => $dir['id'],
+                'cityFrom' => $dir['city_from'],
+                'cityTo' => $dir['city_to'],
+                'createdByName' => $dir['creator'] ?: '',
+            ],
+            'carriers' => crm_carriers_list($pdo, $id),
+        ]);
+    }
+
+    case 'save_carrier': {
+        $in = body_json();
+        $dirId = strv($in['directionId'] ?? '', 80);
+        if (!crm_direction_by_id($pdo, $dirId)) err('Направление не найдено');
+        $name = strv($in['name'] ?? '', 120);
+        if ($name === '') err('Укажите имя или название');
+        $phone = strv($in['phone'] ?? '', 40);
+        $company = strv($in['company'] ?? '', 200);
+        $note = strv($in['note'] ?? '', 2000);
+        $id = strv($in['id'] ?? '', 80);
+        $uid = (int) $user['id'];
+        if ($id === '') {
+            $id = 'k_' . bin2hex(random_bytes(6));
+            $pdo->prepare('INSERT INTO crm_carriers (id, direction_id, name, phone, company, note, created_by, created_at) VALUES (?,?,?,?,?,?,?,?)')
+                ->execute([$id, $dirId, $name, $phone, $company, $note, $uid, now_ms()]);
+        } else {
+            $st = $pdo->prepare('SELECT id FROM crm_carriers WHERE id = ? AND direction_id = ?');
+            $st->execute([$id, $dirId]);
+            if (!$st->fetch()) err('Контакт не найден');
+            $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ?, note = ? WHERE id = ?')
+                ->execute([$name, $phone, $company, $note, $id]);
+        }
+        ok(['id' => $id]);
+    }
+
+    case 'delete_carrier': {
+        $in = body_json();
+        $id = strv($in['id'] ?? '', 80);
+        $st = $pdo->prepare('DELETE FROM crm_carriers WHERE id = ?');
+        $st->execute([$id]);
+        if ($st->rowCount() === 0) err('Контакт не найден');
+        ok();
+    }
+
     case 'get_data': {
         $uid = (int) $user['id'];
         $hash = crm_data_hash($pdo, $uid);
