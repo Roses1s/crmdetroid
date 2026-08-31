@@ -113,6 +113,11 @@ $user = require_user($pdo);
 if ($method === 'POST') require_csrf();
 
 switch ($action) {
+    case 'search_leads': {
+        $q = strv($_GET['q'] ?? '', 120);
+        ok(crm_search_leads($pdo, (int) $user['id'], $q));
+    }
+
     case 'get_data': {
         $uid = (int) $user['id'];
         $hash = crm_data_hash($pdo, $uid);

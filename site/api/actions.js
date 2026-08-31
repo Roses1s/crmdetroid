@@ -65,6 +65,12 @@ function createActions({ store, sessions, config, limiter }) {
       return {};
     },
 
+    async search_leads({ session, url }) {
+      const user = await requireUser(store, session);
+      const q = v.str(url.searchParams.get('q') || '', { max: 120 });
+      return store.searchLeads(Number(user.id), q);
+    },
+
     async get_data({ session, url }) {
       const user = await requireUser(store, session);
       const uid = Number(user.id);

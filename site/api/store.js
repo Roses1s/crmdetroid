@@ -370,6 +370,42 @@ function createStore(config) {
     return res.affectedRows > 0;
   }
 
+  async function searchLeads(userId, q) {
+    q = String(q || '').trim();
+    if (!q || [...q].length < 2) return { leads: [], intersections: [] };
+    const digits = q.replace(/\D/g, '');
+    const esc = s => String(s).replace(/[|%_]/g, ch => '|' + ch);
+    const titlePat = '%' + esc(q) + '%';
+    const p = await pool();
+    let ownSql = 'SELECT id, title, inn, stage, phone FROM crm_leads WHERE user_id = ? AND title LIKE ? ESCAPE \'|\'';
+    const ownParams = [userId, titlePat];
+    if (digits.length >= 3) {
+      ownSql += ' OR (user_id = ? AND inn LIKE ? ESCAPE \'|\')';
+      ownParams.push(userId, '%' + esc(digits) + '%');
+    }
+    ownSql += ' ORDER BY title ASC LIMIT 40';
+    const [ownRows] = await p.execute(ownSql, ownParams);
+    const leads = ownRows.map(r => ({ id: r.id, title: r.title, inn: r.inn, stage: r.stage, phone: r.phone }));
+
+    let othSql = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND l.title LIKE ? ESCAPE \'|\'';
+    const othParams = [userId, titlePat];
+    if (digits.length >= 3) {
+      othSql += ' OR (l.user_id <> ? AND l.inn LIKE ? ESCAPE \'|\')';
+      othParams.push(userId, '%' + esc(digits) + '%');
+    }
+    othSql += ' LIMIT 60';
+    const [othRows] = await p.execute(othSql, othParams);
+    const grouped = new Map();
+    for (const r of othRows) {
+      const inn = String(r.inn || '').replace(/\D/g, '');
+      const key = inn ? ('inn:' + inn) : ('t:' + String(r.title || '').toLowerCase());
+      if (!grouped.has(key)) grouped.set(key, { title: r.title, inn: r.inn, users: [] });
+      const rec = grouped.get(key);
+      if (r.owner && !rec.users.includes(r.owner)) rec.users.push(r.owner);
+    }
+    return { leads, intersections: [...grouped.values()] };
+  }
+
   async function dataHash(userId) {
     const stages = await listStages(userId);
     const leads = await listLeads(userId);
@@ -410,6 +446,7 @@ function createStore(config) {
     updateComment,
     deleteComment,
     dataHash,
+    searchLeads,
     saveUpload,
   };
 }

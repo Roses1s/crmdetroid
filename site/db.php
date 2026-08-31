@@ -282,6 +282,62 @@ function crm_stage_renames(array $old, array $ns): array {
     return $renames;
 }
 
+function crm_like_pat(string $s): string {
+    $s = str_replace(['|', '%', '_'], ['||', '|%', '|_'], $s);
+    return '%' . $s . '%';
+}
+
+function crm_search_leads(PDO $pdo, int $userId, string $q): array {
+    $q = trim($q);
+    if ($q === '' || mb_strlen($q) < 2) return ['leads' => [], 'intersections' => []];
+    $digits = preg_replace('/\D/', '', $q);
+    $titlePat = crm_like_pat($q);
+    $ownSql = 'SELECT id, title, inn, stage, phone FROM crm_leads WHERE user_id = ? AND title LIKE ? ESCAPE \'|\'';
+    $ownParams = [$userId, $titlePat];
+    if (strlen($digits) >= 3) {
+        $ownSql .= ' OR (user_id = ? AND inn LIKE ? ESCAPE \'|\')';
+        $ownParams[] = $userId;
+        $ownParams[] = crm_like_pat($digits);
+    }
+    $ownSql .= ' ORDER BY title ASC LIMIT 40';
+    $st = $pdo->prepare($ownSql);
+    $st->execute($ownParams);
+    $leads = [];
+    foreach ($st as $r) {
+        $leads[] = [
+            'id' => $r['id'],
+            'title' => $r['title'],
+            'inn' => $r['inn'],
+            'stage' => $r['stage'],
+            'phone' => $r['phone'],
+        ];
+    }
+
+    $othSql = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND l.title LIKE ? ESCAPE \'|\'';
+    $othParams = [$userId, $titlePat];
+    if (strlen($digits) >= 3) {
+        $othSql .= ' OR (l.user_id <> ? AND l.inn LIKE ? ESCAPE \'|\')';
+        $othParams[] = $userId;
+        $othParams[] = crm_like_pat($digits);
+    }
+    $othSql .= ' LIMIT 60';
+    $st = $pdo->prepare($othSql);
+    $st->execute($othParams);
+    $grouped = [];
+    foreach ($st as $r) {
+        $inn = preg_replace('/\D/', '', (string) $r['inn']);
+        $key = $inn !== '' ? ('inn:' . $inn) : ('t:' . mb_strtolower((string) $r['title']));
+        if (!isset($grouped[$key])) {
+            $grouped[$key] = ['title' => $r['title'], 'inn' => $r['inn'], 'users' => []];
+        }
+        $name = (string) $r['owner'];
+        if ($name !== '' && !in_array($name, $grouped[$key]['users'], true)) {
+            $grouped[$key]['users'][] = $name;
+        }
+    }
+    return ['leads' => $leads, 'intersections' => array_values($grouped)];
+}
+
 function crm_allowed_upload(string $originalName): ?string {
     $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
     $ok = ['png','jpg','jpeg','gif','webp','bmp','pdf','txt','csv','doc','docx','xls','xlsx','ppt','pptx','zip','7z'];

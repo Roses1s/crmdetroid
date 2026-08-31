@@ -44,20 +44,36 @@
   .breadcrumb a { cursor: pointer; color: var(--primary); font-weight: 500; }
   .breadcrumb a:hover { text-decoration: underline; }
   .toolbar { justify-content: space-between; }
-  .board-search { display: flex; align-items: center; gap: 10px; margin-left: auto; min-width: 0; }
+  #kanban-view > .toolbar { display: grid; grid-template-columns: 1fr minmax(240px, 520px) 1fr; align-items: center; gap: 12px; }
+  #kanban-view > .toolbar > .btn { justify-self: start; }
+  .board-search { position: relative; width: 100%; justify-self: center; min-width: 0; }
   .board-search-field { position: relative; }
   .board-search input {
-    width: 280px; max-width: 100%; padding: 7px 32px 7px 12px; border: 1px solid var(--border);
-    border-radius: var(--radius); font-size: 13px; background: #fff;
+    width: 100%; padding: 8px 36px 8px 14px; border: 1px solid var(--border);
+    border-radius: var(--radius); font-size: 14px; background: #fff; text-align: left;
   }
   .board-search input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(113,75,103,.1); }
   .board-search .search-clear {
     position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
-    border: 0; background: transparent; color: #888; cursor: pointer; font-size: 16px; line-height: 1; padding: 4px;
+    border: 0; background: transparent; color: #888; cursor: pointer; font-size: 18px; line-height: 1; padding: 4px;
     display: none;
   }
   .board-search.has-query .search-clear { display: block; }
-  .search-meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .search-drop {
+    display: none; position: absolute; left: 0; right: 0; top: calc(100% + 4px);
+    background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md); z-index: 300; max-height: 360px; overflow-y: auto;
+  }
+  .search-drop.open { display: block; }
+  .search-item { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
+  .search-item:last-child { border-bottom: 0; }
+  .search-item:hover { background: #f7f5f7; }
+  .search-item-title { font-weight: 700; font-size: 13px; color: #1e293b; }
+  .search-item-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .search-item-warn { font-size: 12px; color: #b45309; margin-top: 4px; font-weight: 600; }
+  .search-item.other { cursor: default; background: #fffbeb; }
+  .search-item.other:hover { background: #fef3c7; }
+  .search-empty { padding: 14px; text-align: center; color: var(--muted); font-size: 13px; }
 
   .btn { padding: 6px 14px; border-radius: var(--radius); cursor: pointer; font-weight: 500; border: 1px solid transparent; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; transition: background .15s; }
   .btn:disabled { opacity: .6; cursor: not-allowed; }
@@ -212,10 +228,13 @@
   <div class="toolbar">
     <button class="btn btn-primary" data-action="new-lead">+ Создать лид</button>
     <div class="board-search" id="board-search-wrap">
+      <div class="board-search-field">
         <input type="text" id="board-search" placeholder="Поиск по названию или ИНН" autocomplete="off" spellcheck="false">
-      <button type="button" class="search-clear" id="board-search-clear" title="Очистить" aria-label="Очистить">×</button>
+        <button type="button" class="search-clear" id="board-search-clear" title="Очистить" aria-label="Очистить">×</button>
+      </div>
+      <div class="search-drop" id="search-drop"></div>
     </div>
-    <span class="search-meta" id="search-meta"></span>
+    <div></div>
   </div>
   <div class="kanban-board" id="board"></div>
 </section>
@@ -388,6 +407,10 @@ const Net = {
     try {
       let url = `api.php?action=${encodeURIComponent(action)}`;
       if (action === 'get_data' && this.hash) url += `&hash=${encodeURIComponent(this.hash)}`;
+      if (action === 'search_leads') {
+        url += `&q=${encodeURIComponent((data && data.q) || '')}`;
+        data = null;
+      }
       const opts = { method: data ? 'POST' : 'GET', headers: {}, keepalive: true };
       if (this.csrf) opts.headers['X-CSRF-Token'] = this.csrf;
       if (isFormData) opts.body = data; else if (data) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(data); }
@@ -430,42 +453,74 @@ const Store = {
   }
 };
 
-const UI = { leadId: null, pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, search: '' };
+const UI = { leadId: null, pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false };
 
-function leadMatches(l, q) {
-  if (!q) return true;
-  const title = String(l.title || '').toLowerCase();
-  const inn = String(l.inn || '').replace(/\D/g, '');
-  const tokens = q.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  return tokens.every(t => {
-    const d = t.replace(/\D/g, '');
-    return title.includes(t) || (d.length > 0 && inn.includes(d));
+function closeSearchDrop() { $('#search-drop')?.classList.remove('open'); }
+
+function ownersOf(lead, intersections) {
+  const inn = String(lead.inn || '').replace(/\D/g, '');
+  const title = String(lead.title || '').toLowerCase();
+  const names = [];
+  (intersections || []).forEach(it => {
+    const iInn = String(it.inn || '').replace(/\D/g, '');
+    const same = (inn && iInn && inn === iInn) || (!inn && String(it.title || '').toLowerCase() === title);
+    if (same) (it.users || []).forEach(n => { if (n && !names.includes(n)) names.push(n); });
   });
+  return names;
 }
 
-function visibleLeads() {
-  const q = UI.search;
-  if (!q) return Store.state.leads;
-  return Store.state.leads.filter(l => leadMatches(l, q));
+function renderSearchDrop(payload) {
+  const box = $('#search-drop'); if (!box) return;
+  const leads = payload.leads || [];
+  const inter = payload.intersections || [];
+  const used = new Set();
+  let html = '';
+  leads.forEach(l => {
+    const names = ownersOf(l, inter);
+    if (String(l.inn || '').replace(/\D/g, '')) used.add('inn:' + String(l.inn).replace(/\D/g, ''));
+    else used.add('t:' + String(l.title || '').toLowerCase());
+    const warn = names.length ? `<div class="search-item-warn">Есть пересечения, карточка у ${esc(names.join(', '))}</div>` : '';
+    const meta = [l.inn ? 'ИНН ' + l.inn : '', l.stage || ''].filter(Boolean).join(' · ');
+    html += `<div class="search-item" data-action="open-search-lead" data-id="${esc(l.id)}"><div class="search-item-title">${esc(l.title)}</div><div class="search-item-meta">${esc(meta)}</div>${warn}</div>`;
+  });
+  inter.forEach(it => {
+    const inn = String(it.inn || '').replace(/\D/g, '');
+    const key = inn ? ('inn:' + inn) : ('t:' + String(it.title || '').toLowerCase());
+    if (used.has(key)) return;
+    const names = (it.users || []).filter(Boolean);
+    if (!names.length) return;
+    const meta = it.inn ? 'ИНН ' + it.inn : '';
+    html += `<div class="search-item other"><div class="search-item-title">${esc(it.title)}</div>${meta ? `<div class="search-item-meta">${esc(meta)}</div>` : ''}<div class="search-item-warn">Есть пересечения, карточка у ${esc(names.join(', '))}</div></div>`;
+  });
+  if (!html) html = '<div class="search-empty">Ничего не найдено</div>';
+  box.innerHTML = html;
+  box.classList.add('open');
 }
 
-function applySearch(q) {
-  UI.search = String(q || '').trim();
+let _searchGen = 0;
+async function liveSearch(q) {
   const wrap = $('#board-search-wrap');
-  if (wrap) wrap.classList.toggle('has-query', !!UI.search);
-  const inp = $('#board-search');
-  if (inp && inp.value !== (q || '')) { /* keep what user typed */ }
-  _lastBoardHash = null;
-  renderBoard();
+  wrap?.classList.toggle('has-query', !!String(q || '').trim());
+  const query = String(q || '').trim();
+  if (query.length < 2) { closeSearchDrop(); return; }
+  const gen = ++_searchGen;
+  const res = await Net.req('search_leads', { q: query });
+  if (gen !== _searchGen) return;
+  if (!res || !res.success) { closeSearchDrop(); return; }
+  renderSearchDrop(res);
+}
+
+function clearSearch() {
+  const inp = $('#board-search'); if (inp) inp.value = '';
+  $('#board-search-wrap')?.classList.remove('has-query');
+  closeSearchDrop();
 }
 
 function handleLogoutUI(msg) {
   stopPolling();
-  UI.leadId = null; UI.editingCommentId = null; UI.formDirty = false; UI.search = '';
+  UI.leadId = null; UI.editingCommentId = null; UI.formDirty = false;
   Store.state.user = null; Store.state.leads = []; Store.state.stages = [];
-  const sInp = $('#board-search'); if (sInp) sInp.value = '';
-  $('#board-search-wrap')?.classList.remove('has-query');
-  const sMeta = $('#search-meta'); if (sMeta) sMeta.textContent = '';
+  clearSearch();
   history.replaceState(null, '', location.pathname);
   $$('.view-section').forEach(el => el.classList.remove('active'));
   $('#kanban-view').classList.add('active');
@@ -539,7 +594,7 @@ async function loadUsers() {
       <td>${u.id}</td>
       <td><input class="user-input" id="uname-${u.id}" value="${esc(u.name)}"></td>
       <td><input class="user-input" id="uemail-${u.id}" value="${esc(u.email)}"></td>
-      <td><input class="user-input" id="upass-${u.id}" type=><input class="user-input" id="upass-${u.id}" type="password" placeholder="Пусто = не менять"></td>
+      <td><input class="user-input" id="upass-${u.id}" type="password" placeholder="Пусто = не менять"></td>
       <td>
         <button class="btn btn-primary btn-sm" data-action="save-user" data-id="${u.id}">💾</button>
         ${u.id !== currId && u.id !== 1 ? `<button class="btn btn-danger btn-sm" data-action="delete-user" data-id="${u.id}">🗑️</button>` : ''}
@@ -584,20 +639,12 @@ const saveLeadDebounced = debounce(() => saveLeadForm(false), 500);
 let _lastBoardHash = null;
 function renderBoard() {
   if (UI.currentView !== 'kanban') return;
-  const shown = visibleLeads();
-  const dataHash = JSON.stringify([UI.search, Store.state.stages, shown.map(l => [l.id, l.stage, l.title, l.phone, l.manager, l.inn])]);
+  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.phone, l.manager, l.inn])]);
   if (dataHash === _lastBoardHash) return; _lastBoardHash = dataHash;
-
-  const meta = $('#search-meta');
-  if (meta) {
-    meta.textContent = UI.search
-      ? (shown.length ? `Найдено: ${shown.length}` : 'Ничего не найдено')
-      : '';
-  }
 
   const board = $('#board'); board.innerHTML = ''; const frag = document.createDocumentFragment();
   Store.state.stages.forEach(stage => {
-    const leads = shown.filter(l => l.stage === stage);
+    const leads = Store.state.leads.filter(l => l.stage === stage);
     const col = document.createElement('div'); col.className = 'column'; col.dataset.stage = stage; col.draggable = true;
     col.innerHTML = `<div class="column-header"><div class="col-title"><span>${esc(stage)}</span><span class="col-edit" data-action="edit-stage">✎</span></div><span class="col-count">${leads.length}</span></div><div class="cards-container"></div>`;
     const cont = col.querySelector('.cards-container');
@@ -733,6 +780,9 @@ function initEvents() {
 
     await withLock(async () => {
     switch (act) {
+      case 'open-search-lead':
+        if (actEl.dataset.id) { closeSearchDrop(); openLead(actEl.dataset.id, true); }
+        break;
       case 'go-home': goHome(true); break;
       case 'go-users': switchView('users-view', true); break;
       case 'logout': execLogout(); break;

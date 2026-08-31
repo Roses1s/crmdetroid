@@ -32,9 +32,9 @@ const MIME = {
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
-const PUBLIC_GET = new Set(['check_auth', 'login', 'logout', 'get_data', 'get_users']);
+const PUBLIC_GET = new Set(['check_auth', 'login', 'logout', 'get_data', 'get_users', 'search_leads']);
 const PUBLIC_NO_AUTH = new Set(['login', 'logout', 'check_auth']);
-const CSRF_EXEMPT = new Set(['login', 'logout', 'check_auth', 'get_data', 'get_users']);
+const CSRF_EXEMPT = new Set(['login', 'logout', 'check_auth', 'get_data', 'get_users', 'search_leads']);
 
 function json(res, obj) {
   if (res.headersSent) return;
