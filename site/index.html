@@ -3,15 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+(function(){try{if(localStorage.getItem('crm-theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();
+</script>
 <title>CRM — Детроид</title>
 <style>
   :root {
     --primary: #714B67; --primary-dark: #5a3b52; --success: #28a745; --danger: #dc3545;
     --bg: #f0f1f5; --panel: #fff; --border: #d1d4de; --text: #2c3e50; --muted: #888;
-    --column-bg: #e3e5ec;
+    --column-bg: #e3e5ec; --surface: #fff; --surface-2: #f9f9fb; --surface-3: #f1f1f1;
+    --input-bg: #fff; --hover: #f7f5f7; --text-2: #555; --chip: #eef1f6;
     --shadow-sm: 0 1px 3px rgba(0,0,0,.12); --shadow-md: 0 4px 12px rgba(0,0,0,.15);
     --shadow-lg: 0 5px 15px rgba(0,0,0,.3);
     --radius: 4px; --radius-lg: 8px;
+    color-scheme: light;
+  }
+  html[data-theme="dark"] {
+    --primary: #c4a0bb; --primary-dark: #d4b8cd; --success: #3dbe63; --danger: #f07178;
+    --bg: #16171c; --panel: #1e2028; --border: #3a3d4a; --text: #e8eaef; --muted: #9aa0b0;
+    --column-bg: #252730; --surface: #23252e; --surface-2: #2b2d38; --surface-3: #343746;
+    --input-bg: #2b2d38; --hover: #333544; --text-2: #c5c9d4; --chip: #333544;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.45); --shadow-md: 0 4px 12px rgba(0,0,0,.5);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,.55);
+    color-scheme: dark;
   }
   *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
   html,body { height: 100%; width: 100%; }
@@ -234,6 +248,89 @@
   .toast.hiding { animation: slideOut .2s ease-in forwards; }
   @keyframes slideIn { from { transform: translateX(120%); } to { transform: translateX(0); } }
   @keyframes slideOut { to { transform: translateX(120%); opacity: 0; } }
+
+  .theme-toggle {
+    width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.12);
+    color: #fff; font-size: 14px; line-height: 1; display: inline-flex;
+    align-items: center; justify-content: center; padding: 0; flex-shrink: 0;
+  }
+  .theme-toggle:hover { background: rgba(255,255,255,.24); }
+  html[data-theme="dark"] .theme-toggle { border-color: rgba(255,255,255,.2); }
+
+  html[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #55596a; }
+  html[data-theme="dark"] .login-card,
+  html[data-theme="dark"] .modal,
+  html[data-theme="dark"] .search-drop,
+  html[data-theme="dark"] .dropdown-menu,
+  html[data-theme="dark"] .users-table,
+  html[data-theme="dark"] .card,
+  html[data-theme="dark"] .route-card { background: var(--surface); color: var(--text); }
+  html[data-theme="dark"] .login-card h2,
+  html[data-theme="dark"] .modal h2 { color: var(--text); }
+  html[data-theme="dark"] .board-search input,
+  html[data-theme="dark"] .routes-toolbar-search input,
+  html[data-theme="dark"] .comment-form textarea,
+  html[data-theme="dark"] .inline-editor textarea,
+  html[data-theme="dark"] .apps-counter input,
+  html[data-theme="dark"] .field input,
+  html[data-theme="dark"] .user-input:focus,
+  html[data-theme="dark"] .form-input:focus,
+  html[data-theme="dark"] .editable-title:focus { background: var(--input-bg); color: var(--text); border-color: var(--border); }
+  html[data-theme="dark"] .breadcrumb { color: var(--muted); }
+  html[data-theme="dark"] .toolbar { background: var(--panel); }
+  html[data-theme="dark"] #detail-view,
+  html[data-theme="dark"] #route-view,
+  html[data-theme="dark"] #carrier-view { background: var(--panel) !important; }
+  html[data-theme="dark"] #detail-view > .toolbar,
+  html[data-theme="dark"] #route-view > .toolbar,
+  html[data-theme="dark"] #carrier-view > .toolbar { background: var(--surface-2) !important; }
+  html[data-theme="dark"] .btn-secondary,
+  html[data-theme="dark"] .file-label,
+  html[data-theme="dark"] .stage-btn { background: var(--surface-3); color: var(--text); border-color: var(--border); }
+  html[data-theme="dark"] .btn-secondary:hover:not(:disabled),
+  html[data-theme="dark"] .file-label:hover { background: var(--hover); }
+  html[data-theme="dark"] .stage-btn.active { background: var(--primary); color: #1a1b20; border-color: var(--primary); }
+  html[data-theme="dark"] .column-header { color: var(--text-2); }
+  html[data-theme="dark"] .col-count { background: #4a4e5c; color: #d7dbe6; }
+  html[data-theme="dark"] .add-column { background: rgba(255,255,255,.04); border-color: #555; color: var(--muted); }
+  html[data-theme="dark"] .chatter { background: var(--bg); }
+  html[data-theme="dark"] .chatter-header,
+  html[data-theme="dark"] .comment-form { background: var(--panel); }
+  html[data-theme="dark"] .log-body { background: var(--surface); border-color: var(--border); }
+  html[data-theme="dark"] .log-author { color: var(--text); }
+  html[data-theme="dark"] .log-text { color: var(--text-2); }
+  html[data-theme="dark"] .file-chip,
+  html[data-theme="dark"] .att-file { background: var(--chip); border-color: var(--border); color: var(--text); }
+  html[data-theme="dark"] .att-file:hover { background: var(--hover); }
+  html[data-theme="dark"] .att-image img { border-color: var(--border); }
+  html[data-theme="dark"] .users-table th { background: var(--surface-2); color: var(--text-2); }
+  html[data-theme="dark"] .users-table th,
+  html[data-theme="dark"] .users-table td { border-bottom-color: var(--border); color: var(--text); }
+  html[data-theme="dark"] .search-item { border-bottom-color: var(--border); }
+  html[data-theme="dark"] .search-item:hover { background: var(--hover); }
+  html[data-theme="dark"] .search-item-title,
+  html[data-theme="dark"] .route-card-title { color: var(--text); }
+  html[data-theme="dark"] .search-item.other { background: #3a3118; }
+  html[data-theme="dark"] .search-item.other:hover { background: #4a3d1c; }
+  html[data-theme="dark"] .search-item.emp { background: #322a33; }
+  html[data-theme="dark"] .search-item.emp:hover { background: #3c323e; }
+  html[data-theme="dark"] .search-item-warn { color: #e2b36a; }
+  html[data-theme="dark"] .view-user-banner { background: #3a2f3a; color: var(--primary); }
+  html[data-theme="dark"] .dropdown-item { border-bottom-color: var(--border); color: var(--text); }
+  html[data-theme="dark"] .dropdown-item:hover { background: var(--hover); }
+  html[data-theme="dark"] .form-label,
+  html[data-theme="dark"] .section-title,
+  html[data-theme="dark"] .lead-nav-pos,
+  html[data-theme="dark"] .field label { color: var(--text-2); }
+  html[data-theme="dark"] .section-title { border-bottom-color: var(--border); }
+  html[data-theme="dark"] .form-input,
+  html[data-theme="dark"] .editable-title,
+  html[data-theme="dark"] .user-input { color: var(--text); }
+  html[data-theme="dark"] #prompt-message,
+  html[data-theme="dark"] #confirm-message { color: var(--muted) !important; }
+  html[data-theme="dark"] .card { border-left-color: var(--primary); }
+  html[data-theme="dark"] .btn-primary { color: #1a1b20; }
 </style>
 </head>
 <body>
@@ -259,6 +356,7 @@
   </div>
   <div class="user-info">
     <span class="conn-dot" id="conn-dot" title="Связь с сервером"></span>
+    <button type="button" class="theme-toggle" id="theme-toggle" data-action="toggle-theme" title="Тёмная тема" aria-label="Тёмная тема">🌙</button>
     <span id="user-display-name">...</span>
     <span class="logout-btn" data-action="logout">Выйти</span>
   </div>
@@ -474,6 +572,25 @@
 <script>
 'use strict';
 
+
+const Theme = {
+  key: 'crm-theme',
+  get() { try { return localStorage.getItem(this.key) === 'dark' ? 'dark' : 'light'; } catch (e) { return 'light'; } },
+  apply(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    const btn = document.getElementById('theme-toggle');
+    if (!btn) return;
+    const dark = t === 'dark';
+    btn.textContent = dark ? '☀️' : '🌙';
+    btn.title = dark ? 'Светлая тема' : 'Тёмная тема';
+    btn.setAttribute('aria-label', btn.title);
+  },
+  toggle() {
+    const next = this.get() === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem(this.key, next); } catch (e) {}
+    this.apply(next);
+  }
+};
 const $  = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -1367,6 +1484,7 @@ function initEvents() {
         else Toast.error(resPCC?.error || 'Ошибка');
         break;
       }
+      case 'toggle-theme': Theme.toggle(); break;
       case 'logout': execLogout(); break;
       case 'new-lead': $$('#modal-create input').forEach(i => i.value = ''); Modal.open('modal-create'); setTimeout(() => $('#m-title').focus(), 50); break;
       case 'open-add-user': $$('#modal-add-user input').forEach(i => i.value = ''); Modal.open('modal-add-user'); setTimeout(() => $('#u-name').focus(), 50); break;
@@ -1542,6 +1660,7 @@ function startPolling() {
 function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) Store.load(false); });
 
+Theme.apply(Theme.get());
 initEvents();
 </script>
 </body>

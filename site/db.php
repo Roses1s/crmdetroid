@@ -1,18 +1,74 @@
 <?php
 declare(strict_types=1);
 
+/** @return list<array{0:string,1:int}> */
+function crm_mysql_targets(string $host, int $port): array {
+    $host = trim($host);
+    if (preg_match('/^([^:;]+)[:;](?:port=)?(\d+)$/', $host, $m)) {
+        $host = $m[1];
+        $port = (int) $m[2];
+    }
+    $out = [];
+    $add = static function (string $h, int $p) use (&$out): void {
+        $key = $h . ':' . $p;
+        foreach ($out as $row) {
+            if ($row[0] . ':' . $row[1] === $key) return;
+        }
+        $out[] = [$h, $p];
+    };
+    $add($host, $port);
+    // SpaceWeb MySQL 8 слушает 127.0.0.1:3308, не стандартный 3306.
+    $add('127.0.0.1', 3308);
+    $add('localhost', 3308);
+    return $out;
+}
+
+function crm_mysql_connect_hint(PDOException $e): string {
+    $msg = $e->getMessage();
+    if (stripos($msg, 'could not find driver') !== false) {
+        return 'На хостинге нет PHP-расширения pdo_mysql. В панели SpaceWeb включите PHP 8.1+ с MySQL.';
+    }
+    if (str_contains($msg, '1045') || stripos($msg, 'Access denied') !== false) {
+        return 'MySQL: неверный логин, пароль или порт. На SpaceWeb для MySQL 8 хост должен быть 127.0.0.1, порт 3308. Либо смените пароль: Базы данных → три точки → «Изменить пароль».';
+    }
+    if (str_contains($msg, '1049') || stripos($msg, 'Unknown database') !== false) {
+        return 'MySQL: база «' . CRM_DB_NAME . '» не найдена. Имя в CRM_DB_NAME должно совпадать с панелью целиком.';
+    }
+    if (str_contains($msg, '2002') || stripos($msg, 'No such file') !== false || stripos($msg, 'Connection refused') !== false) {
+        return 'Не достучались до MySQL. В CRM_DB_HOST поставьте 127.0.0.1 вместо localhost.';
+    }
+    return 'Не удалось подключиться к MySQL: ' . $msg;
+}
+
 function crm_pdo(): PDO {
     static $pdo = null;
     if ($pdo instanceof PDO) return $pdo;
-    $dsn = 'mysql:host=' . CRM_DB_HOST . ';dbname=' . CRM_DB_NAME . ';charset=' . CRM_DB_CHARSET;
-    try {
-        $pdo = new PDO($dsn, CRM_DB_USER, CRM_DB_PASS, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]);
-    } catch (PDOException $e) {
-        err('Не удалось подключиться к MySQL. Проверьте CRM_DB_* в config.php');
+    if (!defined('CRM_DB_PASS') || CRM_DB_PASS === '' || CRM_DB_PASS === 'CHANGE_ME' || CRM_DB_PASS === 'ВПИШИТЕ_ПАРОЛЬ') {
+        err('В config.php не задан пароль базы (CRM_DB_PASS). Это не пароль от панели SpaceWeb, а пароль MySQL.');
+    }
+    if (!extension_loaded('pdo_mysql')) {
+        err('На хостинге нет расширения PHP pdo_mysql. Включите PHP 8.1+ с MySQL в панели сайта.');
+    }
+    $opts = [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ];
+    $port = defined('CRM_DB_PORT') ? (int) CRM_DB_PORT : 0;
+    $targets = crm_mysql_targets(CRM_DB_HOST, $port);
+    $last = null;
+    foreach ($targets as [$host, $p]) {
+        try {
+            $dsn = 'mysql:host=' . $host . ($p ? ';port=' . $p : '') . ';dbname=' . CRM_DB_NAME . ';charset=' . CRM_DB_CHARSET;
+            $pdo = new PDO($dsn, CRM_DB_USER, CRM_DB_PASS, $opts);
+            break;
+        } catch (PDOException $e) {
+            $last = $e;
+            $pdo = null;
+        }
+    }
+    if (!$pdo instanceof PDO) {
+        err(crm_mysql_connect_hint($last ?? new PDOException('unknown')));
     }
     crm_migrate($pdo);
     crm_migrate_owners($pdo);

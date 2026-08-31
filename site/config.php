@@ -3,7 +3,8 @@
  * Конфиг CRM «Детроид».
  * На SpaceWeb: Панель → Базы данных → создать БД → скопировать имя, логин, пароль сюда.
  */
-define('CRM_DB_HOST', getenv('CRM_DB_HOST') ?: 'localhost');
+define('CRM_DB_HOST', getenv('CRM_DB_HOST') ?: '127.0.0.1');
+define('CRM_DB_PORT', getenv('CRM_DB_PORT') ?: '3308');
 define('CRM_DB_NAME', getenv('CRM_DB_NAME') ?: 'crm_detroid');
 define('CRM_DB_USER', getenv('CRM_DB_USER') ?: 'crm_detroid');
 define('CRM_DB_PASS', getenv('CRM_DB_PASS') ?: 'CHANGE_ME');

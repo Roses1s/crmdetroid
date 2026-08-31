@@ -4,3 +4,4 @@ site/data/*.tmp
 site/uploads/*
 !site/uploads/.gitkeep
 !site/uploads/.htaccess
+site/check-mysql.php

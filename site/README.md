@@ -5,12 +5,13 @@
 ## SpaceWeb: база + заливка
 
 1. Панель [cp.sweb.ru](https://cp.sweb.ru/main/) → **Базы данных** → **Создать**.
+   - тип **MySQL 8** (не PostgreSQL).
    - запомните **имя БД**, **логин**, **пароль**.
-   - хост почти всегда `localhost`.
 2. Скачайте архив `crm-spaceweb.zip`, откройте `config.php` **на компьютере** и подставьте:
 
 ```php
-define('CRM_DB_HOST', 'localhost');
+define('CRM_DB_HOST', '127.0.0.1');  // MySQL 8 на SpaceWeb, не localhost
+define('CRM_DB_PORT', '3308');
 define('CRM_DB_NAME', 'uXXXX_crm');   // имя из панели
 define('CRM_DB_USER', 'uXXXX_crm');   // логин из панели
 define('CRM_DB_PASS', 'ваш_пароль');
