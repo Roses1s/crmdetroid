@@ -26,7 +26,7 @@ define('CRM_DB_PASS', 'ваш_пароль');
 
 MySQL в панели создавать **нужно**. Импортировать `schema.sql` вручную не обязательно.
 
-Обновление уже работающего сайта: залейте `api.php`, `db.php`, `index.html`, `ui.html`, `.htaccess` (и при необходимости `uploads/.htaccess`). **Не перезаписывайте** живой `config.php` — там пароль MySQL.
+Обновление уже работающего сайта: залейте `api.php`, `db.php`, `index.html`, `ui.html`, `js/`, `.htaccess` (и при необходимости `uploads/.htaccess`). **Не перезаписывайте** живой `config.php` — там пароль MySQL.
 
 ## Локально (Node)
 
