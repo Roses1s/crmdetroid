@@ -11,6 +11,20 @@ require __DIR__ . '/db.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: SAMEORIGIN');
+header("Content-Security-Policy: frame-ancestors 'self'");
+header('Referrer-Policy: strict-origin-when-cross-origin');
+
+function crm_is_https(): bool {
+    $fwd = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    if ($fwd === 'https') return true;
+    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') return true;
+    return ($_SERVER['REQUEST_SCHEME'] ?? '') === 'https';
+}
+
+if (crm_is_https()) {
+    header('Strict-Transport-Security: max-age=15552000');
+}
 
 if (!is_dir(CRM_UPLOAD_DIR)) mkdir(CRM_UPLOAD_DIR, 0775, true);
 
@@ -19,6 +33,7 @@ session_start([
     'cookie_httponly' => true,
     'cookie_samesite' => 'Lax',
     'cookie_path' => '/',
+    'cookie_secure' => crm_is_https(),
 ]);
 
 function out(array $data): never {
@@ -65,7 +80,10 @@ function require_admin(array $u): void {
 }
 function can_edit_comment(array $user, array $c): bool {
     if (($c['author'] ?? '') === 'Система') return false;
-    return ($user['role'] ?? '') === 'admin' || ($c['author'] ?? '') === $user['name'];
+    if (($user['role'] ?? '') === 'admin') return true;
+    $uid = (int) ($c['user_id'] ?? 0);
+    if ($uid > 0) return $uid === (int) $user['id'];
+    return ($c['author'] ?? '') === ($user['name'] ?? '');
 }
 
 $action = $_GET['action'] ?? '';
@@ -259,8 +277,8 @@ switch ($action) {
         }
         if ($text === '' && !$atts) err('Пусто');
         $cid = 'cc_' . bin2hex(random_bytes(6));
-        $pdo->prepare('INSERT INTO crm_carrier_comments (id, carrier_id, text, author, time, edited_at) VALUES (?,?,?,?,?,NULL)')
-            ->execute([$cid, $carrierId, $text, $user['name'], now_ms()]);
+        $pdo->prepare('INSERT INTO crm_carrier_comments (id, carrier_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,?,?,NULL)')
+            ->execute([$cid, $carrierId, $text, $user['name'], (int) $user['id'], now_ms()]);
         $insA = $pdo->prepare('INSERT INTO crm_carrier_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
         foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
         ok();
@@ -291,13 +309,13 @@ switch ($action) {
 
     case 'get_data': {
         $uid = $viewUid;
-        $stages = crm_stages($pdo, $uid);
-        $leads = crm_leads_full($pdo, $uid);
-        $hash = substr(hash('sha256', (string) json_encode(['s' => $stages, 'l' => $leads], JSON_UNESCAPED_UNICODE)), 0, 32);
+        $hash = substr(hash('sha256', crm_board_rev($pdo, $uid)), 0, 32);
         $client = (string) ($_GET['hash'] ?? '');
-        if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
+        if ($client !== '' && hash_equals($hash, $client)) {
             ok(['unchanged' => true, 'hash' => $hash]);
         }
+        $stages = crm_stages($pdo, $uid);
+        $leads = crm_leads_full($pdo, $uid);
         ok(['hash' => $hash, 'stages' => $stages, 'leads' => $leads, 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo)]);
     }
 
@@ -327,13 +345,14 @@ switch ($action) {
         $stage = strv($in['stage'] ?? ($row['stage'] ?? ($stages[0] ?? 'Новый')), 80);
         if (!in_array($stage, $stages, true)) $stage = $row['stage'] ?? ($stages[0] ?? 'Новый');
 
+        $now = now_ms();
         if (!$row) {
-            $ins = $pdo->prepare('INSERT INTO crm_leads (id,user_id,title,inn,phone,email,manager,cargo,format,payment,ati,applications_count,stage,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-            $ins->execute([$id, $uid, $title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, now_ms()]);
+            $ins = $pdo->prepare('INSERT INTO crm_leads (id,user_id,title,inn,phone,email,manager,cargo,format,payment,ati,applications_count,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+            $ins->execute([$id, $uid, $title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $now, $now]);
             crm_sys_comment($pdo, $id, 'Лид создан');
         } else {
-            $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=? WHERE id=? AND user_id=?');
-            $upd->execute([$title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $id, $uid]);
+            $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=?,updated_at=? WHERE id=? AND user_id=?');
+            $upd->execute([$title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $now, $id, $uid]);
         }
 
         if (!empty($in['transfer'])) {
@@ -343,8 +362,8 @@ switch ($action) {
                 $toId = (int) $match['id'];
                 $toStages = crm_stages($pdo, $toId);
                 $newStage = in_array($stage, $toStages, true) ? $stage : ($toStages[0] ?? $stage);
-                $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ? WHERE id = ?')
-                    ->execute([$toId, $newStage, $match['name'], $id]);
+                $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ?')
+                    ->execute([$toId, $newStage, $match['name'], now_ms(), $id]);
                 crm_sys_comment($pdo, $id, 'Лид передан: ' . $user['name'] . ' → ' . $match['name']);
                 ok(['id' => $id, 'transferred' => true, 'to' => $match['name']]);
             }
@@ -363,7 +382,7 @@ switch ($action) {
         if (!$row) err('Лид не найден');
         if ($row['stage'] !== $stage) {
             $from = strv($in['from'] ?? '', 80) ?: $row['stage'];
-            $pdo->prepare('UPDATE crm_leads SET stage = ? WHERE id = ? AND user_id = ?')->execute([$stage, $id, $uid]);
+            $pdo->prepare('UPDATE crm_leads SET stage = ?, updated_at = ? WHERE id = ? AND user_id = ?')->execute([$stage, now_ms(), $id, $uid]);
             crm_sys_comment($pdo, $id, "Статус изменен: {$from} ➔ {$stage}");
         }
         ok();
@@ -404,8 +423,8 @@ switch ($action) {
         }
         if ($text === '' && !$atts) err('Пусто');
         $cid = 'c_' . bin2hex(random_bytes(6));
-        $pdo->prepare('INSERT INTO crm_comments (id, lead_id, text, author, time, edited_at) VALUES (?,?,?,?,?,NULL)')
-            ->execute([$cid, $leadId, $text, $user['name'], now_ms()]);
+        $pdo->prepare('INSERT INTO crm_comments (id, lead_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,?,?,NULL)')
+            ->execute([$cid, $leadId, $text, $user['name'], (int) $user['id'], now_ms()]);
         $insA = $pdo->prepare('INSERT INTO crm_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
         foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
         ok();

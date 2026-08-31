@@ -70,11 +70,73 @@ function crm_pdo(): PDO {
     if (!$pdo instanceof PDO) {
         err(crm_mysql_connect_hint($last ?? new PDOException('unknown')));
     }
+    crm_boot($pdo);
+    return $pdo;
+}
+
+const CRM_SCHEMA_VERSION = 4;
+
+function crm_schema_version(PDO $pdo): int {
+    try {
+        $v = $pdo->query("SELECT v FROM crm_meta WHERE k = 'schema'")->fetchColumn();
+        return (int) $v;
+    } catch (PDOException $e) {
+        return 0;
+    }
+}
+
+function crm_boot(PDO $pdo): void {
+    if (crm_schema_version($pdo) >= CRM_SCHEMA_VERSION) return;
     crm_migrate($pdo);
     crm_migrate_owners($pdo);
     crm_migrate_routes($pdo);
+    crm_migrate_v4($pdo);
     crm_seed($pdo);
-    return $pdo;
+    try {
+        $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
+            ->execute(['schema', (string) CRM_SCHEMA_VERSION]);
+    } catch (PDOException $e) { /* first boot race */ }
+}
+
+function crm_migrate_v4(PDO $pdo): void {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_meta (
+      k VARCHAR(32) NOT NULL,
+      v VARCHAR(64) NOT NULL DEFAULT '',
+      PRIMARY KEY (k)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    if (!crm_has_column($pdo, 'crm_leads', 'updated_at')) {
+        $pdo->exec('ALTER TABLE crm_leads ADD COLUMN updated_at BIGINT NOT NULL DEFAULT 0 AFTER created_at');
+        try { $pdo->exec('UPDATE crm_leads SET updated_at = created_at WHERE updated_at = 0'); } catch (PDOException $e) { /* ok */ }
+        try { $pdo->exec('ALTER TABLE crm_leads ADD KEY idx_updated (user_id, updated_at)'); } catch (PDOException $e) { /* ok */ }
+    }
+    if (!crm_has_column($pdo, 'crm_comments', 'user_id')) {
+        $pdo->exec('ALTER TABLE crm_comments ADD COLUMN user_id INT UNSIGNED NOT NULL DEFAULT 0 AFTER author');
+        try {
+            $pdo->exec("UPDATE crm_comments c INNER JOIN crm_users u ON u.name = c.author SET c.user_id = u.id WHERE c.author <> 'Система' AND c.user_id = 0");
+        } catch (PDOException $e) { /* ok */ }
+        try { $pdo->exec('ALTER TABLE crm_comments ADD KEY idx_user (user_id)'); } catch (PDOException $e) { /* ok */ }
+    }
+    if (!crm_has_column($pdo, 'crm_carrier_comments', 'user_id')) {
+        $pdo->exec('ALTER TABLE crm_carrier_comments ADD COLUMN user_id INT UNSIGNED NOT NULL DEFAULT 0 AFTER author');
+        try {
+            $pdo->exec("UPDATE crm_carrier_comments c INNER JOIN crm_users u ON u.name = c.author SET c.user_id = u.id WHERE c.user_id = 0");
+        } catch (PDOException $e) { /* ok */ }
+        try { $pdo->exec('ALTER TABLE crm_carrier_comments ADD KEY idx_user (user_id)'); } catch (PDOException $e) { /* ok */ }
+    }
+}
+
+function crm_board_rev(PDO $pdo, int $userId): string {
+    $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(updated_at),0) u, COALESCE(MAX(created_at),0) cr FROM crm_leads WHERE user_id = ?');
+    $st->execute([$userId]);
+    $L = $st->fetch() ?: ['c' => 0, 'u' => 0, 'cr' => 0];
+    $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(c.time),0) t, COALESCE(MAX(c.edited_at),0) e
+        FROM crm_comments c INNER JOIN crm_leads l ON l.id = c.lead_id WHERE l.user_id = ?');
+    $st->execute([$userId]);
+    $C = $st->fetch() ?: ['c' => 0, 't' => 0, 'e' => 0];
+    $stages = implode("\n", crm_stages($pdo, $userId));
+    $users = (int) $pdo->query('SELECT COUNT(*) FROM crm_users')->fetchColumn();
+    return $userId . '|' . $L['c'] . '|' . $L['u'] . '|' . $L['cr'] . '|' . $C['c'] . '|' . $C['t'] . '|' . $C['e'] . '|' . $users . '|' . $stages;
 }
 
 function crm_default_stages(): array {
@@ -145,9 +207,11 @@ function crm_migrate(PDO $pdo): void {
       applications_count INT NOT NULL DEFAULT 0,
       stage VARCHAR(80) NOT NULL,
       created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL DEFAULT 0,
       PRIMARY KEY (id),
       KEY idx_stage (stage),
-      KEY idx_user (user_id)
+      KEY idx_user (user_id),
+      KEY idx_updated (user_id, updated_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS crm_comments (
@@ -155,10 +219,12 @@ function crm_migrate(PDO $pdo): void {
       lead_id VARCHAR(80) NOT NULL,
       text MEDIUMTEXT NOT NULL,
       author VARCHAR(80) NOT NULL,
+      user_id INT UNSIGNED NOT NULL DEFAULT 0,
       time BIGINT NOT NULL,
       edited_at BIGINT NULL,
       PRIMARY KEY (id),
-      KEY idx_lead (lead_id)
+      KEY idx_lead (lead_id),
+      KEY idx_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS crm_attachments (
@@ -557,7 +623,7 @@ function crm_data_hash(PDO $pdo, int $userId): string {
 }
 
 function crm_sys_comment(PDO $pdo, string $leadId, string $text): void {
-    $st = $pdo->prepare('INSERT INTO crm_comments (id, lead_id, text, author, time, edited_at) VALUES (?,?,?,?,?,NULL)');
+    $st = $pdo->prepare('INSERT INTO crm_comments (id, lead_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,0,?,NULL)');
     $st->execute(['c_' . bin2hex(random_bytes(6)), $leadId, $text, 'Система', now_ms()]);
 }
 
