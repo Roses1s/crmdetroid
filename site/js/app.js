@@ -245,6 +245,17 @@ function canEditComment(c) {
   if (uid > 0) return uid === Number(user.id);
   return (c.author || '') === (user.name || '');
 }
+function canDeleteComment(c) {
+  if (!Store.state.user) return false;
+  if ((c.author || '') === 'Система') return true;
+  return canEditComment(c);
+}
+function logActionsHtml(c) {
+  const bits = [];
+  if (canEditComment(c)) bits.push(`<span class="log-btn" data-action="toggle-edit" data-cid="${esc(c.id)}">✎ Изменить</span>`);
+  if (canDeleteComment(c)) bits.push(`<span class="log-btn del" data-action="del-comment" data-cid="${esc(c.id)}">🗑️</span>`);
+  return bits.length ? `<div class="log-actions">${bits.join('')}</div>` : '';
+}
 
 function closeSearchDrop() { $('#search-drop')?.classList.remove('open'); }
 
@@ -628,7 +639,6 @@ function renderCarrierLog() {
   log.innerHTML = '';
   const frag = document.createDocumentFragment();
   [...comments].reverse().forEach(c => {
-    const canEdit = canEditComment(c);
     const init = (c.author[0] || '?').toUpperCase();
     const atts = (c.attachments || []).map(renderAttHtml).join('');
     const el = document.createElement('div'); el.className = 'log-entry';
@@ -637,7 +647,7 @@ function renderCarrierLog() {
       <div class="log-body">
         <div class="log-head">
           <div><div class="log-author">${esc(c.author)}</div><div>${esc(fmtTime(c.time))}${c.editedAt ? ` <span class="log-edited">изм. ${esc(fmtTime(c.editedAt))}</span>` : ''}</div></div>
-          ${canEdit ? `<div class="log-actions"><span class="log-btn" data-action="toggle-edit" data-cid="${esc(c.id)}">✎ Изменить</span><span class="log-btn del" data-action="del-comment" data-cid="${esc(c.id)}">🗑️</span></div>` : ''}
+          ${logActionsHtml(c)}
         </div>
         <div class="log-text" data-txt="${esc(c.id)}">${esc(c.text)}</div>
         <div class="inline-editor" data-edt="${esc(c.id)}">
@@ -1399,3 +1409,4 @@ async function execLogin() {
 Theme.apply(Theme.get());
 initEvents();
 bootApp();
+ootApp();

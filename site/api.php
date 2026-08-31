@@ -189,6 +189,10 @@ function can_edit_comment(array $user, array $c): bool {
     if ($uid > 0) return $uid === (int) $user['id'];
     return ($c['author'] ?? '') === ($user['name'] ?? '');
 }
+function can_delete_comment(array $user, array $c): bool {
+    if (($c['author'] ?? '') === 'Система') return true;
+    return can_edit_comment($user, $c);
+}
 function crm_discard_uploads(array $atts): void {
     foreach ($atts as $a) {
         if (!empty($a['dataUrl'])) crm_unlink_upload((string) $a['dataUrl']);
@@ -521,7 +525,7 @@ switch ($action) {
         $cid = strv($in['id'] ?? '', 80);
         $c = crm_carrier_comment_by_id($pdo, $cid);
         if (!$c) err('Комментарий не найден');
-        if (!can_edit_comment($user, $c)) err('Нет прав');
+        if (!can_delete_comment($user, $c)) err('Нет прав');
         crm_delete_atts($pdo, 'crm_carrier_attachments', [$cid]);
         $pdo->prepare('DELETE FROM crm_carrier_comments WHERE id = ?')->execute([$cid]);
         $rev = crm_touch_carrier($pdo, (string) $c['carrier_id']);
@@ -704,7 +708,7 @@ switch ($action) {
         $cid = strv($in['id'] ?? '', 80);
         $c = crm_comment_for_user($pdo, $cid, $viewUid);
         if (!$c) err('Комментарий не найден');
-        if (!can_edit_comment($user, $c)) err('Нет прав');
+        if (!can_delete_comment($user, $c)) err('Нет прав');
         crm_delete_atts($pdo, 'crm_attachments', [$cid]);
         $pdo->prepare('DELETE FROM crm_comments WHERE id = ?')->execute([$cid]);
         $rev = crm_touch_lead($pdo, (string) $c['lead_id']);
