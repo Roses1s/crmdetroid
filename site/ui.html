@@ -113,6 +113,7 @@
       <input type="text" id="cf-name" class="editable-title" placeholder="Имя / название...">
       <div class="form-row"><div class="form-label">Телефон</div><input class="form-input" id="cf-phone"></div>
       <div class="form-row"><div class="form-label">Компания</div><input class="form-input" id="cf-company"></div>
+      <div class="form-row"><div class="form-label">Заметка</div><input class="form-input" id="cf-note" placeholder="Кратко о перевозчике"></div>
     </div>
     <div class="chatter">
       <div class="chatter-header">
@@ -181,7 +182,7 @@
     <h2>Добавить сотрудника</h2>
     <div class="field"><label>Имя сотрудника</label><input id="u-name"></div>
     <div class="field"><label>E-mail (логин)</label><input id="u-email" type="email"></div>
-    <div class="field"><label>Пароль (мин. 6 символов)</label><input id="u-pass" type="password"></div>
+    <div class="field"><label>Пароль (мин. 8 символов)</label><input id="u-pass" type="password"></div>
     <div class="field"><label class="check-label"><input type="checkbox" id="u-admin"> Администратор</label></div>
     <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-user">Добавить</button></div>
   </div>
@@ -193,6 +194,16 @@
     <p id="prompt-message" class="modal-msg hidden"></p>
     <div class="field"><input id="prompt-input"></div>
     <div class="modal-actions"><button class="btn btn-secondary" data-action="prompt-cancel">Отмена</button><button class="btn btn-primary" id="prompt-ok-btn">OK</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-password">
+  <div class="modal">
+    <h2>Смените пароль</h2>
+    <p class="modal-msg">Сейчас стоит временный пароль из инструкции. Задайте свой — не короче 8 символов.</p>
+    <div class="field"><label>Новый пароль</label><input id="pw-new" type="password" autocomplete="new-password"></div>
+    <div class="field"><label>Ещё раз</label><input id="pw-new2" type="password" autocomplete="new-password"></div>
+    <div class="modal-actions"><button class="btn btn-primary" data-action="submit-password">Сохранить</button></div>
   </div>
 </div>
 

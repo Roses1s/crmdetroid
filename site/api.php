@@ -49,6 +49,9 @@ function crm_session_opts(): array {
 function crm_session_boot(): void {
     if (session_status() === PHP_SESSION_ACTIVE) return;
     ini_set('session.gc_maxlifetime', (string) (8 * 3600));
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_trans_sid', '0');
     session_name(CRM_SESSION_NAME);
     session_start(crm_session_opts());
 }
@@ -63,26 +66,59 @@ function crm_session_kill(string $msg = 'Сессия истекла'): never {
     }
     err($msg, true);
 }
-function crm_session_touch(): void {
-    $ip = crm_client_ip();
+function crm_session_touch(bool $touch = true): void {
+    $ip = crm_ip_bind_key(crm_client_ip());
     $have = (string) ($_SESSION['ip'] ?? '');
     if ($have !== '' && $ip !== '' && $have !== $ip) crm_session_kill();
     $last = (int) ($_SESSION['last'] ?? 0);
     if ($last > 0 && (time() - $last) > CRM_IDLE_SEC) crm_session_kill();
-    $_SESSION['last'] = time();
+    if ($touch) $_SESSION['last'] = time();
 }
 function crm_csrf_secret(): string {
-    return hash('sha256', CRM_SESSION_NAME . '|' . (defined('CRM_DB_PASS') ? CRM_DB_PASS : ''), true);
+    $dir = __DIR__ . '/data';
+    $f = $dir . '/.csrf_secret';
+    $raw = is_file($f) ? (string) file_get_contents($f) : '';
+    if (strlen($raw) < 32) {
+        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        $raw = bin2hex(random_bytes(32));
+        @file_put_contents($f, $raw, LOCK_EX);
+        $check = is_file($f) ? (string) file_get_contents($f) : '';
+        if (strlen($check) >= 32) $raw = $check;
+    }
+    if (strlen($raw) < 32) {
+        $raw = CRM_SESSION_NAME . '|' . CRM_DB_NAME . '|' . CRM_DB_USER . '|' . (defined('CRM_DB_PASS') ? CRM_DB_PASS : '');
+    }
+    return hash('sha256', $raw, true);
 }
-function crm_login_csrf_issue(): string {
+function crm_login_csrf_issue(PDO $pdo): string {
     $ts = (string) time();
-    return $ts . '.' . hash_hmac('sha256', $ts, crm_csrf_secret());
+    $rnd = bin2hex(random_bytes(16));
+    $mac = hash_hmac('sha256', $ts . '.' . $rnd, crm_csrf_secret());
+    $token = $ts . '.' . $rnd . '.' . $mac;
+    try {
+        $pdo->prepare('INSERT INTO crm_login_nonces (h, created_at) VALUES (?, ?)')->execute([hash('sha256', $token), now_ms()]);
+        $pdo->prepare('DELETE FROM crm_login_nonces WHERE created_at < ?')->execute([now_ms() - 20 * 60 * 1000]);
+    } catch (Throwable $e) { /* table may appear on next boot */ }
+    return $token;
 }
-function crm_login_csrf_ok(string $sent): bool {
-    $parts = explode('.', $sent, 2);
-    if (count($parts) !== 2 || !ctype_digit($parts[0])) return false;
+function crm_login_csrf_ok(PDO $pdo, string $sent): bool {
+    $parts = explode('.', $sent, 3);
+    if (count($parts) !== 3 || !ctype_digit($parts[0]) || !ctype_xdigit($parts[1]) || strlen($parts[1]) !== 32) return false;
     if (abs(time() - (int) $parts[0]) > 900) return false;
-    return hash_equals(hash_hmac('sha256', $parts[0], crm_csrf_secret()), $parts[1]);
+    $expect = hash_hmac('sha256', $parts[0] . '.' . $parts[1], crm_csrf_secret());
+    if (!hash_equals($expect, $parts[2])) return false;
+    try {
+        $st = $pdo->prepare('DELETE FROM crm_login_nonces WHERE h = ?');
+        $st->execute([hash('sha256', $sent)]);
+        return $st->rowCount() > 0;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+function crm_pass_ok(string $pass): ?string {
+    if (strlen($pass) < 8) return 'Пароль мин. 8 символов';
+    if (defined('CRM_DEFAULT_ADMIN_PASS') && $pass === CRM_DEFAULT_ADMIN_PASS) return 'Придумайте другой пароль';
+    return null;
 }
 function crm_want_json(): bool {
     $ct = strtolower((string) ($_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? ''));
@@ -122,11 +158,11 @@ function require_csrf(): void {
     $have = $_SESSION['csrf'] ?? '';
     if ($sent === '' || $have === '' || strlen((string) $sent) !== strlen((string) $have) || !hash_equals((string) $have, (string) $sent)) err('CSRF');
 }
-function require_user(PDO $pdo): array {
+function require_user(PDO $pdo, bool $touch = true): array {
     if (session_status() !== PHP_SESSION_ACTIVE) err('Сессия истекла', true);
     $id = (int) ($_SESSION['user_id'] ?? 0);
     if (!$id) err('Сессия истекла', true);
-    crm_session_touch();
+    crm_session_touch($touch);
     $u = crm_user_by_id($pdo, $id);
     if (!$u) crm_session_kill();
     return $u;
@@ -165,13 +201,13 @@ $hasSess = isset($_COOKIE[CRM_SESSION_NAME]) && (string) $_COOKIE[CRM_SESSION_NA
 
 try {
 
-if ($action === 'csrf') {
-    ok(['csrf' => crm_login_csrf_issue()]);
-}
-
 if ($hasSess) crm_session_boot();
 
 $pdo = crm_pdo();
+
+if ($action === 'csrf') {
+    ok(['csrf' => crm_login_csrf_issue($pdo)]);
+}
 
 if ($action === 'file') {
     $id = (int) ($_SESSION['user_id'] ?? 0);
@@ -188,19 +224,26 @@ if ($action === 'file') {
         echo 'Too many requests';
         exit;
     }
-    crm_serve_file($pdo, (string) ($_GET['f'] ?? ''));
+    $uFile = crm_user_by_id($pdo, $id);
+    if (!$uFile) {
+        http_response_code(401);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Need login';
+        exit;
+    }
+    crm_serve_file($pdo, (string) ($_GET['f'] ?? ''), $uFile);
 }
 
 if ($action === 'check_auth') {
     if (!$hasSess) err('Сессия истекла', true);
     $u = require_user($pdo);
-    ok(['csrf' => csrf_token(), 'user' => crm_user_public($u)]);
+    ok(['csrf' => csrf_token(), 'user' => crm_user_public($u), 'mustChangePassword' => !empty($_SESSION['must_change'])]);
 }
 
 if ($action === 'login') {
     if ($method !== 'POST' || !crm_want_json()) err('CSRF');
     $sent = (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
-    if ($sent === '' || !crm_login_csrf_ok($sent)) err('CSRF');
+    if ($sent === '' || !crm_login_csrf_ok($pdo, $sent)) err('CSRF');
     $in = body_json();
     $email = mb_strtolower(strv($in['email'] ?? '', 120));
     $password = (string) ($in['password'] ?? '');
@@ -220,10 +263,15 @@ if ($action === 'login') {
     crm_session_boot();
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int) $u['id'];
-    $_SESSION['ip'] = $ip;
+    $_SESSION['ip'] = crm_ip_bind_key($ip);
     $_SESSION['last'] = time();
     unset($_SESSION['csrf']);
-    ok(['csrf' => csrf_token(), 'user' => crm_user_public($u)]);
+    if (defined('CRM_DEFAULT_ADMIN_PASS') && $password === CRM_DEFAULT_ADMIN_PASS) {
+        $_SESSION['must_change'] = 1;
+    } else {
+        unset($_SESSION['must_change']);
+    }
+    ok(['csrf' => csrf_token(), 'user' => crm_user_public($u), 'mustChangePassword' => !empty($_SESSION['must_change'])]);
 }
 
 if ($action === 'logout') {
@@ -242,7 +290,10 @@ if ($action === 'logout') {
 }
 
 if (!$hasSess && session_status() !== PHP_SESSION_ACTIVE) err('Сессия истекла', true);
-$user = require_user($pdo);
+$user = require_user($pdo, $action !== 'get_data');
+if (!empty($_SESSION['must_change']) && $action !== 'change_password' && $action !== 'ui') {
+    out(['success' => false, 'error' => 'Смените временный пароль', 'must_change_password' => true]);
+}
 if (crm_session_throttled()) err('Слишком много запросов. Подождите минуту');
 if ($method === 'POST') require_csrf();
 $viewUid = crm_view_uid($pdo, $user);
@@ -345,26 +396,32 @@ switch ($action) {
         $company = strv($in['company'] ?? '', 200);
         $id = strv($in['id'] ?? '', 80);
         $uid = (int) $user['id'];
+        $now = now_ms();
         if ($id === '') {
             $note = strv($in['note'] ?? '', 2000);
             $id = 'k_' . bin2hex(random_bytes(6));
-            $pdo->prepare('INSERT INTO crm_carriers (id, direction_id, name, phone, company, note, created_by, created_at) VALUES (?,?,?,?,?,?,?,?)')
-                ->execute([$id, $dirId, $name, $phone, $company, $note, $uid, now_ms()]);
+            $pdo->prepare('INSERT INTO crm_carriers (id, direction_id, name, phone, company, note, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
+                ->execute([$id, $dirId, $name, $phone, $company, $note, $uid, $now, $now]);
         } else {
-            $st = $pdo->prepare('SELECT id FROM crm_carriers WHERE id = ? AND direction_id = ?');
+            $st = $pdo->prepare('SELECT * FROM crm_carriers WHERE id = ? AND direction_id = ?');
             $st->execute([$id, $dirId]);
-            if (!$st->fetch()) err('Контакт не найден');
-            if (array_key_exists('note', $in)) {
-                $note = strv($in['note'] ?? '', 2000);
-                $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ?, note = ? WHERE id = ?')
-                    ->execute([$name, $phone, $company, $note, $id]);
-            } else {
-                $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ? WHERE id = ?')
-                    ->execute([$name, $phone, $company, $id]);
+            $cur = $st->fetch();
+            if (!$cur) err('Контакт не найден');
+            if (array_key_exists('updatedAt', $in) && (int) ($cur['updated_at'] ?? 0) !== (int) $in['updatedAt'] && (int) ($cur['updated_at'] ?? 0) !== 0) {
+                err('Карточка изменена в другом месте');
+            }
+            $note = array_key_exists('note', $in) ? strv($in['note'] ?? '', 2000) : (string) ($cur['note'] ?? '');
+            $rev = (int) ($cur['updated_at'] ?? 0);
+            $upd = $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ?, note = ?, updated_at = ? WHERE id = ? AND updated_at = ?');
+            $upd->execute([$name, $phone, $company, $note, $now, $id, $rev]);
+            if ($upd->rowCount() === 0 && $rev !== 0) err('Карточка изменена в другом месте');
+            if ($upd->rowCount() === 0) {
+                $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ?, note = ?, updated_at = ? WHERE id = ?')
+                    ->execute([$name, $phone, $company, $note, $now, $id]);
             }
         }
         crm_meta_bump($pdo, 'routes');
-        ok(['id' => $id]);
+        ok(['id' => $id, 'updatedAt' => $now]);
     }
 
     case 'delete_carrier': {
@@ -388,7 +445,9 @@ switch ($action) {
                 'name' => $row['name'],
                 'phone' => $row['phone'],
                 'company' => $row['company'],
+                'note' => $row['note'] ?? '',
                 'createdByName' => $row['creator'] ?: '',
+                'updatedAt' => (int) ($row['updated_at'] ?? $row['created_at'] ?? 0),
             ],
             'direction' => $dir ? [
                 'id' => $dir['id'],
@@ -438,8 +497,9 @@ switch ($action) {
             crm_discard_uploads($atts);
             err('Не удалось сохранить');
         }
+        $rev = crm_touch_carrier($pdo, $carrierId);
         crm_meta_bump($pdo, 'routes');
-        ok();
+        ok(['updatedAt' => $rev]);
     }
 
     case 'edit_carrier_comment': {
@@ -451,8 +511,9 @@ switch ($action) {
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
         $pdo->prepare('UPDATE crm_carrier_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
+        $rev = crm_touch_carrier($pdo, (string) $c['carrier_id']);
         crm_meta_bump($pdo, 'routes');
-        ok();
+        ok(['updatedAt' => $rev]);
     }
 
     case 'delete_carrier_comment': {
@@ -463,8 +524,9 @@ switch ($action) {
         if (!can_edit_comment($user, $c)) err('Нет прав');
         crm_delete_atts($pdo, 'crm_carrier_attachments', [$cid]);
         $pdo->prepare('DELETE FROM crm_carrier_comments WHERE id = ?')->execute([$cid]);
+        $rev = crm_touch_carrier($pdo, (string) $c['carrier_id']);
         crm_meta_bump($pdo, 'routes');
-        ok();
+        ok(['updatedAt' => $rev]);
     }
 
     case 'get_data': {
@@ -539,8 +601,9 @@ switch ($action) {
                 $toStages = crm_stages($pdo, $toId);
                 $newStage = in_array($stage, $toStages, true) ? $stage : ($toStages[0] ?? $stage);
                 $now2 = now_ms();
-                $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ?')
-                    ->execute([$toId, $newStage, $match['name'], $now2, $id]);
+                $tr = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
+                $tr->execute([$toId, $newStage, $match['name'], $now2, $id, $uid, $now]);
+                if ($tr->rowCount() === 0) err('Карточка изменена в другом месте');
                 crm_sys_comment($pdo, $id, 'Лид передан: ' . $user['name'] . ' → ' . $match['name']);
                 ok(['id' => $id, 'transferred' => true, 'to' => $match['name'], 'updatedAt' => $now2]);
             }
@@ -619,7 +682,8 @@ switch ($action) {
             crm_discard_uploads($atts);
             err('Не удалось сохранить');
         }
-        ok();
+        $rev = crm_touch_lead($pdo, $leadId);
+        ok(['updatedAt' => $rev]);
     }
 
     case 'edit_comment': {
@@ -631,7 +695,8 @@ switch ($action) {
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
         $pdo->prepare('UPDATE crm_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
-        ok();
+        $rev = crm_touch_lead($pdo, (string) $c['lead_id']);
+        ok(['updatedAt' => $rev]);
     }
 
     case 'delete_comment': {
@@ -642,7 +707,8 @@ switch ($action) {
         if (!can_edit_comment($user, $c)) err('Нет прав');
         crm_delete_atts($pdo, 'crm_attachments', [$cid]);
         $pdo->prepare('DELETE FROM crm_comments WHERE id = ?')->execute([$cid]);
-        ok();
+        $rev = crm_touch_lead($pdo, (string) $c['lead_id']);
+        ok(['updatedAt' => $rev]);
     }
 
     case 'save_stages': {
@@ -687,7 +753,8 @@ switch ($action) {
         $email = mb_strtolower(strv($in['email'] ?? '', 120));
         $pass = (string) ($in['password'] ?? '');
         if ($name === '' || $email === '' || $pass === '') err('Все поля');
-        if (strlen($pass) < 6) err('Пароль мин. 6 символов');
+        $bad = crm_pass_ok($pass);
+        if ($bad) err($bad);
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) err('Некорректный email');
         if (crm_user_by_email($pdo, $email)) err('E-mail уже занят');
         $role = strv($in['role'] ?? 'user', 16);
@@ -709,6 +776,10 @@ switch ($action) {
         $pass = (string) ($in['password'] ?? '');
         if ($name === '' || $email === '') err('Обязательны Имя и Email');
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) err('Некорректный email');
+        if ($pass !== '') {
+            $bad = crm_pass_ok($pass);
+            if ($bad) err($bad);
+        }
         $target = crm_user_by_id($pdo, $id);
         if (!$target) err('Сотрудник не найден');
         $other = crm_user_by_email($pdo, $email);
@@ -718,13 +789,15 @@ switch ($action) {
         if (($target['role'] ?? '') === 'admin' && $role !== 'admin' && crm_admin_count($pdo) <= 1) {
             err('Нельзя снять роль с последнего администратора');
         }
+        if ($id === (int) $user['id'] && ($target['role'] ?? '') === 'admin' && $role !== 'admin') {
+            err('Нельзя снять роль с себя');
+        }
         $pdo->prepare('UPDATE crm_users SET name = ?, email = ?, role = ? WHERE id = ?')->execute([$name, $email, $role, $id]);
         if ($name !== (string) $target['name']) {
             $pdo->prepare('UPDATE crm_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
             $pdo->prepare('UPDATE crm_carrier_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
         }
         if ($pass !== '') {
-            if (strlen($pass) < 6) err('Пароль мин. 6 символов');
             $pdo->prepare('UPDATE crm_users SET password = ? WHERE id = ?')->execute([password_hash($pass, PASSWORD_DEFAULT), $id]);
         }
         crm_meta_bump($pdo, 'users');
@@ -741,6 +814,20 @@ switch ($action) {
         if (($target['role'] ?? '') === 'admin' && crm_admin_count($pdo) <= 1) err('Нельзя удалить последнего администратора');
         crm_purge_user($pdo, $id);
         crm_meta_bump($pdo, 'users');
+        ok();
+    }
+
+    case 'change_password': {
+        $in = body_json();
+        $new = (string) ($in['password'] ?? '');
+        $old = (string) ($in['old'] ?? '');
+        $bad = crm_pass_ok($new);
+        if ($bad) err($bad);
+        if (empty($_SESSION['must_change'])) {
+            if ($old === '' || !password_verify($old, (string) ($user['password'] ?? ''))) err('Неверный пароль');
+        }
+        $pdo->prepare('UPDATE crm_users SET password = ? WHERE id = ?')->execute([password_hash($new, PASSWORD_DEFAULT), (int) $user['id']]);
+        unset($_SESSION['must_change']);
         ok();
     }
 

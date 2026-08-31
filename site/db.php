@@ -28,16 +28,7 @@ function crm_mysql_connect_hint(PDOException $e): string {
     if (stripos($msg, 'could not find driver') !== false) {
         return 'На хостинге нет PHP-расширения pdo_mysql. В панели SpaceWeb включите PHP 8.1+ с MySQL.';
     }
-    if (str_contains($msg, '1045') || stripos($msg, 'Access denied') !== false) {
-        return 'MySQL: неверный логин, пароль или порт. На SpaceWeb для MySQL 8 хост должен быть 127.0.0.1, порт 3308. Либо смените пароль: Базы данных → три точки → «Изменить пароль».';
-    }
-    if (str_contains($msg, '1049') || stripos($msg, 'Unknown database') !== false) {
-        return 'MySQL: база «' . CRM_DB_NAME . '» не найдена. Имя в CRM_DB_NAME должно совпадать с панелью целиком.';
-    }
-    if (str_contains($msg, '2002') || stripos($msg, 'No such file') !== false || stripos($msg, 'Connection refused') !== false) {
-        return 'Не достучались до MySQL. В CRM_DB_HOST поставьте 127.0.0.1 вместо localhost.';
-    }
-    return 'Не удалось подключиться к MySQL: ' . $msg;
+    return 'Не удалось подключиться к базе. Проверьте CRM_DB_HOST, порт, имя, логин и пароль в config.php.';
 }
 
 function crm_pdo(): PDO {
@@ -74,7 +65,7 @@ function crm_pdo(): PDO {
     return $pdo;
 }
 
-const CRM_SCHEMA_VERSION = 5;
+const CRM_SCHEMA_VERSION = 6;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -92,6 +83,7 @@ function crm_boot(PDO $pdo): void {
     crm_migrate_routes($pdo);
     crm_migrate_v4($pdo);
     crm_migrate_v5($pdo);
+    crm_migrate_v6($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -151,10 +143,36 @@ function crm_client_ip(): string {
     return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '';
 }
 
+function crm_ip_bind_key(string $ip): string {
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        $p = explode('.', $ip);
+        return $p[0] . '.' . $p[1] . '.' . $p[2];
+    }
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+        $bin = @inet_pton($ip);
+        if ($bin === false) return $ip;
+        return substr(bin2hex($bin), 0, 16);
+    }
+    return $ip;
+}
+
 function crm_migrate_v5(PDO $pdo): void {
     if (!crm_has_column($pdo, 'crm_login_attempts', 'ip')) {
         $pdo->exec("ALTER TABLE crm_login_attempts ADD COLUMN ip VARCHAR(45) NOT NULL DEFAULT '' AFTER email");
         try { $pdo->exec('ALTER TABLE crm_login_attempts ADD KEY idx_ip_time (ip, attempted_at)'); } catch (PDOException $e) { /* ok */ }
+    }
+}
+
+function crm_migrate_v6(PDO $pdo): void {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_login_nonces (
+      h CHAR(64) NOT NULL,
+      created_at BIGINT NOT NULL,
+      PRIMARY KEY (h),
+      KEY idx_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    if (!crm_has_column($pdo, 'crm_carriers', 'updated_at')) {
+        $pdo->exec('ALTER TABLE crm_carriers ADD COLUMN updated_at BIGINT NOT NULL DEFAULT 0 AFTER created_at');
+        try { $pdo->exec('UPDATE crm_carriers SET updated_at = created_at WHERE updated_at = 0'); } catch (PDOException $e) { /* ok */ }
     }
 }
 
@@ -302,6 +320,7 @@ function crm_migrate_routes(PDO $pdo): void {
       note VARCHAR(2000) NOT NULL DEFAULT '',
       created_by INT UNSIGNED NOT NULL,
       created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL DEFAULT 0,
       PRIMARY KEY (id),
       KEY idx_dir (direction_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
@@ -387,6 +406,7 @@ function crm_carriers_list(PDO $pdo, string $directionId): array {
             'note' => $r['note'],
             'commentsCount' => (int) $r['comments_count'],
             'createdByName' => $r['creator'] ?: '',
+            'updatedAt' => (int) ($r['updated_at'] ?? $r['created_at'] ?? 0),
         ];
     }
     return $out;
@@ -470,7 +490,19 @@ function crm_file_url(string $dataUrl): string {
     return 'api.php?action=file&f=' . rawurlencode($m[1]);
 }
 
-function crm_serve_file(PDO $pdo, string $name): never {
+function crm_touch_lead(PDO $pdo, string $id): int {
+    $now = now_ms();
+    $pdo->prepare('UPDATE crm_leads SET updated_at = ? WHERE id = ?')->execute([$now, $id]);
+    return $now;
+}
+
+function crm_touch_carrier(PDO $pdo, string $id): int {
+    $now = now_ms();
+    $pdo->prepare('UPDATE crm_carriers SET updated_at = ? WHERE id = ?')->execute([$now, $id]);
+    return $now;
+}
+
+function crm_serve_file(PDO $pdo, string $name, array $user): never {
     $name = strtolower(basename($name));
     if (!preg_match('/^[a-f0-9]{16}\.[a-z0-9]{1,8}$/', $name)) {
         http_response_code(404);
@@ -479,9 +511,17 @@ function crm_serve_file(PDO $pdo, string $name): never {
         exit;
     }
     $url = 'uploads/' . $name;
-    $st = $pdo->prepare('SELECT name FROM crm_attachments WHERE data_url = ? LIMIT 1');
+    $uid = (int) ($user['id'] ?? 0);
+    $admin = (($user['role'] ?? '') === 'admin');
+    $st = $pdo->prepare('SELECT a.name, l.user_id FROM crm_attachments a
+        INNER JOIN crm_comments c ON c.id = a.comment_id
+        INNER JOIN crm_leads l ON l.id = c.lead_id
+        WHERE a.data_url = ? LIMIT 1');
     $st->execute([$url]);
     $row = $st->fetch();
+    if ($row && !$admin && (int) $row['user_id'] !== $uid) {
+        $row = null;
+    }
     if (!$row) {
         $st = $pdo->prepare('SELECT name FROM crm_carrier_attachments WHERE data_url = ? LIMIT 1');
         $st->execute([$url]);
@@ -550,6 +590,10 @@ function crm_purge_user(PDO $pdo, int $id): void {
     $st->execute([$id]);
     foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $lid) crm_purge_lead($pdo, (string) $lid);
     $pdo->prepare('DELETE FROM crm_stages WHERE user_id = ?')->execute([$id]);
+    $pdo->prepare('UPDATE crm_directions SET created_by = 0 WHERE created_by = ?')->execute([$id]);
+    $pdo->prepare('UPDATE crm_carriers SET created_by = 0 WHERE created_by = ?')->execute([$id]);
+    $pdo->prepare('UPDATE crm_carrier_comments SET user_id = 0 WHERE user_id = ?')->execute([$id]);
+    $pdo->prepare('UPDATE crm_comments SET user_id = 0 WHERE user_id = ?')->execute([$id]);
     $pdo->prepare('DELETE FROM crm_users WHERE id = ?')->execute([$id]);
 }
 
@@ -685,7 +729,6 @@ function crm_lead_row_to_api(array $r, bool $full = true): array {
         $out['format'] = $r['format'];
         $out['payment'] = $r['payment'];
         $out['ati'] = $r['ati'];
-        $out['comments'] = [];
     }
     return $out;
 }
@@ -758,7 +801,7 @@ function crm_login_throttled(PDO $pdo, string $email, string $ip = ''): bool {
     if ($ip !== '') {
         $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE ip = ? AND attempted_at > ?');
         $st->execute([$ip, $since]);
-        if ((int) $st->fetchColumn() >= 20) return true;
+        if ((int) $st->fetchColumn() >= 80) return true;
         $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE email = ? AND ip = ? AND attempted_at > ?');
         $st->execute([$email, $ip, $since]);
         return (int) $st->fetchColumn() >= 8;

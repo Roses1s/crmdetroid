@@ -67,9 +67,13 @@ function setupPhoneMask(input) {
   input.dataset.maskInit = '1';
   let last = '';
   input.addEventListener('input', e => {
-    let d = input.value.replace(/\D/g, ''); if (!d) { input.value = ''; last = ''; return; }
+    const raw = input.value.trim();
+    if (raw.startsWith('+') && !raw.startsWith('+7') && !raw.startsWith('+8')) return;
+    let d = raw.replace(/\D/g, ''); if (!d) { input.value = ''; last = ''; return; }
     if (e.inputType === 'deleteContentBackward' && d === last && d.length > 0) d = d.slice(0, -1);
     if (!d || d === '7' || d === '8') { input.value = ''; last = ''; return; }
+    const intl = d.length >= 11 && !d.startsWith('7') && !d.startsWith('8');
+    if (intl) return;
     if (d.startsWith('8')) d = '7' + d.slice(1); else if (!d.startsWith('7')) d = '7' + d;
     d = d.slice(0, 11); last = d;
     let f = '+7'; if (d.length > 1) f += ' (' + d.slice(1, 4); if (d.length >= 5) f += ') ' + d.slice(4, 7);
@@ -136,6 +140,7 @@ const Net = {
       const res = await fetch(url, opts); const json = await res.json();
       this.setOnline(true);
       if (json.need_login) { handleLogoutUI(json.error); return null; }
+      if (json.must_change_password) { showMustChangePassword(); return json; }
       return json;
     } catch (e) { this.setOnline(false); return { success: false, error: 'Сбой сети' }; }
   }
@@ -188,7 +193,7 @@ const Store = {
       if (!UI.formDirty) fillLeadForm(lead);
       updateLeadNav();
     }
-    if (UI.currentView === 'users') loadUsers();
+    if (UI.currentView === 'users' && !usersTableBusy()) loadUsers();
     if (UI.currentView === 'routes') loadRoutes();
     if (UI.currentView === 'route' && UI.routeId) openRoute(UI.routeId, false);
     if (UI.currentView === 'carrier' && UI.carrierId && !UI.pendingFiles.length) openCarrier(UI.carrierId, false);
@@ -199,7 +204,7 @@ const Store = {
   }
 };
 
-const UI = { leadId: null, routeId: null, carrierId: null, carrierComments: [], pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
+const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierComments: [], pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
 
 function syncAdminNav(user) {
   const nav = $('#main-nav');
@@ -223,7 +228,9 @@ async function ensureLeadFull(id) {
   if (lead._full) return lead;
   const res = await Net.req('get_lead', { id });
   if (!res || !res.success || !res.lead) return lead;
+  const keepComments = lead.comments;
   Object.assign(lead, res.lead);
+  if (keepComments && !res.lead.comments) lead.comments = keepComments;
   lead._full = true;
   if (lead._editRev == null) lead._editRev = lead.updatedAt;
   return lead;
@@ -241,14 +248,7 @@ function canEditComment(c) {
 
 function closeSearchDrop() { $('#search-drop')?.classList.remove('open'); }
 
-function placeSearchDrop() {
-  const inp = $('#board-search'), box = $('#search-drop');
-  if (!inp || !box) return;
-  const r = inp.getBoundingClientRect();
-  box.style.left = Math.max(8, r.left) + 'px';
-  box.style.width = Math.max(240, r.width) + 'px';
-  box.style.top = (r.bottom + 4) + 'px';
-}
+function placeSearchDrop() {}
 
 function localSearchEmployees(q) {
   if (Store.state.user?.role !== 'admin') return [];
@@ -392,6 +392,7 @@ function handleLogoutUI(msg) {
   document.body.classList.add('guest');
   $('#login-overlay').classList.add('show');
   if (msg && msg !== 'Сессия истекла') Toast.error(msg);
+  Net.req('csrf').then(tok => { if (tok && tok.csrf) Net.csrf = tok.csrf; });
 }
 
 function withLock(fn) { return async (...args) => { if (UI.lock) return; UI.lock = true; try { await fn(...args); } finally { UI.lock = false; } }; }
@@ -544,6 +545,8 @@ async function openCarrier(id, updateHash = true) {
   $('#cf-name').value = c.name || '';
   $('#cf-phone').value = c.phone || '';
   $('#cf-company').value = c.company || '';
+  if ($('#cf-note')) $('#cf-note').value = c.note || '';
+  UI.carrierRev = c.updatedAt;
   $('#carrier-crumb').textContent = c.name || '';
   $('#carrier-dir-crumb').textContent = d ? `${d.cityFrom} → ${d.cityTo}` : 'Направление';
   setupPhoneMask($('#cf-phone'));
@@ -588,17 +591,33 @@ function fillCarrierFromForm() {
     directionId: UI.routeId,
     name: $('#cf-name').value.trim() || 'Без названия',
     phone: $('#cf-phone').value.trim(),
-    company: $('#cf-company').value.trim()
+    company: $('#cf-company').value.trim(),
+    note: ($('#cf-note') && $('#cf-note').value.trim()) || '',
+    updatedAt: UI.carrierRev
   };
 }
 
+let _carrierSaveChain = Promise.resolve();
 async function saveCarrierForm(sync = false, keepalive = false) {
-  if (!UI.carrierId) return;
-  const patch = fillCarrierFromForm();
-  $('#carrier-crumb').textContent = patch.name;
-  UI.formDirty = false;
-  const extra = keepalive ? { keepalive: true } : {};
-  if (sync) await Net.req('save_carrier', patch, false, extra); else Net.req('save_carrier', patch, false, extra);
+  if (!UI.carrierId) return null;
+  const run = async () => {
+    const patch = fillCarrierFromForm();
+    $('#carrier-crumb').textContent = patch.name;
+    const extra = keepalive ? { keepalive: true } : {};
+    const res = await Net.req('save_carrier', patch, false, extra);
+    if (res && res.success === false && res.error === 'Карточка изменена в другом месте') {
+      Toast.error('Карточку изменили в другой вкладке — обновляю');
+      if (UI.carrierId) await openCarrier(UI.carrierId, false);
+      return res;
+    }
+    if (res && res.success && res.updatedAt) UI.carrierRev = res.updatedAt;
+    if (res && res.success) UI.formDirty = false;
+    else if (res && res.success === false) Toast.error(res.error || 'Ошибка');
+    return res;
+  };
+  const job = _carrierSaveChain.then(run, run);
+  _carrierSaveChain = job.catch(() => {});
+  return sync ? job : job;
 }
 const saveCarrierDebounced = debounce(() => saveCarrierForm(false), 500);
 
@@ -638,13 +657,13 @@ function renderCarrierLog() {
 
 async function openLead(id, updateHash = true) {
   await ensureLeadFull(id);
-  const lead = Store.getLead(id); if (!lead) return goHome(updateHash);
+  const lead = Store.getLead(id); if (!lead || !lead._full) return goHome(updateHash);
 
   if (UI.leadId && UI.formDirty && UI.leadId !== id) {
     const saved = await saveLeadForm(true);
     if (saved && saved.transferred) await Store.load(true);
   }
-  const still = Store.getLead(id); if (!still) return goHome(updateHash);
+  const still = Store.getLead(id); if (!still || !still._full) return goHome(updateHash);
 
   UI.leadId = id; UI.currentView = 'lead'; UI.pendingFiles = []; UI.formDirty = false;
   $$('.view-section').forEach(el => el.classList.remove('active'));
@@ -719,8 +738,8 @@ async function execLogout() {
 }
 
 function fillLeadForm(lead) {
+  if (!lead || !lead._full) return;
   lead._editRev = lead.updatedAt;
-  lead._full = true;
   $('#f-title').value = lead.title;
   ['inn','phone','email','manager','cargo','format','payment','ati'].forEach(f => {
     const el = $(`#f-${f}`); if (el && document.activeElement !== el) el.value = lead[f] || '';
@@ -729,28 +748,40 @@ function fillLeadForm(lead) {
   $('#crumb-name').textContent = lead.title; setupPhoneMask($('#f-phone'));
 }
 
-async function saveLeadForm(sync = false, keepalive = false) {
-  if (!UI.leadId) return null; const lead = Store.getLead(UI.leadId); if (!lead) return null;
-  const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), cargo: $('#f-cargo').value.trim(), format: $('#f-format').value.trim(), payment: $('#f-payment').value.trim(), ati: $('#f-ati').value.trim(), applicationsCount: parseInt($('#f-apps').value) || 0, stage: lead.stage, updatedAt: lead._editRev ?? lead.updatedAt };
-  Object.assign(lead, patch); $('#crumb-name').textContent = patch.title; UI.formDirty = false;
-  if (sync) patch.transfer = true;
-  const extra = keepalive ? { keepalive: true } : {};
-  const res = await Net.req('save_lead', patch, false, extra);
-  if (res && res.transferred) {
-    Toast.success('Лид передан: ' + res.to);
-    UI.leadId = null;
-    UI.formDirty = false;
+let _leadSaveChain = Promise.resolve();
+async function saveLeadForm(sync = false, keepalive = false, transfer = false) {
+  if (!UI.leadId) return null; const lead = Store.getLead(UI.leadId); if (!lead || !lead._full) return null;
+  const run = async () => {
+    const cur = Store.getLead(UI.leadId); if (!cur || !cur._full) return null;
+    const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), cargo: $('#f-cargo').value.trim(), format: $('#f-format').value.trim(), payment: $('#f-payment').value.trim(), ati: $('#f-ati').value.trim(), applicationsCount: parseInt($('#f-apps').value) || 0, stage: cur.stage, updatedAt: cur._editRev ?? cur.updatedAt };
+    $('#crumb-name').textContent = patch.title;
+    if (transfer) patch.transfer = true;
+    const extra = keepalive ? { keepalive: true } : {};
+    const res = await Net.req('save_lead', patch, false, extra);
+    if (res && res.transferred) {
+      Toast.success('Лид передан: ' + res.to);
+      UI.leadId = null;
+      UI.formDirty = false;
+      return res;
+    }
+    if (res && res.success === false) {
+      if (res.error === 'Карточка изменена в другом месте') {
+        Toast.error('Карточку изменили в другой вкладке — обновляю');
+        await Store.load(true);
+        if (UI.leadId) { await ensureLeadFull(UI.leadId); const fresh = Store.getLead(UI.leadId); if (fresh) fillLeadForm(fresh); }
+      } else Toast.error(res.error || 'Ошибка');
+      return res;
+    }
+    if (res && res.success) {
+      UI.formDirty = false;
+      Object.assign(cur, patch);
+      if (res.updatedAt) { cur.updatedAt = res.updatedAt; cur._editRev = res.updatedAt; }
+    }
     return res;
-  }
-  if (res && res.success === false) {
-    if (res.error === 'Карточка изменена в другом месте') {
-      Toast.error('Карточку изменили в другой вкладке — обновляю');
-      await Store.load(true);
-      if (UI.leadId) { await ensureLeadFull(UI.leadId); const fresh = Store.getLead(UI.leadId); if (fresh) fillLeadForm(fresh); }
-    } else Toast.error(res.error || 'Ошибка');
-  }
-  if (res && res.success && res.updatedAt) { lead.updatedAt = res.updatedAt; lead._editRev = res.updatedAt; }
-  return res;
+  };
+  const job = _leadSaveChain.then(run, run);
+  _leadSaveChain = job.catch(() => {});
+  return job;
 }
 const saveLeadDebounced = debounce(() => saveLeadForm(false), 500);
 
@@ -837,6 +868,8 @@ function initEvents() {
   $('#btn-login').addEventListener('click', execLogin);
   $('#login-password').addEventListener('keydown', e => { if (e.key === 'Enter') execLogin(); });
   $('#login-email').addEventListener('keydown', e => { if (e.key === 'Enter') $('#login-password').focus(); });
+  const warn = $('#login-insecure');
+  if (warn && location.protocol !== 'https:') warn.classList.add('show');
 }
 
 function initAppEvents() {
@@ -880,7 +913,27 @@ function initAppEvents() {
   $('#f-manager').addEventListener('blur', async () => {
     if (!UI.leadId) return;
     saveLeadDebounced.cancel();
-    const res = await saveLeadForm(true);
+    const lead = Store.getLead(UI.leadId);
+    const typed = ($('#f-manager').value || '').trim();
+    const prev = (lead && lead.manager) || '';
+    let transfer = false;
+    if (typed && Store.state.colleagues) {
+      const q = typed.toLowerCase();
+      const hits = Store.state.colleagues.filter(u => {
+        const n = String(u.name || '').toLowerCase();
+        if (n === q) return true;
+        return n.split(/\s+/).includes(q);
+      });
+      const me = Store.state.user && hits.length === 1 && +hits[0].id === +Store.state.user.id;
+      if (hits.length === 1 && !me) {
+        if (!await askConfirm('Передать лид?', 'Лид уйдёт сотруднику «' + hits[0].name + '»')) {
+          $('#f-manager').value = prev;
+          return;
+        }
+        transfer = true;
+      }
+    }
+    const res = await saveLeadForm(true, false, transfer);
     if (res && res.transferred) { await Store.load(true); await goHome(true); }
   });
   $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; saveCarrierDebounced(); } });
@@ -1011,6 +1064,22 @@ function initAppEvents() {
         break;
       }
       case 'toggle-theme': Theme.toggle(); break;
+      case 'submit-password': {
+        const np = $('#pw-new')?.value || '', n2 = $('#pw-new2')?.value || '';
+        if (np.length < 8) return Toast.error('Пароль мин. 8 символов');
+        if (np !== n2) return Toast.error('Пароли не совпадают');
+        const resPw = await Net.req('change_password', { password: np });
+        if (resPw?.success) {
+          Modal.closeAll();
+          if ($('#pw-new')) $('#pw-new').value = '';
+          if ($('#pw-new2')) $('#pw-new2').value = '';
+          Toast.success('Пароль обновлён');
+          await Store.load(true);
+          handleHashRouting();
+          startPolling();
+        } else Toast.error(resPw?.error || 'Ошибка');
+        break;
+      }
       case 'logout': execLogout(); break;
       case 'new-lead': $$('#modal-create input').forEach(i => i.value = ''); Modal.open('modal-create'); setTimeout(() => $('#m-title').focus(), 50); break;
       case 'open-add-user': $$('#modal-add-user input').forEach(i => { if (i.type === 'checkbox') i.checked = false; else i.value = ''; }); Modal.open('modal-add-user'); setTimeout(() => $('#u-name').focus(), 50); break;
@@ -1026,6 +1095,7 @@ function initAppEvents() {
       case 'submit-user':
         const n = $('#u-name').value.trim(), ue = $('#u-email').value.trim(), p = $('#u-pass').value;
         if (!n || !ue || !p) return Toast.error('Все поля');
+        if (p.length < 8) return Toast.error('Пароль мин. 8 символов');
         const resU = await Net.req('register_user', { name: n, email: ue, password: p, role: $('#u-admin')?.checked ? 'admin' : 'user' });
         if (resU?.success) { Toast.success('Добавлен'); Modal.closeAll(); loadUsers(); } else Toast.error(resU?.error || 'Ошибка');
         break;
@@ -1033,6 +1103,7 @@ function initAppEvents() {
       case 'save-user': {
         const id = actEl.dataset.id, un = $(`#uname-${id}`).value.trim(), uem = $(`#uemail-${id}`).value.trim(), up = $(`#upass-${id}`).value, ur = $(`#urole-${id}`)?.value || 'user';
         if (!un || !uem) return Toast.error('Обязательны Имя и Email');
+        if (up && up.length < 8) return Toast.error('Пароль мин. 8 символов');
         const resS = await Net.req('update_user', { id: +id, name: un, email: uem, password: up, role: ur });
         if (resS?.success) { Toast.success('Сохранено'); loadUsers(); } else Toast.error(resS?.error || 'Ошибка');
         break;
@@ -1090,7 +1161,11 @@ function initAppEvents() {
         const fd = new FormData(); fd.append('lead_id', UI.leadId); fd.append('text', txt);
         UI.pendingFiles.forEach(f => fd.append('files[]', f.rawFile));
         const resPC = await Net.req('add_comment', fd, true);
-        if (resPC?.success) { $('#comment-input').value = ''; UI.pendingFiles = []; renderFiles(); await Store.load(true); await loadLeadComments(UI.leadId); renderLog(); } else Toast.error(resPC?.error || 'Ошибка');
+        if (resPC?.success) {
+          const L = Store.getLead(UI.leadId);
+          if (L && resPC.updatedAt) { L.updatedAt = resPC.updatedAt; L._editRev = resPC.updatedAt; }
+          $('#comment-input').value = ''; UI.pendingFiles = []; renderFiles(); await Store.load(true); await loadLeadComments(UI.leadId); renderLog();
+        } else Toast.error(resPC?.error || 'Ошибка');
         break;
 
       case 'rm-file': UI.pendingFiles.splice(+actEl.dataset.idx, 1); renderFiles(); break;
@@ -1110,7 +1185,14 @@ function initAppEvents() {
         const resSC = await Net.req(isCarrier ? 'edit_carrier_comment' : 'edit_comment', { id: actEl.dataset.cid, text: v });
         if (resSC?.success) {
           UI.editingCommentId = null;
-          if (isCarrier) await openCarrier(UI.carrierId, false); else await Store.load(true);
+          if (isCarrier) {
+            if (resSC.updatedAt) UI.carrierRev = resSC.updatedAt;
+            await openCarrier(UI.carrierId, false);
+          } else {
+            const L = Store.getLead(UI.leadId);
+            if (L && resSC.updatedAt) { L.updatedAt = resSC.updatedAt; L._editRev = resSC.updatedAt; }
+            await Store.load(true);
+          }
         } else Toast.error(resSC?.error || 'Ошибка');
         break;
       }
@@ -1121,7 +1203,14 @@ function initAppEvents() {
         const resDC = await Net.req(isCarrier ? 'delete_carrier_comment' : 'delete_comment', { id: actEl.dataset.cid });
         if (resDC?.success) {
           UI.editingCommentId = null;
-          if (isCarrier) await openCarrier(UI.carrierId, false); else await Store.load(true);
+          if (isCarrier) {
+            if (resDC.updatedAt) UI.carrierRev = resDC.updatedAt;
+            await openCarrier(UI.carrierId, false);
+          } else {
+            const L = Store.getLead(UI.leadId);
+            if (L && resDC.updatedAt) { L.updatedAt = resDC.updatedAt; L._editRev = resDC.updatedAt; }
+            await Store.load(true);
+          }
         } else Toast.error(resDC?.error || 'Ошибка');
         break;
       }
@@ -1148,6 +1237,7 @@ function initAppEvents() {
       if ($('#img-lightbox.open')) { closeImageLightbox(); return; }
       if ($('.inline-editor.active')) { $$('.inline-editor.active').forEach(el=>el.classList.remove('active')); $$('.log-text.hidden').forEach(el=>el.classList.remove('hidden')); UI.editingCommentId = null; }
       else if ($('.modal-backdrop.open')) {
+        if ($('#modal-password.open')) return;
         const pr = _promptResolver; _promptResolver = null;
         const cr = _confirmResolver; _confirmResolver = null;
         if (pr) pr(null); if (cr) cr(false); Modal.closeAll();
@@ -1247,9 +1337,26 @@ function revealLogin() {
   $('#login-overlay')?.classList.add('show');
 }
 
-async function afterLogin() {
+function usersTableBusy() {
+  const tbody = $('#users-tbody'); if (!tbody) return false;
+  if (tbody.contains(document.activeElement)) return true;
+  return [...tbody.querySelectorAll('input[type=password]')].some(i => i.value);
+}
+
+function showMustChangePassword() {
+  const box = $('#modal-password');
+  if (!box) return;
+  Modal.open('modal-password');
+  setTimeout(() => $('#pw-new')?.focus(), 50);
+}
+
+async function afterLogin(mustChange) {
   if (!await loadAppShell()) { revealLogin(); return; }
   revealApp();
+  if (mustChange) {
+    showMustChangePassword();
+    return;
+  }
   await Store.load(true);
   handleHashRouting();
   startPolling();
@@ -1259,7 +1366,7 @@ async function bootApp() {
   const check = await Net.req('check_auth');
   if (check?.success) {
     Net.csrf = check.csrf;
-    await afterLogin();
+    await afterLogin(!!check.mustChangePassword);
   } else {
     const tok = await Net.req('csrf');
     if (tok && tok.csrf) Net.csrf = tok.csrf;
@@ -1273,17 +1380,18 @@ async function execLogin() {
   $('#login-err').textContent = '';
   if (!email || !password) { $('#login-err').textContent = 'Заполните поля'; return; }
   $('#btn-login').disabled = true;
-  const res = await Net.req('login', { email, password });
+  let res = await Net.req('login', { email, password });
+  if (res?.error === 'CSRF') {
+    const tok = await Net.req('csrf');
+    if (tok && tok.csrf) Net.csrf = tok.csrf;
+    res = await Net.req('login', { email, password });
+  }
   $('#btn-login').disabled = false;
   if (res && res.success) {
     Net.csrf = res.csrf;
     $('#login-password').value = '';
-    await afterLogin();
+    await afterLogin(!!res.mustChangePassword);
   } else {
-    if (res?.error === 'CSRF') {
-      const tok = await Net.req('csrf');
-      if (tok && tok.csrf) Net.csrf = tok.csrf;
-    }
     $('#login-err').textContent = res?.error || 'Ошибка входа';
   }
 }
