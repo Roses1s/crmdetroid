@@ -535,14 +535,15 @@ const saveLeadDebounced = debounce(() => saveLeadForm(false), 500);
 let _lastBoardHash = null;
 function renderBoard() {
   if (UI.currentView !== 'kanban') return;
-  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.phone, l.manager])]);
+  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.phone, l.manager]), Store.state.user?.role]);
   if (dataHash === _lastBoardHash) return; _lastBoardHash = dataHash;
 
+  const isAdmin = Store.state.user?.role === 'admin';
   const board = $('#board'); board.innerHTML = ''; const frag = document.createDocumentFragment();
   Store.state.stages.forEach(stage => {
     const leads = Store.state.leads.filter(l => l.stage === stage);
-    const col = document.createElement('div'); col.className = 'column'; col.dataset.stage = stage; col.draggable = true;
-    col.innerHTML = `<div class="column-header"><div class="col-title"><span>${esc(stage)}</span><span class="col-edit" data-action="edit-stage">✎</span></div><span class="col-count">${leads.length}</span></div><div class="cards-container"></div>`;
+    const col = document.createElement('div'); col.className = 'column'; col.dataset.stage = stage; col.draggable = isAdmin;
+    col.innerHTML = `<div class="column-header"${isAdmin ? '' : ' style="cursor:default"'}><div class="col-title"><span>${esc(stage)}</span>${isAdmin ? '<span class="col-edit" data-action="edit-stage">✎</span>' : ''}</div><span class="col-count">${leads.length}</span></div><div class="cards-container"></div>`;
     const cont = col.querySelector('.cards-container');
     leads.forEach(l => {
       const card = document.createElement('div'); card.className = 'card'; card.draggable = true; card.dataset.id = l.id;
@@ -551,7 +552,9 @@ function renderBoard() {
     });
     frag.appendChild(col);
   });
-  const add = document.createElement('div'); add.className = 'add-column'; add.textContent = '+ Добавить этап'; add.dataset.action = 'add-stage'; frag.appendChild(add);
+  if (isAdmin) {
+    const add = document.createElement('div'); add.className = 'add-column'; add.textContent = '+ Добавить этап'; add.dataset.action = 'add-stage'; frag.appendChild(add);
+  }
   board.appendChild(frag);
 }
 
@@ -629,29 +632,41 @@ function initEvents() {
   $('#chatter-log').addEventListener('keydown', e => { if (e.target.matches('.inline-editor textarea') && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $(`[data-action="save-comment"][data-cid="${e.target.dataset.inp}"]`).click(); } });
 
   $('#file-input').addEventListener('change', e => {
-    [...e.target.files].forEach(f => { if (f.size > 5 * 1024 * 1024) return Toast.error(`Файл "${f.name}" > 5МБ`); UI.pendingFiles.push({ name: f.name, size: f.size, type: f.type, rawFile: f }); });
+    const allow = new Set(['png','jpg','jpeg','gif','webp','bmp','pdf','txt','csv','doc','docx','xls','xlsx','ppt','pptx','zip','7z']);
+    [...e.target.files].forEach(f => {
+      if (f.size > 5 * 1024 * 1024) return Toast.error(`Файл "${f.name}" > 5МБ`);
+      const ext = (f.name.split('.').pop() || '').toLowerCase();
+      if (!allow.has(ext) || /\.(php|phtml|phar|cgi|exe|js|htm|html|svg|shtml)(\.|$)/i.test(f.name)) {
+        return Toast.error(`Файл "${f.name}" не разрешён`);
+      }
+      UI.pendingFiles.push({ name: f.name, size: f.size, type: f.type, rawFile: f });
+    });
     e.target.value = ''; renderFiles();
   });
 
-  document.body.addEventListener('click', withLock(async e => {
+  document.body.addEventListener('click', async e => {
     const actEl = e.target.closest('[data-action]'); if (!actEl) return;
     const act = actEl.dataset.action;
 
+    if (act === 'prompt-cancel') {
+      const r = _promptResolver; _promptResolver = null;
+      Modal.closeAll(); if (r) r(null);
+      return;
+    }
+    if (act === 'confirm-cancel') {
+      const r = _confirmResolver; _confirmResolver = null;
+      Modal.closeAll(); if (r) r(false);
+      return;
+    }
+    if (act === 'close-modals') { Modal.closeAll(); return; }
+
+    await withLock(async () => {
     switch (act) {
       case 'go-home': goHome(true); break;
       case 'go-users': switchView('users-view', true); break;
       case 'logout': execLogout(); break;
       case 'new-lead': $$('#modal-create input').forEach(i => i.value = ''); Modal.open('modal-create'); setTimeout(() => $('#m-title').focus(), 50); break;
       case 'open-add-user': $$('#modal-add-user input').forEach(i => i.value = ''); Modal.open('modal-add-user'); setTimeout(() => $('#u-name').focus(), 50); break;
-      case 'close-modals': Modal.closeAll(); break;
-      case 'prompt-cancel':
-        if (_promptResolver) { _promptResolver(null); _promptResolver = null; }
-        Modal.closeAll();
-        break;
-      case 'confirm-cancel':
-        if (_confirmResolver) { _confirmResolver(false); _confirmResolver = null; }
-        Modal.closeAll();
-        break;
 
       case 'submit-lead':
         const t = $('#m-title').value.trim(), i = $('#m-inn').value.trim(), em = $('#m-email').value.trim();
@@ -681,12 +696,14 @@ function initEvents() {
         break;
 
       case 'add-stage':
+        if (Store.state.user?.role !== 'admin') return;
         const stN = await askPrompt('Новый этап', '', 'Название этапа'); if (!stN || !stN.trim()) return;
         const resSt = await Net.req('save_stages', { stages: [...Store.state.stages, stN.trim()] });
         if (resSt?.success) await Store.load(true); else Toast.error(resSt?.error || 'Ошибка');
         break;
 
       case 'edit-stage':
+        if (Store.state.user?.role !== 'admin') return;
         const oldSt = actEl.closest('.column').dataset.stage, newSt = await askPrompt('Изменить этап', oldSt, 'Пустое = удалить');
         if (newSt === null || newSt.trim() === oldSt) return;
         let ns = [...Store.state.stages];
@@ -746,7 +763,8 @@ function initEvents() {
         if (resDC?.success) { UI.editingCommentId = null; await Store.load(true); } else Toast.error(resDC?.error || 'Ошибка');
         break;
     }
-  }));
+    })();
+  });
 
   $('#board').addEventListener('click', e => {
     if (e.target.closest('.col-edit') || e.target.closest('.add-column')) return;
@@ -756,7 +774,11 @@ function initEvents() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       if ($('.inline-editor.active')) { $$('.inline-editor.active').forEach(el=>el.classList.remove('active')); $$('.log-text.hidden').forEach(el=>el.classList.remove('hidden')); UI.editingCommentId = null; }
-      else if ($('.modal-backdrop.open')) { if (_promptResolver) _promptResolver(null); if (_confirmResolver) _confirmResolver(false); Modal.closeAll(); }
+      else if ($('.modal-backdrop.open')) {
+        const pr = _promptResolver; _promptResolver = null;
+        const cr = _confirmResolver; _confirmResolver = null;
+        if (pr) pr(null); if (cr) cr(false); Modal.closeAll();
+      }
     }
   });
 

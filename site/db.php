@@ -78,6 +78,14 @@ function crm_migrate(PDO $pdo): void {
       PRIMARY KEY (id),
       KEY idx_comment (comment_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_login_attempts (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      email VARCHAR(120) NOT NULL,
+      attempted_at BIGINT NOT NULL,
+      PRIMARY KEY (id),
+      KEY idx_email_time (email, attempted_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
 function crm_seed(PDO $pdo): void {
@@ -187,4 +195,47 @@ function crm_data_hash(PDO $pdo): string {
 function crm_sys_comment(PDO $pdo, string $leadId, string $text): void {
     $st = $pdo->prepare('INSERT INTO crm_comments (id, lead_id, text, author, time, edited_at) VALUES (?,?,?,?,?,NULL)');
     $st->execute(['c_' . bin2hex(random_bytes(6)), $leadId, $text, 'Система', now_ms()]);
+}
+
+function crm_login_throttled(PDO $pdo, string $email): bool {
+    $since = now_ms() - 15 * 60 * 1000;
+    $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE email = ? AND attempted_at > ?');
+    $st->execute([$email, $since]);
+    return (int) $st->fetchColumn() >= 8;
+}
+
+function crm_login_fail(PDO $pdo, string $email): void {
+    $pdo->prepare('INSERT INTO crm_login_attempts (email, attempted_at) VALUES (?,?)')->execute([$email, now_ms()]);
+    $pdo->prepare('DELETE FROM crm_login_attempts WHERE attempted_at < ?')->execute([now_ms() - 24 * 3600 * 1000]);
+}
+
+function crm_login_ok(PDO $pdo, string $email): void {
+    $pdo->prepare('DELETE FROM crm_login_attempts WHERE email = ?')->execute([$email]);
+}
+
+/** Переименования стадий: не трогать лиды при обычной перестановке колонок. */
+function crm_stage_renames(array $old, array $ns): array {
+    $oldSorted = $old;
+    $newSorted = $ns;
+    sort($oldSorted, SORT_STRING);
+    sort($newSorted, SORT_STRING);
+    if ($oldSorted === $newSorted) return [];
+    $renames = [];
+    if (count($old) !== count($ns)) return $renames;
+    foreach ($old as $i => $name) {
+        $to = $ns[$i] ?? '';
+        if ($to === '' || $to === $name) continue;
+        if (!in_array($to, $old, true) && !in_array($name, $ns, true)) {
+            $renames[] = [$name, $to];
+        }
+    }
+    return $renames;
+}
+
+function crm_allowed_upload(string $originalName): ?string {
+    $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+    $ok = ['png','jpg','jpeg','gif','webp','bmp','pdf','txt','csv','doc','docx','xls','xlsx','ppt','pptx','zip','7z'];
+    if ($ext === '' || !in_array($ext, $ok, true)) return null;
+    if (preg_match('/\.(php|phtml|phar|cgi|exe|js|htm|html|svg|shtml)(\.|$)/i', $originalName)) return null;
+    return $ext;
 }

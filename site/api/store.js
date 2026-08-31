@@ -61,7 +61,29 @@ const MIGRATE = [
     PRIMARY KEY (id),
     KEY idx_comment (comment_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS crm_login_attempts (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    email VARCHAR(120) NOT NULL,
+    attempted_at BIGINT NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_email_time (email, attempted_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
+
+function stageRenames(old, ns) {
+  const a = [...old].sort();
+  const b = [...ns].sort();
+  if (a.length === b.length && a.every((x, i) => x === b[i])) return [];
+  const renames = [];
+  if (old.length !== ns.length) return renames;
+  for (let i = 0; i < old.length; i++) {
+    const from = old[i];
+    const to = ns[i];
+    if (!to || to === from) continue;
+    if (!old.includes(to) && !ns.includes(from)) renames.push([from, to]);
+  }
+  return renames;
+}
 
 function rowLead(r) {
   return {
@@ -178,12 +200,8 @@ function createStore(config) {
       await conn.beginTransaction();
       const [oldRows] = await conn.query('SELECT name FROM crm_stages ORDER BY position ASC, id ASC');
       const old = oldRows.map(r => r.name);
-      if (old.length === ns.length) {
-        for (let i = 0; i < old.length; i++) {
-          if (old[i] !== ns[i]) {
-            await conn.execute('UPDATE crm_leads SET stage = ? WHERE stage = ?', [ns[i], old[i]]);
-          }
-        }
+      for (const [from, to] of stageRenames(old, ns)) {
+        await conn.execute('UPDATE crm_leads SET stage = ? WHERE stage = ?', [to, from]);
       }
       await conn.query('DELETE FROM crm_stages');
       for (let i = 0; i < ns.length; i++) {
@@ -311,11 +329,13 @@ function createStore(config) {
   function saveUpload(buffer, originalName, mime) {
     const ext = path.extname(originalName || '').toLowerCase();
     if (buffer.length > config.maxUploadBytes) throw fail('Файл больше 5 МБ');
-    if (ext && !config.allowedUploadExt.has(ext)) throw fail('Этот тип файла не разрешён');
-    const safe = path.basename(originalName || 'file').replace(/[^a-zA-Z0-9._-]+/g, '_') || 'file';
-    const fname = `${randomId(8)}_${safe}`.slice(0, 120);
+    if (!ext || !config.allowedUploadExt.has(ext)) throw fail('Этот тип файла не разрешён');
+    if (/\.(php|phtml|phar|cgi|exe|js|htm|html|svg|shtml)(\.|$)/i.test(originalName || '')) {
+      throw fail('Этот тип файла не разрешён');
+    }
+    const fname = (randomId(8) + ext).slice(0, 120);
     fs.writeFileSync(path.join(config.uploadDir, fname), buffer);
-    return { name: originalName || safe, size: buffer.length, type: mime || '', dataUrl: 'uploads/' + fname };
+    return { name: originalName || ('file' + ext), size: buffer.length, type: mime || '', dataUrl: 'uploads/' + fname };
   }
 
   return {
@@ -344,4 +364,4 @@ function createStore(config) {
   };
 }
 
-module.exports = { createStore };
+module.exports = { createStore, stageRenames };

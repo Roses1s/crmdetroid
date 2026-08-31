@@ -69,7 +69,9 @@ function createActions({ store, sessions, config, limiter }) {
       const user = await requireUser(store, session);
       const hash = await store.dataHash();
       const clientHash = url.searchParams.get('hash') || '';
-      if (clientHash && clientHash === hash) return { unchanged: true, hash };
+      if (clientHash && clientHash.length === hash.length && clientHash === hash) {
+        return { unchanged: true, hash };
+      }
       return {
         hash,
         stages: await store.listStages(),

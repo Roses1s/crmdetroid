@@ -69,6 +69,8 @@ function can_edit_comment(array $user, array $c): bool {
 
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+try {
 $pdo = crm_pdo();
 
 if ($action === 'check_auth') {
@@ -81,8 +83,16 @@ if ($action === 'login') {
     $email = mb_strtolower(strv($in['email'] ?? '', 120));
     $password = (string) ($in['password'] ?? '');
     if ($email === '' || $password === '') err('Заполните поля');
+    if (crm_login_throttled($pdo, $email)) err('Слишком много попыток. Подождите 15 минут');
     $u = crm_user_by_email($pdo, $email);
-    if (!$u || !password_verify($password, $u['password'])) err('Неверный e-mail или пароль');
+    $dummy = '$2y$10$abcdefghijklmnopqrstuuC5vGqGqGqGqGqGqGqGqGqGqGqGqGqGqO';
+    $hash = is_array($u) ? (string) ($u['password'] ?? $dummy) : $dummy;
+    $okPass = password_verify($password, $hash);
+    if (!$u || !$okPass) {
+        crm_login_fail($pdo, $email);
+        err('Неверный e-mail или пароль');
+    }
+    crm_login_ok($pdo, $email);
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int) $u['id'];
     unset($_SESSION['csrf']);
@@ -105,7 +115,8 @@ if ($method === 'POST') require_csrf();
 switch ($action) {
     case 'get_data': {
         $hash = crm_data_hash($pdo);
-        if (!empty($_GET['hash']) && hash_equals($hash, (string) $_GET['hash'])) {
+        $client = (string) ($_GET['hash'] ?? '');
+        if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
             ok(['unchanged' => true, 'hash' => $hash]);
         }
         ok(['hash' => $hash, 'stages' => crm_stages($pdo), 'leads' => crm_leads_full($pdo), 'user' => crm_user_public($user)]);
@@ -198,10 +209,11 @@ switch ($action) {
                 if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
                 $size = (int) ($sizes[$i] ?? 0);
                 if ($size > CRM_MAX_UPLOAD) err('Файл больше 5 МБ');
-                $safe = preg_replace('/[^a-zA-Z0-9._-]+/', '_', basename((string) $name)) ?: 'file';
-                $fname = bin2hex(random_bytes(8)) . '_' . $safe;
+                $ext = crm_allowed_upload((string) $name);
+                if ($ext === null) err('Этот тип файла не разрешён');
+                $fname = bin2hex(random_bytes(8)) . '.' . $ext;
                 if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) err('Не удалось сохранить файл');
-                $atts[] = ['name' => (string) $name, 'size' => $size, 'type' => (string) ($types[$i] ?? ''), 'dataUrl' => 'uploads/' . $fname];
+                $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => (string) ($types[$i] ?? ''), 'dataUrl' => 'uploads/' . $fname];
             }
         }
         if ($text === '' && !$atts) err('Пусто');
@@ -251,11 +263,9 @@ switch ($action) {
         $old = crm_stages($pdo);
         $pdo->beginTransaction();
         try {
-            if (count($old) === count($ns)) {
-                $updL = $pdo->prepare('UPDATE crm_leads SET stage = ? WHERE stage = ?');
-                foreach ($old as $i => $name) {
-                    if ($name !== $ns[$i]) $updL->execute([$ns[$i], $name]);
-                }
+            $updL = $pdo->prepare('UPDATE crm_leads SET stage = ? WHERE stage = ?');
+            foreach (crm_stage_renames($old, $ns) as [$from, $to]) {
+                $updL->execute([$to, $from]);
             }
             $pdo->exec('DELETE FROM crm_stages');
             $ins = $pdo->prepare('INSERT INTO crm_stages (name, position) VALUES (?,?)');
@@ -327,4 +337,9 @@ switch ($action) {
 
     default:
         err('Неизвестное действие');
+}
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Ошибка сервера'], JSON_UNESCAPED_UNICODE);
+    exit;
 }

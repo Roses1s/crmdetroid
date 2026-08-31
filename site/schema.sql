@@ -67,4 +67,12 @@ CREATE TABLE IF NOT EXISTS crm_attachments (
   CONSTRAINT fk_att_comment FOREIGN KEY (comment_id) REFERENCES crm_comments (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS crm_login_attempts (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  email VARCHAR(120) NOT NULL,
+  attempted_at BIGINT NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_email_time (email, attempted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

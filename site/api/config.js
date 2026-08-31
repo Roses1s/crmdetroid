@@ -39,9 +39,9 @@ function createConfig(overrides = {}) {
       'Уехали, ждем заявку',
     ],
     allowedUploadExt: new Set([
-      '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg',
+      '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp',
       '.pdf', '.txt', '.csv', '.doc', '.docx', '.xls', '.xlsx',
-      '.ppt', '.pptx', '.zip', '.rar', '.7z',
+      '.ppt', '.pptx', '.zip', '.7z',
     ]),
   };
 }
