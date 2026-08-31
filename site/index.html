@@ -780,6 +780,16 @@ const Store = {
 
 const UI = { leadId: null, routeId: null, carrierId: null, carrierComments: [], pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false };
 
+function canEditComment(c) {
+  const user = Store.state.user;
+  if (!user) return false;
+  if ((c.author || '') === 'Система') return false;
+  if (user.role === 'admin') return true;
+  const uid = Number(c.userId || 0);
+  if (uid > 0) return uid === Number(user.id);
+  return (c.author || '') === (user.name || '');
+}
+
 function closeSearchDrop() { $('#search-drop')?.classList.remove('open'); }
 
 function placeSearchDrop() {
@@ -1145,10 +1155,9 @@ function renderCarrierLog() {
   const comments = UI.carrierComments || [];
   if (!comments.length) { log.innerHTML = '<div class="log-empty">Лог пуст</div>'; return; }
   log.innerHTML = '';
-  const cu = Store.state.user.name, isAdm = Store.state.user.role === 'admin';
   const frag = document.createDocumentFragment();
   [...comments].reverse().forEach(c => {
-    const canEdit = isAdm || c.author === cu;
+    const canEdit = canEditComment(c);
     const init = (c.author[0] || '?').toUpperCase();
     const atts = (c.attachments || []).map(a => {
       const u = escAttr(a.dataUrl), n = esc(a.name);
@@ -1340,11 +1349,10 @@ function renderLog() {
   const lead = Store.getLead(UI.leadId); const log = $('#chatter-log');
   if (!lead || !lead.comments || !lead.comments.length) { log.innerHTML = '<div class="log-empty">Лог пуст</div>'; return; }
   log.innerHTML = '';
-  const cu = Store.state.user.name, isAdm = Store.state.user.role === 'admin';
   const frag = document.createDocumentFragment();
 
   [...lead.comments].reverse().forEach(c => {
-    const isSys = c.author === 'Система', canEdit = !isSys && (isAdm || c.author === cu);
+    const isSys = c.author === 'Система', canEdit = canEditComment(c);
     const init = isSys ? '⚙' : (c.author[0] || '?').toUpperCase(), bg = isSys ? '#cbd5e1' : '#714B67';
     const atts = (c.attachments || []).map(a => {
       const u = escAttr(a.dataUrl), n = esc(a.name);

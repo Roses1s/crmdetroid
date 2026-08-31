@@ -8,7 +8,6 @@ declare(strict_types=1);
 require __DIR__ . '/config.php';
 require __DIR__ . '/db.php';
 
-header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
@@ -37,6 +36,7 @@ session_start([
 ]);
 
 function out(array $data): never {
+    header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -91,6 +91,17 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 try {
 $pdo = crm_pdo();
+
+if ($action === 'file') {
+    $id = (int) ($_SESSION['user_id'] ?? 0);
+    if (!$id || !crm_user_by_id($pdo, $id)) {
+        http_response_code(401);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Need login';
+        exit;
+    }
+    crm_serve_file($pdo, (string) ($_GET['f'] ?? ''));
+}
 
 if ($action === 'check_auth') {
     $u = require_user($pdo);
@@ -542,6 +553,7 @@ switch ($action) {
 }
 } catch (Throwable $e) {
     http_response_code(500);
+    header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['success' => false, 'error' => 'Ошибка сервера'], JSON_UNESCAPED_UNICODE);
     exit;
 }

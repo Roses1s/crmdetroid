@@ -277,10 +277,12 @@ function crm_migrate_routes(PDO $pdo): void {
       carrier_id VARCHAR(80) NOT NULL,
       text MEDIUMTEXT NOT NULL,
       author VARCHAR(80) NOT NULL,
+      user_id INT UNSIGNED NOT NULL DEFAULT 0,
       time BIGINT NOT NULL,
       edited_at BIGINT NULL,
       PRIMARY KEY (id),
-      KEY idx_carrier (carrier_id)
+      KEY idx_carrier (carrier_id),
+      KEY idx_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS crm_carrier_attachments (
@@ -373,6 +375,7 @@ function crm_carrier_comments(PDO $pdo, string $carrierId): array {
             'id' => $c['id'],
             'text' => $c['text'],
             'author' => $c['author'],
+            'userId' => (int) ($c['user_id'] ?? 0),
             'time' => (int) $c['time'],
             'attachments' => [],
         ];
@@ -390,7 +393,7 @@ function crm_carrier_comments(PDO $pdo, string $carrierId): array {
                 'name' => $a['name'],
                 'size' => (int) $a['size'],
                 'type' => $a['type'],
-                'dataUrl' => $a['data_url'],
+                'dataUrl' => crm_file_url((string) $a['data_url']),
             ];
         }
     }
@@ -408,6 +411,62 @@ function crm_unlink_upload(string $url): void {
     if (!preg_match('#^uploads/([a-f0-9]+\.[a-z0-9]+)$#i', $url, $m)) return;
     $path = CRM_UPLOAD_DIR . '/' . $m[1];
     if (is_file($path)) @unlink($path);
+}
+
+function crm_file_url(string $dataUrl): string {
+    if (!preg_match('#^uploads/([a-f0-9]+\.[a-z0-9]+)$#i', $dataUrl, $m)) return '';
+    return 'api.php?action=file&f=' . rawurlencode($m[1]);
+}
+
+function crm_serve_file(PDO $pdo, string $name): never {
+    $name = strtolower(basename($name));
+    if (!preg_match('/^[a-f0-9]{16}\.[a-z0-9]{1,8}$/', $name)) {
+        http_response_code(404);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Not found';
+        exit;
+    }
+    $url = 'uploads/' . $name;
+    $st = $pdo->prepare('SELECT name FROM crm_attachments WHERE data_url = ? LIMIT 1');
+    $st->execute([$url]);
+    $row = $st->fetch();
+    if (!$row) {
+        $st = $pdo->prepare('SELECT name FROM crm_carrier_attachments WHERE data_url = ? LIMIT 1');
+        $st->execute([$url]);
+        $row = $st->fetch();
+    }
+    $dir = realpath(CRM_UPLOAD_DIR);
+    $path = $dir !== false ? realpath(CRM_UPLOAD_DIR . '/' . $name) : false;
+    if (!$row || $dir === false || $path === false || !is_file($path)
+        || !str_starts_with($path, $dir . DIRECTORY_SEPARATOR)) {
+        http_response_code(404);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Not found';
+        exit;
+    }
+    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+    $mimes = [
+        'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+        'gif' => 'image/gif', 'webp' => 'image/webp', 'bmp' => 'image/bmp',
+        'pdf' => 'application/pdf', 'txt' => 'text/plain; charset=utf-8', 'csv' => 'text/csv; charset=utf-8',
+        'doc' => 'application/msword',
+        'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xls' => 'application/vnd.ms-excel',
+        'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'ppt' => 'application/vnd.ms-powerpoint',
+        'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'zip' => 'application/zip', '7z' => 'application/x-7z-compressed',
+    ];
+    $mime = $mimes[$ext] ?? 'application/octet-stream';
+    $orig = preg_replace('/[\r\n"\\\\]/', '', basename((string) $row['name']));
+    if ($orig === '') $orig = $name;
+    header('Content-Type: ' . $mime);
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, max-age=3600');
+    header('Content-Length: ' . (string) filesize($path));
+    header('Content-Disposition: inline; filename="' . $orig . '"');
+    readfile($path);
+    exit;
 }
 
 function crm_delete_atts(PDO $pdo, string $table, array $commentIds): void {
@@ -588,6 +647,7 @@ function crm_leads_full(PDO $pdo, int $userId): array {
             'id' => $c['id'],
             'text' => $c['text'],
             'author' => $c['author'],
+            'userId' => (int) ($c['user_id'] ?? 0),
             'time' => (int) $c['time'],
             'attachments' => [],
         ];
@@ -606,7 +666,7 @@ function crm_leads_full(PDO $pdo, int $userId): array {
                 'name' => $a['name'],
                 'size' => (int) $a['size'],
                 'type' => $a['type'],
-                'dataUrl' => $a['data_url'],
+                'dataUrl' => crm_file_url((string) $a['data_url']),
             ];
         }
     }
