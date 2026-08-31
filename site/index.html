@@ -113,6 +113,9 @@
   .card-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .add-column { width: 260px; flex-shrink: 0; background: rgba(0,0,0,.05); border: 1px dashed #bbb; border-radius: 6px; padding: 10px; text-align: center; color: #666; cursor: pointer; font-weight: 700; font-size: 13px; }
 
+  .lead-nav { display: flex; align-items: center; gap: 4px; margin-left: 8px; flex-shrink: 0; }
+  .lead-nav .btn { min-width: 32px; justify-content: center; font-size: 16px; line-height: 1; padding: 4px 10px; }
+  .lead-nav-pos { font-size: 12px; color: #555; min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .stages-row { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
   .stage-btn { padding: 6px 14px; border-radius: var(--radius); font-size: 12px; font-weight: 500; border: 1px solid #ccc; background: #fff; color: #555; cursor: pointer; transition: background .2s; }
   .stage-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
@@ -243,6 +246,11 @@
   <div class="breadcrumb"><a data-action="go-home">CRM / Лиды</a><span>/</span><b id="crumb-name"></b></div>
   <div class="toolbar" style="background:#f9f9f9; padding:8px 20px;">
     <button class="btn btn-secondary btn-sm" data-action="go-home">← Назад к лидам</button>
+    <div class="lead-nav" id="lead-nav">
+      <button type="button" class="btn btn-secondary btn-sm" data-action="prev-lead" id="btn-prev-lead" title="Предыдущий лид">‹</button>
+      <span class="lead-nav-pos" id="lead-nav-pos"></span>
+      <button type="button" class="btn btn-secondary btn-sm" data-action="next-lead" id="btn-next-lead" title="Следующий лид">›</button>
+    </div>
     <div class="stages-row" id="stages-row" style="margin-left: 15px;"></div>
     <button class="btn btn-danger btn-sm" data-action="delete-lead" style="margin-left:auto;">🗑️ Удалить</button>
   </div>
@@ -444,6 +452,7 @@ const Store = {
       if (!lead) { goHome(true); return; }
       renderDetailStages(); renderLog();
       if (!UI.formDirty) fillLeadForm(lead);
+      updateLeadNav();
     }
     if (UI.currentView === 'users') loadUsers();
   },
@@ -607,6 +616,39 @@ function openLead(id, updateHash = true) {
   }
 
   renderDetailStages(); renderFiles(); renderLog();
+  updateLeadNav();
+}
+
+function ownLeadsOrdered() {
+  const stages = Store.state.stages || [];
+  const leads = Store.state.leads || [];
+  const ordered = [];
+  stages.forEach(stage => {
+    leads.forEach(l => { if (l.stage === stage) ordered.push(l); });
+  });
+  leads.forEach(l => { if (!stages.includes(l.stage)) ordered.push(l); });
+  return ordered;
+}
+
+function updateLeadNav() {
+  const prevBtn = $('#btn-prev-lead'), nextBtn = $('#btn-next-lead'), pos = $('#lead-nav-pos');
+  if (!prevBtn || !nextBtn || !pos) return;
+  const list = ownLeadsOrdered();
+  const n = list.length;
+  let idx = list.findIndex(l => String(l.id).trim() === String(UI.leadId).trim());
+  if (idx < 0) idx = 0;
+  pos.textContent = n ? `${idx + 1} / ${n}` : '';
+  prevBtn.disabled = n < 2;
+  nextBtn.disabled = n < 2;
+}
+
+function goNeighborLead(dir) {
+  const list = ownLeadsOrdered();
+  if (list.length < 2) return;
+  let idx = list.findIndex(l => String(l.id).trim() === String(UI.leadId).trim());
+  if (idx < 0) idx = 0;
+  const next = list[(idx + dir + list.length) % list.length];
+  if (next) openLead(next.id, true);
 }
 
 async function loadUsers() {
@@ -812,6 +854,8 @@ function initEvents() {
       case 'open-search-lead':
         if (actEl.dataset.id) { closeSearchDrop(); openLead(actEl.dataset.id, true); }
         break;
+      case 'prev-lead': goNeighborLead(-1); break;
+      case 'next-lead': goNeighborLead(1); break;
       case 'go-home': goHome(true); break;
       case 'go-users': switchView('users-view', true); break;
       case 'logout': execLogout(); break;
@@ -920,6 +964,14 @@ function initEvents() {
   });
 
   document.addEventListener('keydown', e => {
+    if (UI.currentView === 'lead' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (!/^(INPUT|TEXTAREA|SELECT)$/.test(tag) && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        goNeighborLead(e.key === 'ArrowLeft' ? -1 : 1);
+        return;
+      }
+    }
     if (e.key === 'Escape') {
       if ($('.inline-editor.active')) { $$('.inline-editor.active').forEach(el=>el.classList.remove('active')); $$('.log-text.hidden').forEach(el=>el.classList.remove('hidden')); UI.editingCommentId = null; }
       else if ($('.modal-backdrop.open')) {
