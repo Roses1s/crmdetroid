@@ -40,6 +40,10 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 
+  body.booting header,
+  body.booting #app-root,
+  body.booting #login-overlay { display: none !important; }
+  body.booting { background: var(--bg); }
   body.guest header, body.guest #app-root { display: none !important; }
   body.guest #login-overlay { display: flex; }
   #login-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 9000; display: none; align-items: center; justify-content: center; }
@@ -391,9 +395,10 @@
   html[data-theme="dark"] .column.drop-target { outline-color: #714B67; }
 </style>
 </head>
-<body class="guest">
+<body class="booting">
+<noscript><style>body.booting #login-overlay{display:flex!important}body.booting header,body.booting #app-root{display:none!important}</style></noscript>
 
-<div id="login-overlay" class="show">
+<div id="login-overlay">
   <div class="login-card">
     <h2>Вход в CRM</h2>
     <div class="field"><label>E-mail</label><input type="email" id="login-email" autocomplete="username"></div>
@@ -790,6 +795,7 @@ function handleLogoutUI(msg) {
   $$('.view-section').forEach(el => el.classList.remove('active'));
   const kv = $('#kanban-view'); if (kv) kv.classList.add('active');
   const btnB = $('#btn-export-backup'); if (btnB) btnB.style.display = 'none';
+  document.body.classList.remove('booting');
   document.body.classList.add('guest');
   $('#login-overlay').classList.add('show');
   if (msg && msg !== 'Сессия истекла') Toast.error(msg);
@@ -1627,8 +1633,20 @@ async function loadAppShell() {
   }
 }
 
+function revealApp() {
+  document.body.classList.remove('booting', 'guest');
+  $('#login-overlay')?.classList.remove('show');
+}
+
+function revealLogin() {
+  document.body.classList.remove('booting');
+  document.body.classList.add('guest');
+  $('#login-overlay')?.classList.add('show');
+}
+
 async function afterLogin() {
-  if (!await loadAppShell()) return;
+  if (!await loadAppShell()) { revealLogin(); return; }
+  revealApp();
   await Store.load(true);
   handleHashRouting();
   startPolling();
@@ -1640,9 +1658,8 @@ async function bootApp() {
     Net.csrf = check.csrf;
     await afterLogin();
   } else {
-    document.body.classList.add('guest');
-    $('#login-overlay').classList.add('show');
-    setTimeout(() => $('#login-email').focus(), 50);
+    revealLogin();
+    setTimeout(() => $('#login-email')?.focus(), 50);
   }
 }
 
