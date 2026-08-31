@@ -89,7 +89,7 @@ const Toast = {
 };
 
 const Modal = {
-  open(id) { $('#'+id).classList.add('open'); },
+  open(id) { const el = $('#'+id); if (el) el.classList.add('open'); },
   closeAll() { $$('.modal-backdrop').forEach(m => m.classList.remove('open')); }
 };
 
@@ -98,7 +98,7 @@ function askPrompt(title, val='', msg='') {
   return new Promise(res => {
     if (_promptResolver) _promptResolver(null); _promptResolver = res;
     $('#prompt-title').textContent = title; $('#prompt-message').textContent = msg;
-    $('#prompt-message').style.display = msg ? 'block' : 'none'; $('#prompt-input').value = val;
+    $('#prompt-message').classList.toggle('hidden', !msg); $('#prompt-input').value = val;
     Modal.open('modal-prompt'); setTimeout(() => { $('#prompt-input').focus(); $('#prompt-input').select(); }, 50);
     $('#prompt-ok-btn').onclick = () => { Modal.closeAll(); res($('#prompt-input').value); };
   });
@@ -118,17 +118,19 @@ const Net = {
     try {
       let url = `api.php?action=${encodeURIComponent(action)}`;
       if (action === 'get_data' && this.hash) url += `&hash=${encodeURIComponent(this.hash)}`;
-      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, save_stages:1, get_comments:1 };
+      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, save_stages:1, get_comments:1, get_lead:1 };
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
         data = null;
       }
-      if (action === 'get_carriers' || action === 'get_carrier' || action === 'get_comments') {
+      if (action === 'get_carriers' || action === 'get_carrier' || action === 'get_comments' || action === 'get_lead') {
         url += `&id=${encodeURIComponent((data && data.id) || '')}`;
         data = null;
       }
-      const opts = { method: data ? 'POST' : 'GET', headers: {}, keepalive: true };
+      const extra = arguments[3] || {};
+      const opts = { method: data ? 'POST' : 'GET', headers: {} };
+      if (extra.keepalive) opts.keepalive = true;
       if (this.csrf) opts.headers['X-CSRF-Token'] = this.csrf;
       if (isFormData) opts.body = data; else if (data) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(data); }
       const res = await fetch(url, opts); const json = await res.json();
@@ -149,7 +151,21 @@ const Store = {
 
     if (res.hash) Net.hash = res.hash;
     this.state.stages = res.stages || [];
-    this.state.leads = res.leads || [];
+    const prevMap = {};
+    (this.state.leads || []).forEach(l => { prevMap[String(l.id)] = l; });
+    this.state.leads = (res.leads || []).map(l => {
+      const o = prevMap[String(l.id)];
+      if (!o) return l;
+      if (o._full && Number(o.updatedAt) === Number(l.updatedAt)) {
+        return Object.assign({}, o, l, { _full: true, comments: o.comments, _editRev: o._editRev });
+      }
+      if (UI.formDirty && UI.leadId && String(l.id).trim() === String(UI.leadId).trim()) {
+        l._editRev = o._editRev ?? o.updatedAt;
+        l._full = o._full;
+        ['email','cargo','format','payment','ati','comments'].forEach(k => { if (o[k] !== undefined) l[k] = o[k]; });
+      }
+      return l;
+    });
     this.state.user = res.user;
     if (res.colleagues) {
       this.state.colleagues = res.colleagues;
@@ -157,17 +173,16 @@ const Store = {
       if (dl) dl.innerHTML = res.colleagues.map(u => `<option value="${esc(u.name)}"></option>`).join('');
     }
 
-    $('#user-display-name').textContent = res.user.name;
-    $('#login-overlay').classList.remove('show');
-    $('#nav-users').style.display = res.user.role === 'admin' ? '' : 'none';
-    const btnB = $('#btn-export-backup');
-    if (btnB) btnB.style.display = res.user.role === 'admin' ? '' : 'none';
+    const nameEl = $('#user-display-name'); if (nameEl) nameEl.textContent = res.user.name;
+    $('#login-overlay')?.classList.remove('show');
+    syncAdminNav(res.user);
     updateSearchPlaceholder();
 
     if (UI.currentView === 'kanban') renderBoard();
     if (UI.currentView === 'lead' && UI.leadId) {
       const lead = this.getLead(UI.leadId);
       if (!lead) { goHome(true); return; }
+      await ensureLeadFull(UI.leadId);
       await loadLeadComments(UI.leadId);
       renderDetailStages(); renderLog();
       if (!UI.formDirty) fillLeadForm(lead);
@@ -185,6 +200,34 @@ const Store = {
 };
 
 const UI = { leadId: null, routeId: null, carrierId: null, carrierComments: [], pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
+
+function syncAdminNav(user) {
+  const nav = $('#main-nav');
+  let el = $('#nav-users');
+  const admin = user?.role === 'admin';
+  if (admin) {
+    if (!el && nav) {
+      el = document.createElement('span');
+      el.className = 'nav-item';
+      el.id = 'nav-users';
+      el.dataset.action = 'go-users';
+      el.textContent = 'Сотрудники';
+      nav.appendChild(el);
+    }
+  } else if (el) el.remove();
+}
+
+async function ensureLeadFull(id) {
+  const lead = Store.getLead(id);
+  if (!lead) return null;
+  if (lead._full) return lead;
+  const res = await Net.req('get_lead', { id });
+  if (!res || !res.success || !res.lead) return lead;
+  Object.assign(lead, res.lead);
+  lead._full = true;
+  if (lead._editRev == null) lead._editRev = lead.updatedAt;
+  return lead;
+}
 
 function canEditComment(c) {
   const user = Store.state.user;
@@ -345,7 +388,6 @@ function handleLogoutUI(msg) {
   history.replaceState(null, '', location.pathname);
   $$('.view-section').forEach(el => el.classList.remove('active'));
   const kv = $('#kanban-view'); if (kv) kv.classList.add('active');
-  const btnB = $('#btn-export-backup'); if (btnB) btnB.style.display = 'none';
   document.body.classList.remove('booting');
   document.body.classList.add('guest');
   $('#login-overlay').classList.add('show');
@@ -385,7 +427,7 @@ async function switchView(viewId, updateHash = true) {
 
   $$('.view-section').forEach(el => el.classList.remove('active'));
   $$('.nav-item').forEach(el => el.classList.remove('active'));
-  $('#'+viewId).classList.add('active');
+  const viewEl = $('#'+viewId); if (viewEl) viewEl.classList.add('active');
 
   if (viewId === 'kanban-view') {
     $('#nav-leads')?.classList.add('active');
@@ -460,7 +502,7 @@ function renderCarriers(list) {
   _carriersCache = list || [];
   const tbody = $('#carriers-tbody'); if (!tbody) return;
   if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">Пока нет перевозчиков на этом направлении</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="cell-muted">Пока нет перевозчиков на этом направлении</td></tr>';
     return;
   }
   tbody.innerHTML = '';
@@ -550,12 +592,13 @@ function fillCarrierFromForm() {
   };
 }
 
-async function saveCarrierForm(sync = false) {
+async function saveCarrierForm(sync = false, keepalive = false) {
   if (!UI.carrierId) return;
   const patch = fillCarrierFromForm();
   $('#carrier-crumb').textContent = patch.name;
   UI.formDirty = false;
-  if (sync) await Net.req('save_carrier', patch); else Net.req('save_carrier', patch);
+  const extra = keepalive ? { keepalive: true } : {};
+  if (sync) await Net.req('save_carrier', patch, false, extra); else Net.req('save_carrier', patch, false, extra);
 }
 const saveCarrierDebounced = debounce(() => saveCarrierForm(false), 500);
 
@@ -571,10 +614,10 @@ function renderCarrierLog() {
     const atts = (c.attachments || []).map(renderAttHtml).join('');
     const el = document.createElement('div'); el.className = 'log-entry';
     el.innerHTML = `
-      <div class="log-avatar" style="background:#714B67">${esc(init)}</div>
+      <div class="log-avatar">${esc(init)}</div>
       <div class="log-body">
         <div class="log-head">
-          <div><div class="log-author">${esc(c.author)}</div><div>${esc(fmtTime(c.time))}${c.editedAt ? ` <span style="color:#714B67;font-style:italic">изм. ${esc(fmtTime(c.editedAt))}</span>` : ''}</div></div>
+          <div><div class="log-author">${esc(c.author)}</div><div>${esc(fmtTime(c.time))}${c.editedAt ? ` <span class="log-edited">изм. ${esc(fmtTime(c.editedAt))}</span>` : ''}</div></div>
           ${canEdit ? `<div class="log-actions"><span class="log-btn" data-action="toggle-edit" data-cid="${esc(c.id)}">✎ Изменить</span><span class="log-btn del" data-action="del-comment" data-cid="${esc(c.id)}">🗑️</span></div>` : ''}
         </div>
         <div class="log-text" data-txt="${esc(c.id)}">${esc(c.text)}</div>
@@ -594,6 +637,7 @@ function renderCarrierLog() {
 }
 
 async function openLead(id, updateHash = true) {
+  await ensureLeadFull(id);
   const lead = Store.getLead(id); if (!lead) return goHome(updateHash);
 
   if (UI.leadId && UI.formDirty && UI.leadId !== id) {
@@ -654,14 +698,16 @@ async function loadUsers() {
   const currId = Store.state.user.id;
   res.users.forEach(u => {
     const tr = document.createElement('tr');
+    const role = u.role === 'admin' ? 'admin' : 'user';
     tr.innerHTML = `
       <td>${u.id}</td>
       <td><input class="user-input" id="uname-${u.id}" value="${esc(u.name)}"></td>
       <td><input class="user-input" id="uemail-${u.id}" value="${esc(u.email)}"></td>
+      <td><select class="user-input" id="urole-${u.id}"><option value="user"${role==='user'?' selected':''}>Сотрудник</option><option value="admin"${role==='admin'?' selected':''}>Админ</option></select></td>
       <td><input class="user-input" id="upass-${u.id}" type="password" placeholder="Пусто = не менять"></td>
       <td>
         <button class="btn btn-primary btn-sm" data-action="save-user" data-id="${u.id}">💾</button>
-        ${u.id !== currId && u.id !== 1 ? `<button class="btn btn-danger btn-sm" data-action="delete-user" data-id="${u.id}">🗑️</button>` : ''}
+        ${u.id !== currId ? `<button class="btn btn-danger btn-sm" data-action="delete-user" data-id="${u.id}">🗑️</button>` : ''}
       </td>`;
     tbody.appendChild(tr);
   });
@@ -673,6 +719,8 @@ async function execLogout() {
 }
 
 function fillLeadForm(lead) {
+  lead._editRev = lead.updatedAt;
+  lead._full = true;
   $('#f-title').value = lead.title;
   ['inn','phone','email','manager','cargo','format','payment','ati'].forEach(f => {
     const el = $(`#f-${f}`); if (el && document.activeElement !== el) el.value = lead[f] || '';
@@ -681,19 +729,27 @@ function fillLeadForm(lead) {
   $('#crumb-name').textContent = lead.title; setupPhoneMask($('#f-phone'));
 }
 
-async function saveLeadForm(sync = false) {
+async function saveLeadForm(sync = false, keepalive = false) {
   if (!UI.leadId) return null; const lead = Store.getLead(UI.leadId); if (!lead) return null;
-  const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), cargo: $('#f-cargo').value.trim(), format: $('#f-format').value.trim(), payment: $('#f-payment').value.trim(), ati: $('#f-ati').value.trim(), applicationsCount: parseInt($('#f-apps').value) || 0, stage: lead.stage };
+  const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), cargo: $('#f-cargo').value.trim(), format: $('#f-format').value.trim(), payment: $('#f-payment').value.trim(), ati: $('#f-ati').value.trim(), applicationsCount: parseInt($('#f-apps').value) || 0, stage: lead.stage, updatedAt: lead._editRev ?? lead.updatedAt };
   Object.assign(lead, patch); $('#crumb-name').textContent = patch.title; UI.formDirty = false;
   if (sync) patch.transfer = true;
-  const res = await Net.req('save_lead', patch);
+  const extra = keepalive ? { keepalive: true } : {};
+  const res = await Net.req('save_lead', patch, false, extra);
   if (res && res.transferred) {
     Toast.success('Лид передан: ' + res.to);
     UI.leadId = null;
     UI.formDirty = false;
     return res;
   }
-  if (res && res.success === false) Toast.error(res.error || 'Ошибка');
+  if (res && res.success === false) {
+    if (res.error === 'Карточка изменена в другом месте') {
+      Toast.error('Карточку изменили в другой вкладке — обновляю');
+      await Store.load(true);
+      if (UI.leadId) { await ensureLeadFull(UI.leadId); const fresh = Store.getLead(UI.leadId); if (fresh) fillLeadForm(fresh); }
+    } else Toast.error(res.error || 'Ошибка');
+  }
+  if (res && res.success && res.updatedAt) { lead.updatedAt = res.updatedAt; lead._editRev = res.updatedAt; }
   return res;
 }
 const saveLeadDebounced = debounce(() => saveLeadForm(false), 500);
@@ -749,15 +805,15 @@ function renderLog() {
 
   [...lead.comments].reverse().forEach(c => {
     const isSys = c.author === 'Система', canEdit = canEditComment(c);
-    const init = isSys ? '⚙' : (c.author[0] || '?').toUpperCase(), bg = isSys ? '#cbd5e1' : '#714B67';
+    const init = isSys ? '⚙' : (c.author[0] || '?').toUpperCase();
     const atts = (c.attachments || []).map(renderAttHtml).join('');
 
     const el = document.createElement('div'); el.className = 'log-entry';
     el.innerHTML = `
-      <div class="log-avatar" style="background:${bg}">${esc(init)}</div>
+      <div class="log-avatar${isSys ? ' sys' : ''}">${esc(init)}</div>
       <div class="log-body">
         <div class="log-head">
-          <div><div class="log-author">${esc(c.author)}</div><div>${esc(fmtTime(c.time))}${c.editedAt ? ` <span style="color:#714B67;font-style:italic">изм. ${esc(fmtTime(c.editedAt))}</span>` : ''}</div></div>
+          <div><div class="log-author">${esc(c.author)}</div><div>${esc(fmtTime(c.time))}${c.editedAt ? ` <span class="log-edited">изм. ${esc(fmtTime(c.editedAt))}</span>` : ''}</div></div>
           ${canEdit ? `<div class="log-actions"><span class="log-btn" data-action="toggle-edit" data-cid="${esc(c.id)}">✎ Изменить</span><span class="log-btn del" data-action="del-comment" data-cid="${esc(c.id)}">🗑️</span></div>` : ''}
         </div>
         <div class="log-text" data-txt="${esc(c.id)}">${esc(c.text)}</div>
@@ -819,7 +875,7 @@ function initAppEvents() {
   $('#btn-prev-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(-1); });
   $('#btn-next-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(1); });
 
-  window.addEventListener('beforeunload', e => { if (UI.formDirty) { if (UI.carrierId) saveCarrierForm(false); else saveLeadForm(false); } });
+  window.addEventListener('beforeunload', e => { if (UI.formDirty) { if (UI.carrierId) saveCarrierForm(false, true); else saveLeadForm(false, true); } });
   $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title, #f-apps')) { UI.formDirty = true; saveLeadDebounced(); } });
   $('#f-manager').addEventListener('blur', async () => {
     if (!UI.leadId) return;
@@ -889,7 +945,7 @@ function initAppEvents() {
       case 'next-carrier': goNeighborCarrier(1); break;
       case 'go-home': goHome(true); break;
       case 'go-routes': switchView('routes-view', true); break;
-      case 'go-users': switchView('users-view', true); break;
+      case 'go-users': if (Store.state.user?.role === 'admin') switchView('users-view', true); break;
       case 'open-route': if (actEl.dataset.id) openRoute(actEl.dataset.id, true); break;
 
       case 'new-direction':
@@ -954,22 +1010,10 @@ function initAppEvents() {
         else Toast.error(resPCC?.error || 'Ошибка');
         break;
       }
-      case 'export-backup': {
-        const resB = await Net.req('export_backup', {});
-        if (!resB?.success) { Toast.error(resB?.error || 'Не удалось скачать'); break; }
-        const blob = new Blob([JSON.stringify(resB.backup, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = resB.filename || 'crm-backup.json';
-        a.click();
-        URL.revokeObjectURL(a.href);
-        Toast.success('Резервная копия скачана');
-        break;
-      }
       case 'toggle-theme': Theme.toggle(); break;
       case 'logout': execLogout(); break;
       case 'new-lead': $$('#modal-create input').forEach(i => i.value = ''); Modal.open('modal-create'); setTimeout(() => $('#m-title').focus(), 50); break;
-      case 'open-add-user': $$('#modal-add-user input').forEach(i => i.value = ''); Modal.open('modal-add-user'); setTimeout(() => $('#u-name').focus(), 50); break;
+      case 'open-add-user': $$('#modal-add-user input').forEach(i => { if (i.type === 'checkbox') i.checked = false; else i.value = ''; }); Modal.open('modal-add-user'); setTimeout(() => $('#u-name').focus(), 50); break;
 
       case 'submit-lead':
         const t = $('#m-title').value.trim(), i = $('#m-inn').value.trim(), em = $('#m-email').value.trim();
@@ -982,14 +1026,14 @@ function initAppEvents() {
       case 'submit-user':
         const n = $('#u-name').value.trim(), ue = $('#u-email').value.trim(), p = $('#u-pass').value;
         if (!n || !ue || !p) return Toast.error('Все поля');
-        const resU = await Net.req('register_user', { name: n, email: ue, password: p });
+        const resU = await Net.req('register_user', { name: n, email: ue, password: p, role: $('#u-admin')?.checked ? 'admin' : 'user' });
         if (resU?.success) { Toast.success('Добавлен'); Modal.closeAll(); loadUsers(); } else Toast.error(resU?.error || 'Ошибка');
         break;
 
       case 'save-user': {
-        const id = actEl.dataset.id, un = $(`#uname-${id}`).value.trim(), uem = $(`#uemail-${id}`).value.trim(), up = $(`#upass-${id}`).value;
+        const id = actEl.dataset.id, un = $(`#uname-${id}`).value.trim(), uem = $(`#uemail-${id}`).value.trim(), up = $(`#upass-${id}`).value, ur = $(`#urole-${id}`)?.value || 'user';
         if (!un || !uem) return Toast.error('Обязательны Имя и Email');
-        const resS = await Net.req('update_user', { id: +id, name: un, email: uem, password: up });
+        const resS = await Net.req('update_user', { id: +id, name: un, email: uem, password: up, role: ur });
         if (resS?.success) { Toast.success('Сохранено'); loadUsers(); } else Toast.error(resS?.error || 'Ошибка');
         break;
       }
@@ -1010,8 +1054,14 @@ function initAppEvents() {
         let ns = [...Store.state.stages];
         if (!newSt.trim()) {
           if (ns.length <= 1) return Toast.error('Нельзя удалить последний');
-          if (!await askConfirm('Удалить?', 'Лиды будут перенесены')) return;
-          ns = ns.filter(s => s !== oldSt);
+          const left = ns.filter(s => s !== oldSt);
+          const nLeads = Store.state.leads.filter(l => l.stage === oldSt).length;
+          const dest = left[0] || '';
+          const msg = nLeads
+            ? `${nLeads} лид(ов) будут перенесены в «${dest}». Отменить это будет нельзя.`
+            : 'Этап пустой.';
+          if (!await askConfirm('Удалить этап «' + oldSt + '»?', msg)) return;
+          ns = left;
         } else {
           if (ns.includes(newSt.trim())) return Toast.error('Имя занято');
           ns[ns.indexOf(oldSt)] = newSt.trim();
@@ -1029,8 +1079,10 @@ function initAppEvents() {
       case 'set-stage':
         const lead = Store.getLead(UI.leadId); if (!lead) return;
         if (UI.formDirty) await saveLeadForm(true);
-        const resMS = await Net.req('move_lead', { id: UI.leadId, stage: actEl.dataset.stage, from: lead.stage });
-        if (resMS?.success) await Store.load(true); else Toast.error(resMS?.error || 'Ошибка');
+        const resMS = await Net.req('move_lead', { id: UI.leadId, stage: actEl.dataset.stage, from: lead.stage, updatedAt: lead._editRev ?? lead.updatedAt });
+        if (resMS?.success) await Store.load(true);
+        else if (resMS?.error === 'Карточка изменена в другом месте') { Toast.error('Карточку изменили в другой вкладке — обновляю'); await Store.load(true); }
+        else Toast.error(resMS?.error || 'Ошибка');
         break;
 
       case 'post-comment':
@@ -1117,7 +1169,7 @@ function initAppEvents() {
     const c = e.target.closest('.column'); if (!c) return; e.preventDefault(); const tgt = c.dataset.stage;
     if (UI.drag.t === 'card') {
       const lead = Store.getLead(UI.drag.id); if (!lead || lead.stage === tgt) return;
-      const res = await Net.req('move_lead', { id: UI.drag.id, stage: tgt, from: lead.stage });
+      const res = await Net.req('move_lead', { id: UI.drag.id, stage: tgt, from: lead.stage, updatedAt: lead.updatedAt });
       if (res?.success) Store.load(true);
     } else if (UI.drag.t === 'col') {
       const ns = [...Store.state.stages], f = ns.indexOf(UI.drag.s), t = ns.indexOf(tgt);
@@ -1209,6 +1261,8 @@ async function bootApp() {
     Net.csrf = check.csrf;
     await afterLogin();
   } else {
+    const tok = await Net.req('csrf');
+    if (tok && tok.csrf) Net.csrf = tok.csrf;
     revealLogin();
     setTimeout(() => $('#login-email')?.focus(), 50);
   }
@@ -1225,7 +1279,13 @@ async function execLogin() {
     Net.csrf = res.csrf;
     $('#login-password').value = '';
     await afterLogin();
-  } else { $('#login-err').textContent = res?.error || 'Ошибка входа'; }
+  } else {
+    if (res?.error === 'CSRF') {
+      const tok = await Net.req('csrf');
+      if (tok && tok.csrf) Net.csrf = tok.csrf;
+    }
+    $('#login-err').textContent = res?.error || 'Ошибка входа';
+  }
 }
 
 Theme.apply(Theme.get());

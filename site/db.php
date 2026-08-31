@@ -162,12 +162,12 @@ function crm_board_rev(PDO $pdo, int $userId): string {
     $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(updated_at),0) u, COALESCE(MAX(created_at),0) cr FROM crm_leads WHERE user_id = ?');
     $st->execute([$userId]);
     $L = $st->fetch() ?: ['c' => 0, 'u' => 0, 'cr' => 0];
-    $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(c.time),0) t, COALESCE(MAX(c.edited_at),0) e
+    $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(c.time),0) t, COALESCE(MAX(c.edited_at),0) e, COALESCE(SUM(CRC32(c.id)),0) h
         FROM crm_comments c INNER JOIN crm_leads l ON l.id = c.lead_id WHERE l.user_id = ?');
     $st->execute([$userId]);
-    $C = $st->fetch() ?: ['c' => 0, 't' => 0, 'e' => 0];
+    $C = $st->fetch() ?: ['c' => 0, 't' => 0, 'e' => 0, 'h' => 0];
     $stages = implode("\n", crm_stages($pdo, $userId));
-    return $userId . '|' . $L['c'] . '|' . $L['u'] . '|' . $L['cr'] . '|' . $C['c'] . '|' . $C['t'] . '|' . $C['e']
+    return $userId . '|' . $L['c'] . '|' . $L['u'] . '|' . $L['cr'] . '|' . $C['c'] . '|' . $C['t'] . '|' . $C['e'] . '|' . $C['h']
         . '|' . crm_meta_get($pdo, 'users') . '|' . crm_meta_get($pdo, 'routes') . '|' . $stages;
 }
 
@@ -667,31 +667,39 @@ function crm_comment_for_user(PDO $pdo, string $cid, int $userId): ?array {
     return $row ?: null;
 }
 
-function crm_lead_row_to_api(array $r): array {
-    return [
+function crm_lead_row_to_api(array $r, bool $full = true): array {
+    $out = [
         'id' => $r['id'],
         'title' => $r['title'],
         'inn' => $r['inn'],
         'phone' => $r['phone'],
-        'email' => $r['email'],
         'manager' => $r['manager'],
-        'cargo' => $r['cargo'],
-        'format' => $r['format'],
-        'payment' => $r['payment'],
-        'ati' => $r['ati'],
         'applicationsCount' => (int) $r['applications_count'],
         'stage' => $r['stage'],
         'createdAt' => (int) $r['created_at'],
-        'comments' => [],
+        'updatedAt' => (int) ($r['updated_at'] ?? $r['created_at'] ?? 0),
     ];
+    if ($full) {
+        $out['email'] = $r['email'];
+        $out['cargo'] = $r['cargo'];
+        $out['format'] = $r['format'];
+        $out['payment'] = $r['payment'];
+        $out['ati'] = $r['ati'];
+        $out['comments'] = [];
+    }
+    return $out;
 }
 
 function crm_leads_full(PDO $pdo, int $userId): array {
-    $st = $pdo->prepare('SELECT * FROM crm_leads WHERE user_id = ? ORDER BY created_at ASC');
+    $st = $pdo->prepare('SELECT id, title, inn, phone, manager, applications_count, stage, created_at, updated_at FROM crm_leads WHERE user_id = ? ORDER BY created_at ASC');
     $st->execute([$userId]);
     $leads = [];
-    foreach ($st as $r) $leads[] = crm_lead_row_to_api($r);
+    foreach ($st as $r) $leads[] = crm_lead_row_to_api($r, false);
     return $leads;
+}
+
+function crm_admin_count(PDO $pdo): int {
+    return (int) $pdo->query("SELECT COUNT(*) FROM crm_users WHERE role = 'admin'")->fetchColumn();
 }
 
 function crm_comments_payload(PDO $pdo, array $rows): array {
@@ -734,27 +742,6 @@ function crm_lead_comments(PDO $pdo, string $leadId): array {
     return crm_comments_payload($pdo, $st->fetchAll());
 }
 
-function crm_export_backup(PDO $pdo): array {
-    $users = $pdo->query('SELECT id, name, email, role, created_at FROM crm_users ORDER BY id ASC')->fetchAll();
-    foreach ($users as &$u) {
-        $u['id'] = (int) $u['id'];
-        $u['created_at'] = (int) $u['created_at'];
-    }
-    unset($u);
-    return [
-        'exportedAt' => gmdate('c'),
-        'schema' => CRM_SCHEMA_VERSION,
-        'users' => $users,
-        'stages' => $pdo->query('SELECT user_id, name, position FROM crm_stages ORDER BY user_id ASC, position ASC')->fetchAll(),
-        'leads' => $pdo->query('SELECT * FROM crm_leads ORDER BY created_at ASC')->fetchAll(),
-        'comments' => $pdo->query('SELECT * FROM crm_comments ORDER BY time ASC')->fetchAll(),
-        'attachments' => $pdo->query('SELECT comment_id, name, size, type, data_url FROM crm_attachments ORDER BY id ASC')->fetchAll(),
-        'directions' => $pdo->query('SELECT * FROM crm_directions ORDER BY created_at ASC')->fetchAll(),
-        'carriers' => $pdo->query('SELECT * FROM crm_carriers ORDER BY created_at ASC')->fetchAll(),
-        'carrierComments' => $pdo->query('SELECT * FROM crm_carrier_comments ORDER BY time ASC')->fetchAll(),
-        'carrierAttachments' => $pdo->query('SELECT comment_id, name, size, type, data_url FROM crm_carrier_attachments ORDER BY id ASC')->fetchAll(),
-    ];
-}
 
 function crm_data_hash(PDO $pdo, int $userId): string {
     $payload = json_encode(['s' => crm_stages($pdo, $userId), 'l' => crm_leads_full($pdo, $userId)], JSON_UNESCAPED_UNICODE);

@@ -1,9 +1,16 @@
 -- CRM «Детроид» — схема MySQL (utf8mb4 / InnoDB)
 -- На SpaceWeb таблицы создаются сами при первом запросе к api.php.
--- Этот файл — если хотите импортировать вручную через phpMyAdmin.
+-- Этот файл совпадает с миграциями в db.php (schema version 5).
+-- Импорт вручную не обязателен.
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
+
+CREATE TABLE IF NOT EXISTS crm_meta (
+  k VARCHAR(32) NOT NULL,
+  v VARCHAR(64) NOT NULL DEFAULT '',
+  PRIMARY KEY (k)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_users (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -23,8 +30,7 @@ CREATE TABLE IF NOT EXISTS crm_stages (
   position INT NOT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_user_stage (user_id, name),
-  KEY idx_user (user_id),
-  KEY idx_position (position)
+  KEY idx_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_leads (
@@ -42,9 +48,11 @@ CREATE TABLE IF NOT EXISTS crm_leads (
   applications_count INT NOT NULL DEFAULT 0,
   stage VARCHAR(80) NOT NULL,
   created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
   KEY idx_stage (stage),
-  KEY idx_user (user_id)
+  KEY idx_user (user_id),
+  KEY idx_updated (user_id, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_comments (
@@ -52,11 +60,12 @@ CREATE TABLE IF NOT EXISTS crm_comments (
   lead_id VARCHAR(80) NOT NULL,
   text MEDIUMTEXT NOT NULL,
   author VARCHAR(80) NOT NULL,
+  user_id INT UNSIGNED NOT NULL DEFAULT 0,
   time BIGINT NOT NULL,
   edited_at BIGINT NULL,
   PRIMARY KEY (id),
   KEY idx_lead (lead_id),
-  CONSTRAINT fk_comments_lead FOREIGN KEY (lead_id) REFERENCES crm_leads (id) ON DELETE CASCADE
+  KEY idx_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_attachments (
@@ -67,32 +76,17 @@ CREATE TABLE IF NOT EXISTS crm_attachments (
   type VARCHAR(120) NOT NULL DEFAULT '',
   data_url VARCHAR(255) NOT NULL,
   PRIMARY KEY (id),
-  KEY idx_comment (comment_id),
-  CONSTRAINT fk_att_comment FOREIGN KEY (comment_id) REFERENCES crm_comments (id) ON DELETE CASCADE
+  KEY idx_comment (comment_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS crm_directions (
-  id VARCHAR(80) NOT NULL,
-  city_from VARCHAR(80) NOT NULL,
-  city_to VARCHAR(80) NOT NULL,
-  created_by INT UNSIGNED NOT NULL,
-  created_at BIGINT NOT NULL,
+CREATE TABLE IF NOT EXISTS crm_login_attempts (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  email VARCHAR(120) NOT NULL,
+  ip VARCHAR(45) NOT NULL DEFAULT '',
+  attempted_at BIGINT NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_dir (city_from, city_to),
-  KEY idx_created (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS crm_carriers (
-  id VARCHAR(80) NOT NULL,
-  direction_id VARCHAR(80) NOT NULL,
-  name VARCHAR(120) NOT NULL,
-  phone VARCHAR(40) NOT NULL DEFAULT '',
-  company VARCHAR(200) NOT NULL DEFAULT '',
-  note VARCHAR(2000) NOT NULL DEFAULT '',
-  created_by INT UNSIGNED NOT NULL,
-  created_at BIGINT NOT NULL,
-  PRIMARY KEY (id),
-  KEY idx_dir (direction_id)
+  KEY idx_email_time (email, attempted_at),
+  KEY idx_ip_time (ip, attempted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_directions (
@@ -124,10 +118,12 @@ CREATE TABLE IF NOT EXISTS crm_carrier_comments (
   carrier_id VARCHAR(80) NOT NULL,
   text MEDIUMTEXT NOT NULL,
   author VARCHAR(80) NOT NULL,
+  user_id INT UNSIGNED NOT NULL DEFAULT 0,
   time BIGINT NOT NULL,
   edited_at BIGINT NULL,
   PRIMARY KEY (id),
-  KEY idx_carrier (carrier_id)
+  KEY idx_carrier (carrier_id),
+  KEY idx_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_carrier_attachments (
@@ -139,14 +135,6 @@ CREATE TABLE IF NOT EXISTS crm_carrier_attachments (
   data_url VARCHAR(255) NOT NULL,
   PRIMARY KEY (id),
   KEY idx_comment (comment_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS crm_login_attempts (
-  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  email VARCHAR(120) NOT NULL,
-  attempted_at BIGINT NOT NULL,
-  PRIMARY KEY (id),
-  KEY idx_email_time (email, attempted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

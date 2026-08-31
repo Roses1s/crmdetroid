@@ -8,6 +8,7 @@ declare(strict_types=1);
 require __DIR__ . '/config.php';
 require __DIR__ . '/db.php';
 
+@header_remove('X-Powered-By');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
@@ -35,13 +36,58 @@ if (crm_is_https()) {
 
 if (!is_dir(CRM_UPLOAD_DIR)) mkdir(CRM_UPLOAD_DIR, 0775, true);
 
-session_name(CRM_SESSION_NAME);
-session_start([
-    'cookie_httponly' => true,
-    'cookie_samesite' => 'Lax',
-    'cookie_path' => '/',
-    'cookie_secure' => crm_is_https(),
-]);
+const CRM_IDLE_SEC = 30 * 60;
+
+function crm_session_opts(): array {
+    return [
+        'cookie_httponly' => true,
+        'cookie_samesite' => 'Lax',
+        'cookie_path' => '/',
+        'cookie_secure' => crm_is_https(),
+    ];
+}
+function crm_session_boot(): void {
+    if (session_status() === PHP_SESSION_ACTIVE) return;
+    ini_set('session.gc_maxlifetime', (string) (8 * 3600));
+    session_name(CRM_SESSION_NAME);
+    session_start(crm_session_opts());
+}
+function crm_session_kill(string $msg = 'Сессия истекла'): never {
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        $_SESSION = [];
+        if (ini_get('session.use_cookies')) {
+            $p = session_get_cookie_params();
+            setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'] ?? '', (bool) $p['secure'], (bool) $p['httponly']);
+        }
+        session_destroy();
+    }
+    err($msg, true);
+}
+function crm_session_touch(): void {
+    $ip = crm_client_ip();
+    $have = (string) ($_SESSION['ip'] ?? '');
+    if ($have !== '' && $ip !== '' && $have !== $ip) crm_session_kill();
+    $last = (int) ($_SESSION['last'] ?? 0);
+    if ($last > 0 && (time() - $last) > CRM_IDLE_SEC) crm_session_kill();
+    $_SESSION['last'] = time();
+}
+function crm_csrf_secret(): string {
+    return hash('sha256', CRM_SESSION_NAME . '|' . (defined('CRM_DB_PASS') ? CRM_DB_PASS : ''), true);
+}
+function crm_login_csrf_issue(): string {
+    $ts = (string) time();
+    return $ts . '.' . hash_hmac('sha256', $ts, crm_csrf_secret());
+}
+function crm_login_csrf_ok(string $sent): bool {
+    $parts = explode('.', $sent, 2);
+    if (count($parts) !== 2 || !ctype_digit($parts[0])) return false;
+    if (abs(time() - (int) $parts[0]) > 900) return false;
+    return hash_equals(hash_hmac('sha256', $parts[0], crm_csrf_secret()), $parts[1]);
+}
+function crm_want_json(): bool {
+    $ct = strtolower((string) ($_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? ''));
+    return str_starts_with($ct, 'application/json');
+}
 
 function out(array $data): never {
     header('Content-Type: application/json; charset=utf-8');
@@ -77,10 +123,12 @@ function require_csrf(): void {
     if ($sent === '' || $have === '' || strlen((string) $sent) !== strlen((string) $have) || !hash_equals((string) $have, (string) $sent)) err('CSRF');
 }
 function require_user(PDO $pdo): array {
+    if (session_status() !== PHP_SESSION_ACTIVE) err('Сессия истекла', true);
     $id = (int) ($_SESSION['user_id'] ?? 0);
     if (!$id) err('Сессия истекла', true);
+    crm_session_touch();
     $u = crm_user_by_id($pdo, $id);
-    if (!$u) err('Сессия истекла', true);
+    if (!$u) crm_session_kill();
     return $u;
 }
 function require_admin(array $u): void {
@@ -113,18 +161,27 @@ function crm_discard_uploads(array $atts): void {
 
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$hasSess = isset($_COOKIE[CRM_SESSION_NAME]) && (string) $_COOKIE[CRM_SESSION_NAME] !== '';
 
 try {
+
+if ($action === 'csrf') {
+    ok(['csrf' => crm_login_csrf_issue()]);
+}
+
+if ($hasSess) crm_session_boot();
+
 $pdo = crm_pdo();
 
 if ($action === 'file') {
     $id = (int) ($_SESSION['user_id'] ?? 0);
-    if (!$id || !crm_user_by_id($pdo, $id)) {
+    if (!$hasSess || !$id || !crm_user_by_id($pdo, $id)) {
         http_response_code(401);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Need login';
         exit;
     }
+    crm_session_touch();
     if (crm_session_throttled(180, 60)) {
         http_response_code(429);
         header('Content-Type: text/plain; charset=utf-8');
@@ -135,11 +192,15 @@ if ($action === 'file') {
 }
 
 if ($action === 'check_auth') {
+    if (!$hasSess) err('Сессия истекла', true);
     $u = require_user($pdo);
     ok(['csrf' => csrf_token(), 'user' => crm_user_public($u)]);
 }
 
 if ($action === 'login') {
+    if ($method !== 'POST' || !crm_want_json()) err('CSRF');
+    $sent = (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    if ($sent === '' || !crm_login_csrf_ok($sent)) err('CSRF');
     $in = body_json();
     $email = mb_strtolower(strv($in['email'] ?? '', 120));
     $password = (string) ($in['password'] ?? '');
@@ -156,13 +217,17 @@ if ($action === 'login') {
         err('Неверный e-mail или пароль');
     }
     crm_login_ok($pdo, $email);
+    crm_session_boot();
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int) $u['id'];
+    $_SESSION['ip'] = $ip;
+    $_SESSION['last'] = time();
     unset($_SESSION['csrf']);
     ok(['csrf' => csrf_token(), 'user' => crm_user_public($u)]);
 }
 
 if ($action === 'logout') {
+    if (!$hasSess) ok();
     if ($method !== 'POST') err('CSRF');
     $sent = (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     $have = (string) ($_SESSION['csrf'] ?? '');
@@ -176,6 +241,7 @@ if ($action === 'logout') {
     ok();
 }
 
+if (!$hasSess && session_status() !== PHP_SESSION_ACTIVE) err('Сессия истекла', true);
 $user = require_user($pdo);
 if (crm_session_throttled()) err('Слишком много запросов. Подождите минуту');
 if ($method === 'POST') require_csrf();
@@ -198,13 +264,11 @@ switch ($action) {
         ok(['comments' => crm_lead_comments($pdo, $id)]);
     }
 
-    case 'export_backup': {
-        if ($method !== 'POST') err('CSRF');
-        require_admin($user);
-        ok([
-            'filename' => 'crm-backup-' . gmdate('Y-m-d-His') . '.json',
-            'backup' => crm_export_backup($pdo),
-        ]);
+    case 'get_lead': {
+        $id = strv($_GET['id'] ?? '', 80);
+        $row = $id === '' ? null : crm_lead_for_user($pdo, $id, $viewUid);
+        if (!$row) err('Лид не найден');
+        ok(['lead' => crm_lead_row_to_api($row, true)]);
     }
 
     case 'search_leads': {
@@ -441,14 +505,30 @@ switch ($action) {
         $stage = strv($in['stage'] ?? ($row['stage'] ?? ($stages[0] ?? 'Новый')), 80);
         if (!in_array($stage, $stages, true)) $stage = $row['stage'] ?? ($stages[0] ?? 'Новый');
 
+        if ($row && array_key_exists('updatedAt', $in) && (int) $row['updated_at'] !== (int) $in['updatedAt']) {
+            err('Карточка изменена в другом месте');
+        }
+
         $now = now_ms();
-        if (!$row) {
-            $ins = $pdo->prepare('INSERT INTO crm_leads (id,user_id,title,inn,phone,email,manager,cargo,format,payment,ati,applications_count,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-            $ins->execute([$id, $uid, $title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $now, $now]);
-            crm_sys_comment($pdo, $id, 'Лид создан');
-        } else {
-            $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=?,updated_at=? WHERE id=? AND user_id=?');
-            $upd->execute([$title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $now, $id, $uid]);
+        $pdo->beginTransaction();
+        try {
+            if (!$row) {
+                $ins = $pdo->prepare('INSERT INTO crm_leads (id,user_id,title,inn,phone,email,manager,cargo,format,payment,ati,applications_count,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+                $ins->execute([$id, $uid, $title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $now, $now]);
+                crm_sys_comment($pdo, $id, 'Лид создан');
+            } else {
+                $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=?,updated_at=? WHERE id=? AND user_id=? AND updated_at=?');
+                $upd->execute([$title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $now, $id, $uid, (int) $row['updated_at']]);
+                if ($upd->rowCount() === 0) {
+                    $pdo->rollBack();
+                    err('Карточка изменена в другом месте');
+                }
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            if ($e instanceof PDOException) err('Не удалось сохранить');
+            throw $e;
         }
 
         if (!empty($in['transfer'])) {
@@ -458,13 +538,14 @@ switch ($action) {
                 $toId = (int) $match['id'];
                 $toStages = crm_stages($pdo, $toId);
                 $newStage = in_array($stage, $toStages, true) ? $stage : ($toStages[0] ?? $stage);
+                $now2 = now_ms();
                 $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ?')
-                    ->execute([$toId, $newStage, $match['name'], now_ms(), $id]);
+                    ->execute([$toId, $newStage, $match['name'], $now2, $id]);
                 crm_sys_comment($pdo, $id, 'Лид передан: ' . $user['name'] . ' → ' . $match['name']);
-                ok(['id' => $id, 'transferred' => true, 'to' => $match['name']]);
+                ok(['id' => $id, 'transferred' => true, 'to' => $match['name'], 'updatedAt' => $now2]);
             }
         }
-        ok(['id' => $id]);
+        ok(['id' => $id, 'updatedAt' => $now]);
     }
 
     case 'move_lead': {
@@ -476,12 +557,18 @@ switch ($action) {
         if ($stage === '' || !in_array($stage, $stages, true)) err('Нет такого этапа');
         $row = crm_lead_for_user($pdo, $id, $uid);
         if (!$row) err('Лид не найден');
+        if (array_key_exists('updatedAt', $in) && (int) $row['updated_at'] !== (int) $in['updatedAt']) {
+            err('Карточка изменена в другом месте');
+        }
+        $now = now_ms();
         if ($row['stage'] !== $stage) {
             $from = (string) $row['stage'];
-            $pdo->prepare('UPDATE crm_leads SET stage = ?, updated_at = ? WHERE id = ? AND user_id = ?')->execute([$stage, now_ms(), $id, $uid]);
+            $stU = $pdo->prepare('UPDATE crm_leads SET stage = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
+            $stU->execute([$stage, $now, $id, $uid, (int) $row['updated_at']]);
+            if ($stU->rowCount() === 0) err('Карточка изменена в другом месте');
             crm_sys_comment($pdo, $id, "Статус изменен: {$from} ➔ {$stage}");
         }
-        ok();
+        ok(['updatedAt' => $row['stage'] === $stage ? (int) $row['updated_at'] : $now]);
     }
 
     case 'delete_lead': {
@@ -588,7 +675,7 @@ switch ($action) {
 
     case 'get_users': {
         require_admin($user);
-        $rows = $pdo->query('SELECT id, name, email FROM crm_users ORDER BY id ASC')->fetchAll();
+        $rows = $pdo->query('SELECT id, name, email, role FROM crm_users ORDER BY id ASC')->fetchAll();
         foreach ($rows as &$r) $r['id'] = (int) $r['id'];
         ok(['users' => $rows]);
     }
@@ -603,8 +690,10 @@ switch ($action) {
         if (strlen($pass) < 6) err('Пароль мин. 6 символов');
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) err('Некорректный email');
         if (crm_user_by_email($pdo, $email)) err('E-mail уже занят');
+        $role = strv($in['role'] ?? 'user', 16);
+        if ($role !== 'admin') $role = 'user';
         $pdo->prepare('INSERT INTO crm_users (name, email, password, role, created_at) VALUES (?,?,?,?,?)')
-            ->execute([$name, $email, password_hash($pass, PASSWORD_DEFAULT), 'user', now_ms()]);
+            ->execute([$name, $email, password_hash($pass, PASSWORD_DEFAULT), $role, now_ms()]);
         $newId = (int) $pdo->lastInsertId();
         crm_ensure_user_stages($pdo, $newId);
         crm_meta_bump($pdo, 'users');
@@ -624,7 +713,12 @@ switch ($action) {
         if (!$target) err('Сотрудник не найден');
         $other = crm_user_by_email($pdo, $email);
         if ($other && (int) $other['id'] !== $id) err('E-mail уже занят');
-        $pdo->prepare('UPDATE crm_users SET name = ?, email = ? WHERE id = ?')->execute([$name, $email, $id]);
+        $role = strv($in['role'] ?? ($target['role'] ?? 'user'), 16);
+        if ($role !== 'admin') $role = 'user';
+        if (($target['role'] ?? '') === 'admin' && $role !== 'admin' && crm_admin_count($pdo) <= 1) {
+            err('Нельзя снять роль с последнего администратора');
+        }
+        $pdo->prepare('UPDATE crm_users SET name = ?, email = ?, role = ? WHERE id = ?')->execute([$name, $email, $role, $id]);
         if ($name !== (string) $target['name']) {
             $pdo->prepare('UPDATE crm_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
             $pdo->prepare('UPDATE crm_carrier_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
@@ -641,9 +735,10 @@ switch ($action) {
         require_admin($user);
         $in = body_json();
         $id = (int) ($in['id'] ?? 0);
-        if ($id === 1) err('Нельзя удалить основного администратора');
         if ($id === (int) $user['id']) err('Нельзя удалить себя');
-        if (!crm_user_by_id($pdo, $id)) err('Сотрудник не найден');
+        $target = crm_user_by_id($pdo, $id);
+        if (!$target) err('Сотрудник не найден');
+        if (($target['role'] ?? '') === 'admin' && crm_admin_count($pdo) <= 1) err('Нельзя удалить последнего администратора');
         crm_purge_user($pdo, $id);
         crm_meta_bump($pdo, 'users');
         ok();
