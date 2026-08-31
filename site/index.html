@@ -479,7 +479,7 @@ const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const escAttr = s => encodeURI(String(s ?? '')).replace(/"/g, '%22');
-const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+const debounce = (fn, ms) => { let t; const d = (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; d.cancel = () => clearTimeout(t); return d; };
 const fmtTime = ts => new Date(ts).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 const fmtBytes = b => { if (!b) return '0 B'; const k=1024, s=['B','KB','MB']; const i=Math.min(2, Math.floor(Math.log(b)/Math.log(k))); return `${(b/Math.pow(k,i)).toFixed(1)} ${s[i]}`; };
 const isValidEmail = v => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
@@ -780,7 +780,10 @@ function handleHashRouting() {
 window.addEventListener('popstate', () => { if (Store.state.user) handleHashRouting(); });
 
 async function switchView(viewId, updateHash = true) {
-  if (UI.leadId && UI.formDirty) await saveLeadForm(true);
+  if (UI.leadId && UI.formDirty) {
+    const saved = await saveLeadForm(true);
+    if (saved && saved.transferred) await Store.load(true);
+  }
   UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = []; UI.pendingFiles = []; UI.formDirty = false; UI.editingCommentId = null;
   UI.currentView = viewId.replace('-view', '');
 
@@ -803,7 +806,7 @@ async function switchView(viewId, updateHash = true) {
   }
 }
 
-function goHome(updateHash = true) { switchView('kanban-view', updateHash); }
+function goHome(updateHash = true) { return switchView('kanban-view', updateHash); }
 
 let _routesCache = [];
 let _routesFilter = '';
@@ -999,15 +1002,19 @@ function renderCarrierLog() {
   }
 }
 
-function openLead(id, updateHash = true) {
+async function openLead(id, updateHash = true) {
   const lead = Store.getLead(id); if (!lead) return goHome(updateHash);
 
-  if (UI.leadId && UI.formDirty && UI.leadId !== id) saveLeadForm(true);
+  if (UI.leadId && UI.formDirty && UI.leadId !== id) {
+    const saved = await saveLeadForm(true);
+    if (saved && saved.transferred) await Store.load(true);
+  }
+  const still = Store.getLead(id); if (!still) return goHome(updateHash);
 
   UI.leadId = id; UI.currentView = 'lead'; UI.pendingFiles = []; UI.formDirty = false;
   $$('.view-section').forEach(el => el.classList.remove('active'));
   $('#detail-view').classList.add('active');
-  fillLeadForm(lead);
+  fillLeadForm(still);
 
   if (updateHash && window.location.hash !== '#lead/' + encodeURIComponent(id)) {
     history.pushState(null, '', '#lead/' + encodeURIComponent(id));
@@ -1094,7 +1101,7 @@ function fillLeadForm(lead) {
 }
 
 async function saveLeadForm(sync = false) {
-  if (!UI.leadId) return; const lead = Store.getLead(UI.leadId); if (!lead) return;
+  if (!UI.leadId) return null; const lead = Store.getLead(UI.leadId); if (!lead) return null;
   const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), cargo: $('#f-cargo').value.trim(), format: $('#f-format').value.trim(), payment: $('#f-payment').value.trim(), ati: $('#f-ati').value.trim(), applicationsCount: parseInt($('#f-apps').value) || 0, stage: lead.stage };
   Object.assign(lead, patch); $('#crumb-name').textContent = patch.title; UI.formDirty = false;
   if (sync) patch.transfer = true;
@@ -1102,11 +1109,11 @@ async function saveLeadForm(sync = false) {
   if (res && res.transferred) {
     Toast.success('Лид передан: ' + res.to);
     UI.leadId = null;
-    goHome(true);
-    await Store.load(true);
-    return;
+    UI.formDirty = false;
+    return res;
   }
   if (res && res.success === false) Toast.error(res.error || 'Ошибка');
+  return res;
 }
 const saveLeadDebounced = debounce(() => saveLeadForm(false), 500);
 
@@ -1233,8 +1240,12 @@ function initEvents() {
 
   window.addEventListener('beforeunload', e => { if (UI.formDirty) { if (UI.carrierId) saveCarrierForm(false); else saveLeadForm(false); } });
   $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title, #f-apps')) { UI.formDirty = true; saveLeadDebounced(); } });
-  $('#f-manager').addEventListener('blur', () => { if (UI.leadId) saveLeadForm(true); });
-  $('#f-manager').addEventListener('change', () => { if (UI.leadId) saveLeadForm(true); });
+  $('#f-manager').addEventListener('blur', async () => {
+    if (!UI.leadId) return;
+    saveLeadDebounced.cancel();
+    const res = await saveLeadForm(true);
+    if (res && res.transferred) { await Store.load(true); await goHome(true); }
+  });
   $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; saveCarrierDebounced(); } });
 
   $('#comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-comment"]').click(); } });
@@ -1277,7 +1288,7 @@ function initEvents() {
     await withLock(async () => {
     switch (act) {
       case 'open-search-lead':
-        if (actEl.dataset.id) { closeSearchDrop(); openLead(actEl.dataset.id, true); }
+        if (actEl.dataset.id) { closeSearchDrop(); await openLead(actEl.dataset.id, true); }
         break;
       case 'view-user-board':
         await viewUserBoard(actEl.dataset.id, actEl.dataset.name);

@@ -44,7 +44,8 @@ function csrf_token(): string {
 }
 function strv($v, int $max = 300, string $fallback = ''): string {
     $s = trim(str_replace("\0", '', (string) ($v ?? '')));
-    if (strlen($s) > $max) $s = substr($s, 0, $max);
+    if (function_exists('mb_strlen') && mb_strlen($s) > $max) $s = mb_substr($s, 0, $max);
+    elseif (strlen($s) > $max) $s = substr($s, 0, $max);
     return $s !== '' ? $s : $fallback;
 }
 function require_csrf(): void {
@@ -245,6 +246,7 @@ switch ($action) {
             $types = is_array($files['type']) ? $files['type'] : [$files['type']];
             $errs  = is_array($files['error']) ? $files['error'] : [$files['error']];
             foreach ($names as $i => $name) {
+                if (count($atts) >= 8) break;
                 if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
                 $size = (int) ($sizes[$i] ?? 0);
                 if ($size > CRM_MAX_UPLOAD) err('Файл больше 5 МБ');
@@ -282,19 +284,21 @@ switch ($action) {
         $c = crm_carrier_comment_by_id($pdo, $cid);
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
-        $pdo->prepare('DELETE FROM crm_carrier_attachments WHERE comment_id = ?')->execute([$cid]);
+        crm_delete_atts($pdo, 'crm_carrier_attachments', [$cid]);
         $pdo->prepare('DELETE FROM crm_carrier_comments WHERE id = ?')->execute([$cid]);
         ok();
     }
 
     case 'get_data': {
         $uid = $viewUid;
-        $hash = crm_data_hash($pdo, $uid);
+        $stages = crm_stages($pdo, $uid);
+        $leads = crm_leads_full($pdo, $uid);
+        $hash = substr(hash('sha256', (string) json_encode(['s' => $stages, 'l' => $leads], JSON_UNESCAPED_UNICODE)), 0, 32);
         $client = (string) ($_GET['hash'] ?? '');
         if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
             ok(['unchanged' => true, 'hash' => $hash]);
         }
-        ok(['hash' => $hash, 'stages' => crm_stages($pdo, $uid), 'leads' => crm_leads_full($pdo, $uid), 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo)]);
+        ok(['hash' => $hash, 'stages' => $stages, 'leads' => $leads, 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo)]);
     }
 
     case 'save_lead': {
@@ -311,7 +315,7 @@ switch ($action) {
         }
 
         $title = strv($in['title'] ?? ($row['title'] ?? ''), 200, 'Без названия');
-        $inn = preg_replace('/\D/', '', strv($in['inn'] ?? ($row['inn'] ?? ''), 12));
+        $inn = preg_replace('/\D/', '', strv($in['inn'] ?? ($row['inn'] ?? ''), 12)) ?? '';
         $phone = strv($in['phone'] ?? ($row['phone'] ?? ''), 40);
         $email = strv($in['email'] ?? ($row['email'] ?? ''), 120);
         $manager = strv($in['manager'] ?? ($row['manager'] ?? $user['name']), 80);
@@ -370,15 +374,7 @@ switch ($action) {
         $id = strv($in['id'] ?? '', 80);
         $uid = $viewUid;
         if (!crm_lead_for_user($pdo, $id, $uid)) err('Лид не найден');
-        $cids = $pdo->prepare('SELECT id FROM crm_comments WHERE lead_id = ?');
-        $cids->execute([$id]);
-        $ids = $cids->fetchAll(PDO::FETCH_COLUMN);
-        if ($ids) {
-            $inQ = implode(',', array_fill(0, count($ids), '?'));
-            $pdo->prepare("DELETE FROM crm_attachments WHERE comment_id IN ($inQ)")->execute($ids);
-            $pdo->prepare('DELETE FROM crm_comments WHERE lead_id = ?')->execute([$id]);
-        }
-        $pdo->prepare('DELETE FROM crm_leads WHERE id = ?')->execute([$id]);
+        crm_purge_lead($pdo, $id);
         ok();
     }
 
@@ -395,6 +391,7 @@ switch ($action) {
             $types = is_array($files['type']) ? $files['type'] : [$files['type']];
             $errs  = is_array($files['error']) ? $files['error'] : [$files['error']];
             foreach ($names as $i => $name) {
+                if (count($atts) >= 8) break;
                 if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
                 $size = (int) ($sizes[$i] ?? 0);
                 if ($size > CRM_MAX_UPLOAD) err('Файл больше 5 МБ');
@@ -432,7 +429,7 @@ switch ($action) {
         $c = crm_comment_for_user($pdo, $cid, $viewUid);
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
-        $pdo->prepare('DELETE FROM crm_attachments WHERE comment_id = ?')->execute([$cid]);
+        crm_delete_atts($pdo, 'crm_attachments', [$cid]);
         $pdo->prepare('DELETE FROM crm_comments WHERE id = ?')->execute([$cid]);
         ok();
     }
@@ -516,9 +513,8 @@ switch ($action) {
         $id = (int) ($in['id'] ?? 0);
         if ($id === 1) err('Нельзя удалить основного администратора');
         if ($id === (int) $user['id']) err('Нельзя удалить себя');
-        $st = $pdo->prepare('DELETE FROM crm_users WHERE id = ?');
-        $st->execute([$id]);
-        if ($st->rowCount() === 0) err('Сотрудник не найден');
+        if (!crm_user_by_id($pdo, $id)) err('Сотрудник не найден');
+        crm_purge_user($pdo, $id);
         ok();
     }
 

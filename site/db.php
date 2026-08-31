@@ -282,15 +282,45 @@ function crm_carrier_comment_by_id(PDO $pdo, string $cid): ?array {
     return $row ?: null;
 }
 
+function crm_unlink_upload(string $url): void {
+    if (!preg_match('#^uploads/([a-f0-9]+\.[a-z0-9]+)$#i', $url, $m)) return;
+    $path = CRM_UPLOAD_DIR . '/' . $m[1];
+    if (is_file($path)) @unlink($path);
+}
+
+function crm_delete_atts(PDO $pdo, string $table, array $commentIds): void {
+    if (!$commentIds) return;
+    if ($table !== 'crm_attachments' && $table !== 'crm_carrier_attachments') return;
+    $ids = array_values($commentIds);
+    $inQ = implode(',', array_fill(0, count($ids), '?'));
+    $st = $pdo->prepare("SELECT data_url FROM {$table} WHERE comment_id IN ($inQ)");
+    $st->execute($ids);
+    foreach ($st as $a) crm_unlink_upload((string) $a['data_url']);
+    $pdo->prepare("DELETE FROM {$table} WHERE comment_id IN ($inQ)")->execute($ids);
+}
+
+function crm_purge_lead(PDO $pdo, string $id): void {
+    $cids = $pdo->prepare('SELECT id FROM crm_comments WHERE lead_id = ?');
+    $cids->execute([$id]);
+    crm_delete_atts($pdo, 'crm_attachments', $cids->fetchAll(PDO::FETCH_COLUMN));
+    $pdo->prepare('DELETE FROM crm_comments WHERE lead_id = ?')->execute([$id]);
+    $pdo->prepare('DELETE FROM crm_leads WHERE id = ?')->execute([$id]);
+}
+
+function crm_purge_user(PDO $pdo, int $id): void {
+    $st = $pdo->prepare('SELECT id FROM crm_leads WHERE user_id = ?');
+    $st->execute([$id]);
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $lid) crm_purge_lead($pdo, (string) $lid);
+    $pdo->prepare('DELETE FROM crm_stages WHERE user_id = ?')->execute([$id]);
+    $pdo->prepare('DELETE FROM crm_users WHERE id = ?')->execute([$id]);
+}
+
 function crm_purge_carrier(PDO $pdo, string $id): void {
     $cids = $pdo->prepare('SELECT id FROM crm_carrier_comments WHERE carrier_id = ?');
     $cids->execute([$id]);
     $ids = $cids->fetchAll(PDO::FETCH_COLUMN);
-    if ($ids) {
-        $inQ = implode(',', array_fill(0, count($ids), '?'));
-        $pdo->prepare("DELETE FROM crm_carrier_attachments WHERE comment_id IN ($inQ)")->execute($ids);
-        $pdo->prepare('DELETE FROM crm_carrier_comments WHERE carrier_id = ?')->execute([$id]);
-    }
+    crm_delete_atts($pdo, 'crm_carrier_attachments', $ids);
+    if ($ids) $pdo->prepare('DELETE FROM crm_carrier_comments WHERE carrier_id = ?')->execute([$id]);
     $pdo->prepare('DELETE FROM crm_carriers WHERE id = ?')->execute([$id]);
 }
 
@@ -307,9 +337,8 @@ function crm_seed(PDO $pdo): void {
         ]);
         try { $pdo->exec('ALTER TABLE crm_users AUTO_INCREMENT = 2'); } catch (PDOException $e) { /* shared hosting */ }
     }
-    foreach ($pdo->query('SELECT id FROM crm_users') as $u) {
-        crm_ensure_user_stages($pdo, (int) $u['id']);
-    }
+    $miss = $pdo->query('SELECT u.id FROM crm_users u LEFT JOIN crm_stages s ON s.user_id = u.id WHERE s.id IS NULL');
+    foreach ($miss as $u) crm_ensure_user_stages($pdo, (int) $u['id']);
 }
 
 function crm_user_public(array $u): array {
@@ -426,8 +455,13 @@ function crm_leads_full(PDO $pdo, int $userId): array {
     foreach ($st as $r) {
         $leads[$r['id']] = crm_lead_row_to_api($r);
     }
+    if (!$leads) return [];
+    $leadIds = array_keys($leads);
+    $inQ = implode(',', array_fill(0, count($leadIds), '?'));
+    $st = $pdo->prepare("SELECT * FROM crm_comments WHERE lead_id IN ($inQ) ORDER BY time ASC");
+    $st->execute($leadIds);
     $byComment = [];
-    foreach ($pdo->query('SELECT * FROM crm_comments ORDER BY time ASC') as $c) {
+    foreach ($st as $c) {
         $item = [
             'id' => $c['id'],
             'text' => $c['text'],
@@ -437,18 +471,22 @@ function crm_leads_full(PDO $pdo, int $userId): array {
         ];
         if ($c['edited_at'] !== null) $item['editedAt'] = (int) $c['edited_at'];
         $byComment[$c['id']] = $item;
-        if (isset($leads[$c['lead_id']])) {
-            $leads[$c['lead_id']]['comments'][] = $c['id'];
-        }
+        if (isset($leads[$c['lead_id']])) $leads[$c['lead_id']]['comments'][] = $c['id'];
     }
-    foreach ($pdo->query('SELECT * FROM crm_attachments ORDER BY id ASC') as $a) {
-        if (!isset($byComment[$a['comment_id']])) continue;
-        $byComment[$a['comment_id']]['attachments'][] = [
-            'name' => $a['name'],
-            'size' => (int) $a['size'],
-            'type' => $a['type'],
-            'dataUrl' => $a['data_url'],
-        ];
+    if ($byComment) {
+        $cids = array_keys($byComment);
+        $inQ = implode(',', array_fill(0, count($cids), '?'));
+        $st = $pdo->prepare("SELECT * FROM crm_attachments WHERE comment_id IN ($inQ) ORDER BY id ASC");
+        $st->execute($cids);
+        foreach ($st as $a) {
+            if (!isset($byComment[$a['comment_id']])) continue;
+            $byComment[$a['comment_id']]['attachments'][] = [
+                'name' => $a['name'],
+                'size' => (int) $a['size'],
+                'type' => $a['type'],
+                'dataUrl' => $a['data_url'],
+            ];
+        }
     }
     foreach ($leads as &$lead) {
         $lead['comments'] = array_map(fn($cid) => $byComment[$cid], $lead['comments']);
@@ -512,14 +550,13 @@ function crm_search_leads(PDO $pdo, int $userId, string $q): array {
     if ($q === '') return ['leads' => [], 'intersections' => []];
     $digits = preg_replace('/\D/', '', $q);
     $titlePat = crm_like_pat($q);
-    $ownSql = 'SELECT id, title, inn, stage, phone FROM crm_leads WHERE user_id = ? AND title LIKE ?';
+    $ownSql = 'SELECT id, title, inn, stage, phone FROM crm_leads WHERE user_id = ? AND (title LIKE ?';
     $ownParams = [$userId, $titlePat];
     if (strlen($digits) >= 2) {
-        $ownSql .= ' OR (user_id = ? AND inn LIKE ?)';
-        $ownParams[] = $userId;
+        $ownSql .= ' OR inn LIKE ?';
         $ownParams[] = crm_like_pat($digits);
     }
-    $ownSql .= ' ORDER BY title ASC LIMIT 40';
+    $ownSql .= ') ORDER BY title ASC LIMIT 40';
     $st = $pdo->prepare($ownSql);
     $st->execute($ownParams);
     $leads = [];
@@ -533,13 +570,13 @@ function crm_search_leads(PDO $pdo, int $userId, string $q): array {
         ];
     }
 
-    $othSql = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND l.title LIKE ?';
+    $othSql = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND (l.title LIKE ?';
     $othParams = [$userId, $titlePat];
     if (strlen($digits) >= 2) {
-        $othSql .= ' OR (l.user_id <> ? AND l.inn LIKE ?)';
-        $othParams[] = $userId;
+        $othSql .= ' OR l.inn LIKE ?';
         $othParams[] = crm_like_pat($digits);
     }
+    $othSql .= ')';
     $othSql .= ' LIMIT 60';
     $st = $pdo->prepare($othSql);
     $st->execute($othParams);
