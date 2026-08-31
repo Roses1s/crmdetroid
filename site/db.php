@@ -149,6 +149,28 @@ function crm_migrate_routes(PDO $pdo): void {
       PRIMARY KEY (id),
       KEY idx_dir (direction_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_carrier_comments (
+      id VARCHAR(80) NOT NULL,
+      carrier_id VARCHAR(80) NOT NULL,
+      text MEDIUMTEXT NOT NULL,
+      author VARCHAR(80) NOT NULL,
+      time BIGINT NOT NULL,
+      edited_at BIGINT NULL,
+      PRIMARY KEY (id),
+      KEY idx_carrier (carrier_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_carrier_attachments (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      comment_id VARCHAR(80) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      size INT UNSIGNED NOT NULL DEFAULT 0,
+      type VARCHAR(120) NOT NULL DEFAULT '',
+      data_url VARCHAR(255) NOT NULL,
+      PRIMARY KEY (id),
+      KEY idx_comment (comment_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
 function crm_norm_city(string $s): string {
@@ -192,7 +214,10 @@ function crm_directions_list(PDO $pdo, string $q = ''): array {
 }
 
 function crm_carriers_list(PDO $pdo, string $directionId): array {
-    $st = $pdo->prepare('SELECT c.*, u.name AS creator FROM crm_carriers c LEFT JOIN crm_users u ON u.id = c.created_by WHERE c.direction_id = ? ORDER BY c.created_at ASC');
+    $st = $pdo->prepare('SELECT c.*, u.name AS creator,
+            (SELECT COUNT(*) FROM crm_carrier_comments x WHERE x.carrier_id = c.id) AS comments_count
+            FROM crm_carriers c LEFT JOIN crm_users u ON u.id = c.created_by
+            WHERE c.direction_id = ? ORDER BY c.created_at ASC');
     $st->execute([$directionId]);
     $out = [];
     foreach ($st as $r) {
@@ -202,10 +227,71 @@ function crm_carriers_list(PDO $pdo, string $directionId): array {
             'phone' => $r['phone'],
             'company' => $r['company'],
             'note' => $r['note'],
+            'commentsCount' => (int) $r['comments_count'],
             'createdByName' => $r['creator'] ?: '',
         ];
     }
     return $out;
+}
+
+function crm_carrier_by_id(PDO $pdo, string $id): ?array {
+    $st = $pdo->prepare('SELECT c.*, u.name AS creator FROM crm_carriers c LEFT JOIN crm_users u ON u.id = c.created_by WHERE c.id = ?');
+    $st->execute([$id]);
+    $row = $st->fetch();
+    return $row ?: null;
+}
+
+function crm_carrier_comments(PDO $pdo, string $carrierId): array {
+    $st = $pdo->prepare('SELECT * FROM crm_carrier_comments WHERE carrier_id = ? ORDER BY time ASC');
+    $st->execute([$carrierId]);
+    $comments = [];
+    $ids = [];
+    foreach ($st as $c) {
+        $item = [
+            'id' => $c['id'],
+            'text' => $c['text'],
+            'author' => $c['author'],
+            'time' => (int) $c['time'],
+            'attachments' => [],
+        ];
+        if ($c['edited_at'] !== null) $item['editedAt'] = (int) $c['edited_at'];
+        $comments[$c['id']] = $item;
+        $ids[] = $c['id'];
+    }
+    if ($ids) {
+        $inQ = implode(',', array_fill(0, count($ids), '?'));
+        $att = $pdo->prepare("SELECT * FROM crm_carrier_attachments WHERE comment_id IN ($inQ) ORDER BY id ASC");
+        $att->execute($ids);
+        foreach ($att as $a) {
+            if (!isset($comments[$a['comment_id']])) continue;
+            $comments[$a['comment_id']]['attachments'][] = [
+                'name' => $a['name'],
+                'size' => (int) $a['size'],
+                'type' => $a['type'],
+                'dataUrl' => $a['data_url'],
+            ];
+        }
+    }
+    return array_values($comments);
+}
+
+function crm_carrier_comment_by_id(PDO $pdo, string $cid): ?array {
+    $st = $pdo->prepare('SELECT * FROM crm_carrier_comments WHERE id = ?');
+    $st->execute([$cid]);
+    $row = $st->fetch();
+    return $row ?: null;
+}
+
+function crm_purge_carrier(PDO $pdo, string $id): void {
+    $cids = $pdo->prepare('SELECT id FROM crm_carrier_comments WHERE carrier_id = ?');
+    $cids->execute([$id]);
+    $ids = $cids->fetchAll(PDO::FETCH_COLUMN);
+    if ($ids) {
+        $inQ = implode(',', array_fill(0, count($ids), '?'));
+        $pdo->prepare("DELETE FROM crm_carrier_attachments WHERE comment_id IN ($inQ)")->execute($ids);
+        $pdo->prepare('DELETE FROM crm_carrier_comments WHERE carrier_id = ?')->execute([$id]);
+    }
+    $pdo->prepare('DELETE FROM crm_carriers WHERE id = ?')->execute([$id]);
 }
 
 function crm_seed(PDO $pdo): void {

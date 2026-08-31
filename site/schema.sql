@@ -119,6 +119,28 @@ CREATE TABLE IF NOT EXISTS crm_carriers (
   KEY idx_dir (direction_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS crm_carrier_comments (
+  id VARCHAR(80) NOT NULL,
+  carrier_id VARCHAR(80) NOT NULL,
+  text MEDIUMTEXT NOT NULL,
+  author VARCHAR(80) NOT NULL,
+  time BIGINT NOT NULL,
+  edited_at BIGINT NULL,
+  PRIMARY KEY (id),
+  KEY idx_carrier (carrier_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS crm_carrier_attachments (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  comment_id VARCHAR(80) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  size INT UNSIGNED NOT NULL DEFAULT 0,
+  type VARCHAR(120) NOT NULL DEFAULT '',
+  data_url VARCHAR(255) NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_comment (comment_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS crm_login_attempts (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   email VARCHAR(120) NOT NULL,

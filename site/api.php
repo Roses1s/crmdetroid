@@ -151,7 +151,9 @@ switch ($action) {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
         if (!crm_direction_by_id($pdo, $id)) err('Направление не найдено');
-        $pdo->prepare('DELETE FROM crm_carriers WHERE direction_id = ?')->execute([$id]);
+        $ids = $pdo->prepare('SELECT id FROM crm_carriers WHERE direction_id = ?');
+        $ids->execute([$id]);
+        foreach ($ids->fetchAll(PDO::FETCH_COLUMN) as $cid) crm_purge_carrier($pdo, (string) $cid);
         $pdo->prepare('DELETE FROM crm_directions WHERE id = ?')->execute([$id]);
         ok();
     }
@@ -199,9 +201,86 @@ switch ($action) {
     case 'delete_carrier': {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
-        $st = $pdo->prepare('DELETE FROM crm_carriers WHERE id = ?');
-        $st->execute([$id]);
-        if ($st->rowCount() === 0) err('Контакт не найден');
+        if (!crm_carrier_by_id($pdo, $id)) err('Контакт не найден');
+        crm_purge_carrier($pdo, $id);
+        ok();
+    }
+
+    case 'get_carrier': {
+        $id = strv($_GET['id'] ?? '', 80);
+        $row = crm_carrier_by_id($pdo, $id);
+        if (!$row) err('Контакт не найден');
+        $dir = crm_direction_by_id($pdo, (string) $row['direction_id']);
+        ok([
+            'carrier' => [
+                'id' => $row['id'],
+                'directionId' => $row['direction_id'],
+                'name' => $row['name'],
+                'phone' => $row['phone'],
+                'company' => $row['company'],
+                'createdByName' => $row['creator'] ?: '',
+            ],
+            'direction' => $dir ? [
+                'id' => $dir['id'],
+                'cityFrom' => $dir['city_from'],
+                'cityTo' => $dir['city_to'],
+            ] : null,
+            'comments' => crm_carrier_comments($pdo, $id),
+        ]);
+    }
+
+    case 'add_carrier_comment': {
+        $carrierId = strv($_POST['carrier_id'] ?? '', 80);
+        $text = strv($_POST['text'] ?? '', 20000);
+        if (!crm_carrier_by_id($pdo, $carrierId)) err('Контакт не найден');
+        $atts = [];
+        $files = $_FILES['files'] ?? null;
+        if (is_array($files) && !empty($files['name'])) {
+            $names = is_array($files['name']) ? $files['name'] : [$files['name']];
+            $tmps  = is_array($files['tmp_name']) ? $files['tmp_name'] : [$files['tmp_name']];
+            $sizes = is_array($files['size']) ? $files['size'] : [$files['size']];
+            $types = is_array($files['type']) ? $files['type'] : [$files['type']];
+            $errs  = is_array($files['error']) ? $files['error'] : [$files['error']];
+            foreach ($names as $i => $name) {
+                if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
+                $size = (int) ($sizes[$i] ?? 0);
+                if ($size > CRM_MAX_UPLOAD) err('Файл больше 5 МБ');
+                $ext = crm_allowed_upload((string) $name);
+                if ($ext === null) err('Этот тип файла не разрешён');
+                $fname = bin2hex(random_bytes(8)) . '.' . $ext;
+                if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) err('Не удалось сохранить файл');
+                $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => (string) ($types[$i] ?? ''), 'dataUrl' => 'uploads/' . $fname];
+            }
+        }
+        if ($text === '' && !$atts) err('Пусто');
+        $cid = 'cc_' . bin2hex(random_bytes(6));
+        $pdo->prepare('INSERT INTO crm_carrier_comments (id, carrier_id, text, author, time, edited_at) VALUES (?,?,?,?,?,NULL)')
+            ->execute([$cid, $carrierId, $text, $user['name'], now_ms()]);
+        $insA = $pdo->prepare('INSERT INTO crm_carrier_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
+        foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
+        ok();
+    }
+
+    case 'edit_carrier_comment': {
+        $in = body_json();
+        $cid = strv($in['id'] ?? '', 80);
+        $text = strv($in['text'] ?? '', 20000);
+        if ($text === '') err('Пусто');
+        $c = crm_carrier_comment_by_id($pdo, $cid);
+        if (!$c) err('Комментарий не найден');
+        if (!can_edit_comment($user, $c)) err('Нет прав');
+        $pdo->prepare('UPDATE crm_carrier_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
+        ok();
+    }
+
+    case 'delete_carrier_comment': {
+        $in = body_json();
+        $cid = strv($in['id'] ?? '', 80);
+        $c = crm_carrier_comment_by_id($pdo, $cid);
+        if (!$c) err('Комментарий не найден');
+        if (!can_edit_comment($user, $c)) err('Нет прав');
+        $pdo->prepare('DELETE FROM crm_carrier_attachments WHERE comment_id = ?')->execute([$cid]);
+        $pdo->prepare('DELETE FROM crm_carrier_comments WHERE id = ?')->execute([$cid]);
         ok();
     }
 

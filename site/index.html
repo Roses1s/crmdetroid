@@ -200,6 +200,10 @@
   .carriers-wrap { flex: 1; overflow-y: auto; padding: 20px; }
   .carriers-wrap .users-table { margin-top: 0; }
   .carrier-note { min-width: 160px; }
+  .name-link { color: var(--primary); font-weight: 700; cursor: pointer; }
+  .name-link:hover { text-decoration: underline; }
+  .log-link { color: var(--primary); cursor: pointer; font-weight: 600; font-size: 13px; }
+  .log-link:hover { text-decoration: underline; }
   .user-input { border: 1px solid transparent; background: transparent; padding: 4px 8px; width: 100%; font-size: 13px; border-radius: var(--radius); transition: border .2s; }
   .user-input:focus { border-color: var(--primary); background: #fff; outline: none; }
 
@@ -337,9 +341,38 @@
   </div>
   <div class="carriers-wrap">
     <table class="users-table">
-      <thead><tr><th>Имя</th><th>Телефон</th><th>Компания</th><th>Комментарий</th><th>Кто добавил</th><th style="width:120px;">Действия</th></tr></thead>
+      <thead><tr><th>Имя</th><th>Телефон</th><th>Компания</th><th>Лог</th><th>Кто добавил</th><th style="width:80px;"></th></tr></thead>
       <tbody id="carriers-tbody"></tbody>
     </table>
+  </div>
+</section>
+
+<section id="carrier-view" class="view-section" style="background:#fff;">
+  <div class="breadcrumb"><a data-action="back-carrier">CRM / Направления</a><span>/</span><a data-action="back-carrier" id="carrier-dir-crumb"></a><span>/</span><b id="carrier-crumb"></b></div>
+  <div class="toolbar" style="background:#f9f9f9; padding:8px 20px;">
+    <button class="btn btn-secondary btn-sm" data-action="back-carrier">← К направлению</button>
+    <button class="btn btn-danger btn-sm" data-action="delete-carrier" style="margin-left:auto;">🗑️ Удалить</button>
+  </div>
+  <div class="detail-body">
+    <div class="form-panel">
+      <input type="text" id="cf-name" class="editable-title" placeholder="Имя / название...">
+      <div class="form-row"><div class="form-label">Телефон</div><input class="form-input" id="cf-phone"></div>
+      <div class="form-row"><div class="form-label">Компания</div><input class="form-input" id="cf-company"></div>
+    </div>
+    <div class="chatter">
+      <div class="chatter-header">
+        <div class="tab-title">Лог примечания</div>
+      </div>
+      <div class="comment-form">
+        <textarea id="carrier-comment-input" placeholder="Комментарий... Enter — отправить, Shift+Enter — новая строка"></textarea>
+        <div class="files-preview" id="carrier-files-preview"></div>
+        <div class="form-actions">
+          <button class="btn btn-primary" data-action="post-carrier-comment">Записать в лог</button>
+          <label class="file-label">📎 Прикрепить<input type="file" id="carrier-file-input" multiple hidden></label>
+        </div>
+      </div>
+      <div class="chatter-log" id="carrier-chatter-log"></div>
+    </div>
   </div>
 </section>
 
@@ -373,8 +406,7 @@
     <div class="field"><label>Имя / название *</label><input id="k-name"></div>
     <div class="field"><label>Телефон</label><input id="k-phone"></div>
     <div class="field"><label>Компания</label><input id="k-company"></div>
-    <div class="field"><label>Комментарий</label><input id="k-note" placeholder="Ставка, машина, примечание"></div>
-    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-carrier">Сохранить</button></div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-carrier">Создать</button></div>
   </div>
 </div>
 
@@ -492,7 +524,7 @@ const Net = {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
         data = null;
       }
-      if (action === 'get_carriers') {
+      if (action === 'get_carriers' || action === 'get_carrier') {
         url += `&id=${encodeURIComponent((data && data.id) || '')}`;
         data = null;
       }
@@ -539,7 +571,7 @@ const Store = {
   }
 };
 
-const UI = { leadId: null, routeId: null, pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false };
+const UI = { leadId: null, routeId: null, carrierId: null, carrierComments: [], pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false };
 
 function closeSearchDrop() { $('#search-drop')?.classList.remove('open'); }
 
@@ -629,7 +661,7 @@ function clearSearch() {
 
 function handleLogoutUI(msg) {
   stopPolling();
-  UI.leadId = null; UI.routeId = null; UI.editingCommentId = null; UI.formDirty = false;
+  UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = []; UI.editingCommentId = null; UI.formDirty = false;
   Store.state.user = null; Store.state.leads = []; Store.state.stages = [];
   clearSearch();
   history.replaceState(null, '', location.pathname);
@@ -647,6 +679,8 @@ function handleHashRouting() {
   if (hash.startsWith('#lead/')) {
     const targetLeadId = decodeURIComponent(hash.replace('#lead/', ''));
     if (Store.getLead(targetLeadId)) { openLead(targetLeadId, false); return; }
+  } else if (hash.startsWith('#carrier/')) {
+    openCarrier(decodeURIComponent(hash.replace('#carrier/', '')), false); return;
   } else if (hash.startsWith('#route/')) {
     openRoute(decodeURIComponent(hash.replace('#route/', '')), false); return;
   } else if (hash === '#routes') {
@@ -662,7 +696,7 @@ window.addEventListener('popstate', () => { if (Store.state.user) handleHashRout
 
 async function switchView(viewId, updateHash = true) {
   if (UI.leadId && UI.formDirty) await saveLeadForm(true);
-  UI.leadId = null; UI.routeId = null; UI.pendingFiles = []; UI.formDirty = false; UI.editingCommentId = null;
+  UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = []; UI.pendingFiles = []; UI.formDirty = false; UI.editingCommentId = null;
   UI.currentView = viewId.replace('-view', '');
 
   $$('.view-section').forEach(el => el.classList.remove('active'));
@@ -744,20 +778,109 @@ function renderCarriers(list) {
   }
   tbody.innerHTML = '';
   list.forEach(c => {
+    const n = c.commentsCount || 0;
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><input class="user-input" id="kname-${esc(c.id)}" value="${esc(c.name)}"></td>
-      <td><input class="user-input" id="kphone-${esc(c.id)}" value="${esc(c.phone)}"></td>
-      <td><input class="user-input" id="kco-${esc(c.id)}" value="${esc(c.company)}"></td>
-      <td><input class="user-input carrier-note" id="knote-${esc(c.id)}" value="${esc(c.note)}"></td>
+      <td><span class="name-link" data-action="open-carrier" data-id="${esc(c.id)}">${esc(c.name)}</span></td>
+      <td>${esc(c.phone)}</td>
+      <td>${esc(c.company)}</td>
+      <td><span class="log-link" data-action="open-carrier" data-id="${esc(c.id)}">${n ? n + ' зап.' : 'Открыть лог'}</span></td>
       <td>${esc(c.createdByName)}</td>
-      <td>
-        <button class="btn btn-primary btn-sm" data-action="save-carrier-row" data-id="${esc(c.id)}">💾</button>
-        <button class="btn btn-danger btn-sm" data-action="delete-carrier" data-id="${esc(c.id)}">🗑️</button>
-      </td>`;
+      <td><button class="btn btn-danger btn-sm" data-action="delete-carrier" data-id="${esc(c.id)}">🗑️</button></td>`;
     tbody.appendChild(tr);
-    setupPhoneMask($(`#kphone-${c.id}`));
   });
+}
+
+async function openCarrier(id, updateHash = true) {
+  if (UI.leadId && UI.formDirty) await saveLeadForm(true);
+  if (UI.carrierId && UI.formDirty) await saveCarrierForm(true);
+  const res = await Net.req('get_carrier', { id });
+  if (!res || !res.success) {
+    if (UI.routeId) { openRoute(UI.routeId, updateHash); return; }
+    switchView('routes-view', updateHash); return;
+  }
+  UI.leadId = null;
+  UI.carrierId = id;
+  UI.currentView = 'carrier';
+  UI.pendingFiles = [];
+  UI.formDirty = false;
+  UI.editingCommentId = null;
+  UI.carrierComments = res.comments || [];
+  const c = res.carrier, d = res.direction;
+  if (c.directionId) UI.routeId = c.directionId;
+  $$('.view-section').forEach(el => el.classList.remove('active'));
+  $$('.nav-item').forEach(el => el.classList.remove('active'));
+  $('#carrier-view').classList.add('active');
+  $('#nav-routes')?.classList.add('active');
+  $('#cf-name').value = c.name || '';
+  $('#cf-phone').value = c.phone || '';
+  $('#cf-company').value = c.company || '';
+  $('#carrier-crumb').textContent = c.name || '';
+  $('#carrier-dir-crumb').textContent = d ? `${d.cityFrom} → ${d.cityTo}` : 'Направление';
+  setupPhoneMask($('#cf-phone'));
+  if (updateHash && window.location.hash !== '#carrier/' + encodeURIComponent(id)) {
+    history.pushState(null, '', '#carrier/' + encodeURIComponent(id));
+  }
+  renderCarrierLog();
+  renderFiles();
+}
+
+function fillCarrierFromForm() {
+  return {
+    id: UI.carrierId,
+    directionId: UI.routeId,
+    name: $('#cf-name').value.trim() || 'Без названия',
+    phone: $('#cf-phone').value.trim(),
+    company: $('#cf-company').value.trim()
+  };
+}
+
+async function saveCarrierForm(sync = false) {
+  if (!UI.carrierId) return;
+  const patch = fillCarrierFromForm();
+  $('#carrier-crumb').textContent = patch.name;
+  UI.formDirty = false;
+  if (sync) await Net.req('save_carrier', patch); else Net.req('save_carrier', patch);
+}
+const saveCarrierDebounced = debounce(() => saveCarrierForm(false), 500);
+
+function renderCarrierLog() {
+  const log = $('#carrier-chatter-log'); if (!log) return;
+  const comments = UI.carrierComments || [];
+  if (!comments.length) { log.innerHTML = '<div class="log-empty">Лог пуст</div>'; return; }
+  log.innerHTML = '';
+  const cu = Store.state.user.name, isAdm = Store.state.user.role === 'admin';
+  const frag = document.createDocumentFragment();
+  [...comments].reverse().forEach(c => {
+    const canEdit = isAdm || c.author === cu;
+    const init = (c.author[0] || '?').toUpperCase();
+    const atts = (c.attachments || []).map(a => {
+      const u = escAttr(a.dataUrl), n = esc(a.name);
+      if ((a.type || '').startsWith('image/')) return `<div class="att-image"><a href="${u}" target="_blank" rel="noopener"><img src="${u}"></a></div>`;
+      return `<a class="att-file" href="${u}" download="${n}" rel="noopener">📄 ${n} <span class="att-size">${fmtBytes(a.size)}</span></a>`;
+    }).join('');
+    const el = document.createElement('div'); el.className = 'log-entry';
+    el.innerHTML = `
+      <div class="log-avatar" style="background:#714B67">${esc(init)}</div>
+      <div class="log-body">
+        <div class="log-head">
+          <div><div class="log-author">${esc(c.author)}</div><div>${esc(fmtTime(c.time))}${c.editedAt ? ` <span style="color:#714B67;font-style:italic">изм. ${esc(fmtTime(c.editedAt))}</span>` : ''}</div></div>
+          ${canEdit ? `<div class="log-actions"><span class="log-btn" data-action="toggle-edit" data-cid="${esc(c.id)}">✎ Изменить</span><span class="log-btn del" data-action="del-comment" data-cid="${esc(c.id)}">🗑️</span></div>` : ''}
+        </div>
+        <div class="log-text" data-txt="${esc(c.id)}">${esc(c.text)}</div>
+        <div class="inline-editor" data-edt="${esc(c.id)}">
+          <textarea data-inp="${esc(c.id)}">${esc(c.text)}</textarea>
+          <div class="inline-edit-btns"><button class="btn btn-secondary btn-sm" data-action="toggle-edit" data-cid="${esc(c.id)}">Отмена</button><button class="btn btn-primary btn-sm" data-action="save-comment" data-cid="${esc(c.id)}">Сохранить</button></div>
+        </div>
+        ${atts ? `<div class="attachments">${atts}</div>` : ''}
+      </div>`;
+    frag.appendChild(el);
+  });
+  log.appendChild(frag);
+  if (UI.editingCommentId) {
+    const edt = $(`[data-edt="${UI.editingCommentId}"]`), txt = $(`[data-txt="${UI.editingCommentId}"]`);
+    if (edt && txt) { edt.classList.add('active'); txt.classList.add('hidden'); }
+  }
 }
 
 function openLead(id, updateHash = true) {
@@ -895,7 +1018,8 @@ function renderDetailStages() {
 }
 
 function renderFiles() {
-  const box = $('#files-preview'); box.innerHTML = '';
+  const box = UI.currentView === 'carrier' ? $('#carrier-files-preview') : $('#files-preview');
+  if (!box) return; box.innerHTML = '';
   UI.pendingFiles.forEach((f, i) => {
     const el = document.createElement('div'); el.className = 'file-chip';
     el.innerHTML = `<span>📎 ${esc(f.name)}</span> <span class="chip-remove" data-action="rm-file" data-idx="${i}">×</span>`;
@@ -980,13 +1104,17 @@ function initEvents() {
   $('#login-password').addEventListener('keydown', e => { if (e.key === 'Enter') execLogin(); });
   $('#login-email').addEventListener('keydown', e => { if (e.key === 'Enter') $('#login-password').focus(); });
 
-  window.addEventListener('beforeunload', e => { if (UI.formDirty) { saveLeadForm(false); } });
+  window.addEventListener('beforeunload', e => { if (UI.formDirty) { if (UI.carrierId) saveCarrierForm(false); else saveLeadForm(false); } });
   $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title, #f-apps')) { UI.formDirty = true; saveLeadDebounced(); } });
+  $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; saveCarrierDebounced(); } });
 
   $('#comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-comment"]').click(); } });
-  $('#chatter-log').addEventListener('keydown', e => { if (e.target.matches('.inline-editor textarea') && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $(`[data-action="save-comment"][data-cid="${e.target.dataset.inp}"]`).click(); } });
+  $('#carrier-comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-carrier-comment"]').click(); } });
+  const bindLogEnter = el => el.addEventListener('keydown', e => { if (e.target.matches('.inline-editor textarea') && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $(`[data-action="save-comment"][data-cid="${e.target.dataset.inp}"]`).click(); } });
+  bindLogEnter($('#chatter-log'));
+  bindLogEnter($('#carrier-chatter-log'));
 
-  $('#file-input').addEventListener('change', e => {
+  const onPickFiles = e => {
     const allow = new Set(['png','jpg','jpeg','gif','webp','bmp','pdf','txt','csv','doc','docx','xls','xlsx','ppt','pptx','zip','7z']);
     [...e.target.files].forEach(f => {
       if (f.size > 5 * 1024 * 1024) return Toast.error(`Файл "${f.name}" > 5МБ`);
@@ -997,7 +1125,9 @@ function initEvents() {
       UI.pendingFiles.push({ name: f.name, size: f.size, type: f.type, rawFile: f });
     });
     e.target.value = ''; renderFiles();
-  });
+  };
+  $('#file-input').addEventListener('change', onPickFiles);
+  $('#carrier-file-input').addEventListener('change', onPickFiles);
 
   document.body.addEventListener('click', async e => {
     const actEl = e.target.closest('[data-action]'); if (!actEl) return;
@@ -1049,32 +1179,46 @@ function initEvents() {
 
       case 'new-carrier':
         if (!UI.routeId) return;
-        $('#k-id').value = ''; $('#k-name').value = ''; $('#k-phone').value = ''; $('#k-company').value = ''; $('#k-note').value = '';
-        $('#carrier-modal-title').textContent = 'Новый перевозчик';
+        $('#k-id').value = ''; $('#k-name').value = ''; $('#k-phone').value = ''; $('#k-company').value = '';
         Modal.open('modal-carrier'); setTimeout(() => $('#k-name').focus(), 50);
         break;
       case 'submit-carrier': {
         const name = $('#k-name').value.trim();
         if (!name) return Toast.error('Укажите имя или название');
-        const payload = { id: $('#k-id').value.trim(), directionId: UI.routeId, name, phone: $('#k-phone').value.trim(), company: $('#k-company').value.trim(), note: $('#k-note').value.trim() };
+        const payload = { directionId: UI.routeId, name, phone: $('#k-phone').value.trim(), company: $('#k-company').value.trim() };
         const resK = await Net.req('save_carrier', payload);
-        if (resK?.success) { Modal.closeAll(); await openRoute(UI.routeId, false); }
+        if (resK?.success) { Modal.closeAll(); await openCarrier(resK.id, true); }
         else Toast.error(resK?.error || 'Ошибка');
         break;
       }
-      case 'save-carrier-row': {
-        const id = actEl.dataset.id;
-        const name = $(`#kname-${id}`).value.trim();
-        if (!name) return Toast.error('Укажите имя или название');
-        const resKS = await Net.req('save_carrier', { id, directionId: UI.routeId, name, phone: $(`#kphone-${id}`).value.trim(), company: $(`#kco-${id}`).value.trim(), note: $(`#knote-${id}`).value.trim() });
-        if (resKS?.success) Toast.success('Сохранено'); else Toast.error(resKS?.error || 'Ошибка');
+      case 'open-carrier':
+        if (actEl.dataset.id) openCarrier(actEl.dataset.id, true);
+        break;
+      case 'back-carrier':
+        if (UI.carrierId && UI.formDirty) await saveCarrierForm(true);
+        if (UI.routeId) openRoute(UI.routeId, true); else switchView('routes-view', true);
+        break;
+      case 'delete-carrier': {
+        const delId = actEl.dataset.id || UI.carrierId;
+        if (!delId) return;
+        if (!await askConfirm('Удалить перевозчика?', 'Лог тоже удалится')) return;
+        const resDK = await Net.req('delete_carrier', { id: delId });
+        if (resDK?.success) {
+          UI.carrierId = null;
+          if (UI.routeId) await openRoute(UI.routeId, true); else switchView('routes-view', true);
+        } else Toast.error(resDK?.error || 'Ошибка');
         break;
       }
-      case 'delete-carrier':
-        if (!await askConfirm('Удалить перевозчика?')) return;
-        const resDK = await Net.req('delete_carrier', { id: actEl.dataset.id });
-        if (resDK?.success) await openRoute(UI.routeId, false); else Toast.error(resDK?.error || 'Ошибка');
+      case 'post-carrier-comment': {
+        const txt = $('#carrier-comment-input').value.trim(); if (!txt && !UI.pendingFiles.length) return;
+        if (!UI.carrierId) return;
+        const fd = new FormData(); fd.append('carrier_id', UI.carrierId); fd.append('text', txt);
+        UI.pendingFiles.forEach(f => fd.append('files[]', f.rawFile));
+        const resPCC = await Net.req('add_carrier_comment', fd, true);
+        if (resPCC?.success) { $('#carrier-comment-input').value = ''; UI.pendingFiles = []; await openCarrier(UI.carrierId, false); }
+        else Toast.error(resPCC?.error || 'Ошибка');
         break;
+      }
       case 'logout': execLogout(); break;
       case 'new-lead': $$('#modal-create input').forEach(i => i.value = ''); Modal.open('modal-create'); setTimeout(() => $('#m-title').focus(), 50); break;
       case 'open-add-user': $$('#modal-add-user input').forEach(i => i.value = ''); Modal.open('modal-add-user'); setTimeout(() => $('#u-name').focus(), 50); break;
@@ -1160,17 +1304,27 @@ function initEvents() {
         else { UI.editingCommentId = null; }
         break;
 
-      case 'save-comment':
+      case 'save-comment': {
         const v = $(`[data-inp="${actEl.dataset.cid}"]`).value.trim(); if (!v) return Toast.error('Пусто');
-        const resSC = await Net.req('edit_comment', { id: actEl.dataset.cid, text: v });
-        if (resSC?.success) { UI.editingCommentId = null; await Store.load(true); } else Toast.error(resSC?.error || 'Ошибка');
+        const isCarrier = UI.currentView === 'carrier';
+        const resSC = await Net.req(isCarrier ? 'edit_carrier_comment' : 'edit_comment', { id: actEl.dataset.cid, text: v });
+        if (resSC?.success) {
+          UI.editingCommentId = null;
+          if (isCarrier) await openCarrier(UI.carrierId, false); else await Store.load(true);
+        } else Toast.error(resSC?.error || 'Ошибка');
         break;
+      }
 
-      case 'del-comment':
+      case 'del-comment': {
         if (!await askConfirm('Удалить комментарий?')) return;
-        const resDC = await Net.req('delete_comment', { id: actEl.dataset.cid });
-        if (resDC?.success) { UI.editingCommentId = null; await Store.load(true); } else Toast.error(resDC?.error || 'Ошибка');
+        const isCarrier = UI.currentView === 'carrier';
+        const resDC = await Net.req(isCarrier ? 'delete_carrier_comment' : 'delete_comment', { id: actEl.dataset.cid });
+        if (resDC?.success) {
+          UI.editingCommentId = null;
+          if (isCarrier) await openCarrier(UI.carrierId, false); else await Store.load(true);
+        } else Toast.error(resDC?.error || 'Ошибка');
         break;
+      }
     }
     })();
   });
