@@ -74,6 +74,15 @@
   .search-item.other { cursor: default; background: #fffbeb; }
   .search-item.other:hover { background: #fef3c7; }
   .search-empty { padding: 14px; text-align: center; color: var(--muted); font-size: 13px; }
+  .search-item.emp { background: #f5f0f4; }
+  .search-item.emp:hover { background: #efe8ee; }
+  .view-user-banner {
+    display: none; align-items: center; gap: 8px; margin-left: 10px;
+    background: #efe8ee; color: var(--primary); border-radius: var(--radius);
+    padding: 4px 8px 4px 12px; font-size: 13px;
+  }
+  .view-user-banner.show { display: inline-flex; }
+  .view-user-banner b { font-weight: 700; }
 
   .btn { padding: 6px 14px; border-radius: var(--radius); cursor: pointer; font-weight: 500; border: 1px solid transparent; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; transition: background .15s; }
   .btn:disabled { opacity: .6; cursor: not-allowed; }
@@ -256,7 +265,13 @@
 </header>
 
 <section id="kanban-view" class="view-section active">
-  <div class="breadcrumb"><a data-action="go-home">CRM / Лиды</a></div>
+  <div class="breadcrumb">
+    <a data-action="go-home">CRM / Лиды</a>
+    <span class="view-user-banner" id="view-user-banner">
+      <span>Доска:</span><b id="view-user-name"></b>
+      <button type="button" class="btn btn-secondary btn-sm" data-action="exit-view-user">К своим</button>
+    </span>
+  </div>
   <div class="toolbar">
     <button class="btn btn-primary" data-action="new-lead">+ Создать лид</button>
     <div class="board-search" id="board-search-wrap">
@@ -526,6 +541,8 @@ const Net = {
     try {
       let url = `api.php?action=${encodeURIComponent(action)}`;
       if (action === 'get_data' && this.hash) url += `&hash=${encodeURIComponent(this.hash)}`;
+      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, save_stages:1 };
+      if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
         data = null;
@@ -546,7 +563,8 @@ const Net = {
 };
 
 const Store = {
-  state: { stages: [], leads: [], user: null },
+  viewUserId: null, viewUserName: '',
+  state: { stages: [], leads: [], user: null, colleagues: [] },
   async load(force = false) {
     const res = await Net.req('get_data');
     if (!res || !res.success) return;
@@ -565,6 +583,7 @@ const Store = {
     $('#user-display-name').textContent = res.user.name;
     $('#login-overlay').classList.remove('show');
     $('#nav-users').style.display = res.user.role === 'admin' ? '' : 'none';
+    updateSearchPlaceholder();
 
     if (UI.currentView === 'kanban') renderBoard();
     if (UI.currentView === 'lead' && UI.leadId) {
@@ -595,6 +614,51 @@ function placeSearchDrop() {
   box.style.top = (r.bottom + 4) + 'px';
 }
 
+function localSearchEmployees(q) {
+  if (Store.state.user?.role !== 'admin') return [];
+  const query = String(q || '').trim().toLowerCase();
+  if (!query) return [];
+  return (Store.state.colleagues || []).filter(u => String(u.name || '').toLowerCase().includes(query)).slice(0, 20);
+}
+
+function updateSearchPlaceholder() {
+  const inp = $('#board-search'); if (!inp) return;
+  inp.placeholder = Store.state.user?.role === 'admin'
+    ? 'Поиск по названию, ИНН или сотруднику'
+    : 'Поиск по названию или ИНН';
+}
+
+function updateViewBanner() {
+  const b = $('#view-user-banner'); if (!b) return;
+  b.classList.toggle('show', !!Store.viewUserId);
+  const n = $('#view-user-name'); if (n) n.textContent = Store.viewUserName || '';
+}
+
+async function viewUserBoard(id, name) {
+  id = parseInt(id, 10);
+  closeSearchDrop();
+  clearSearch();
+  if (!id || id === Store.state.user?.id) {
+    await exitViewUser();
+    return;
+  }
+  Store.viewUserId = id;
+  Store.viewUserName = name || '';
+  Net.hash = null; _lastBoardHash = null;
+  updateViewBanner();
+  if (UI.currentView !== 'kanban') goHome(true);
+  await Store.load(true);
+}
+
+async function exitViewUser() {
+  const had = !!Store.viewUserId;
+  Store.viewUserId = null; Store.viewUserName = '';
+  Net.hash = null; _lastBoardHash = null;
+  updateViewBanner();
+  if (UI.currentView !== 'kanban') goHome(true);
+  if (had) await Store.load(true); else renderBoard();
+}
+
 function localSearchLeads(q) {
   const query = String(q || '').trim().toLowerCase();
   const digits = query.replace(/\D/g, '');
@@ -622,8 +686,15 @@ function renderSearchDrop(payload) {
   const box = $('#search-drop'); if (!box) return;
   const leads = payload.leads || [];
   const inter = payload.intersections || [];
+  const emps = payload.employees || [];
   const used = new Set();
   let html = '';
+  emps.forEach(u => {
+    const mine = Store.state.user && +u.id === +Store.state.user.id;
+    const watching = Store.viewUserId && +u.id === +Store.viewUserId;
+    const meta = mine ? 'Ваша доска' : (watching ? 'Сейчас открыта' : 'Открыть доску сотрудника');
+    html += `<div class="search-item emp" data-action="view-user-board" data-id="${esc(u.id)}" data-name="${esc(u.name)}"><div class="search-item-title">${esc(u.name)}</div><div class="search-item-meta">${meta}</div></div>`;
+  });
   leads.forEach(l => {
     const names = ownersOf(l, inter);
     if (String(l.inn || '').replace(/\D/g, '')) used.add('inn:' + String(l.inn).replace(/\D/g, ''));
@@ -654,13 +725,15 @@ async function liveSearch(q) {
   wrap?.classList.toggle('has-query', !!query);
   if (!query) { closeSearchDrop(); return; }
   const local = localSearchLeads(query);
-  renderSearchDrop({ leads: local, intersections: [] });
+  const localEmp = localSearchEmployees(query);
+  renderSearchDrop({ leads: local, intersections: [], employees: localEmp });
   const gen = ++_searchGen;
   const res = await Net.req('search_leads', { q: query });
   if (gen !== _searchGen) return;
   if (res && res.success) {
     const leads = (res.leads && res.leads.length) ? res.leads : local;
-    renderSearchDrop({ leads, intersections: res.intersections || [] });
+    const employees = (res.employees && res.employees.length) ? res.employees : localEmp;
+    renderSearchDrop({ leads, intersections: res.intersections || [], employees });
   }
 }
 
@@ -673,6 +746,7 @@ function clearSearch() {
 function handleLogoutUI(msg) {
   stopPolling();
   UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = []; UI.editingCommentId = null; UI.formDirty = false;
+  Store.viewUserId = null; Store.viewUserName = '';
   Store.state.user = null; Store.state.leads = []; Store.state.stages = [];
   clearSearch();
   history.replaceState(null, '', location.pathname);
@@ -1131,8 +1205,8 @@ function initEvents() {
   searchInp.addEventListener('keydown', e => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const first = $('#search-drop .search-item[data-id]');
-      if (first) { closeSearchDrop(); openLead(first.dataset.id, true); }
+      const first = $('#search-drop .search-item[data-action]');
+      if (first) first.click();
     } else if (e.key === 'Escape' && (searchInp.value || $('#search-drop.open'))) {
       e.preventDefault(); e.stopPropagation();
       clearSearch();
@@ -1204,6 +1278,12 @@ function initEvents() {
     switch (act) {
       case 'open-search-lead':
         if (actEl.dataset.id) { closeSearchDrop(); openLead(actEl.dataset.id, true); }
+        break;
+      case 'view-user-board':
+        await viewUserBoard(actEl.dataset.id, actEl.dataset.name);
+        break;
+      case 'exit-view-user':
+        await exitViewUser();
         break;
       case 'prev-lead': goNeighborLead(-1); break;
       case 'next-lead': goNeighborLead(1); break;

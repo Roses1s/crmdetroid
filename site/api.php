@@ -111,11 +111,14 @@ if ($action === 'logout') {
 
 $user = require_user($pdo);
 if ($method === 'POST') require_csrf();
+$viewUid = crm_view_uid($pdo, $user);
 
 switch ($action) {
     case 'search_leads': {
         $q = strv($_GET['q'] ?? '', 120);
-        ok(crm_search_leads($pdo, (int) $user['id'], $q));
+        $out = crm_search_leads($pdo, $viewUid, $q);
+        if (($user['role'] ?? '') === 'admin') $out['employees'] = crm_search_employees($pdo, $q);
+        ok($out);
     }
 
     case 'get_directions': {
@@ -285,7 +288,7 @@ switch ($action) {
     }
 
     case 'get_data': {
-        $uid = (int) $user['id'];
+        $uid = $viewUid;
         $hash = crm_data_hash($pdo, $uid);
         $client = (string) ($_GET['hash'] ?? '');
         if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
@@ -298,7 +301,7 @@ switch ($action) {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
         if ($id === '') $id = 'l_' . bin2hex(random_bytes(6));
-        $uid = (int) $user['id'];
+        $uid = $viewUid;
         $stages = crm_stages($pdo, $uid);
         $row = crm_lead_for_user($pdo, $id, $uid);
         if (!$row) {
@@ -349,7 +352,7 @@ switch ($action) {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
         $stage = strv($in['stage'] ?? '', 80);
-        $uid = (int) $user['id'];
+        $uid = $viewUid;
         $stages = crm_stages($pdo, $uid);
         if ($stage === '' || !in_array($stage, $stages, true)) err('Нет такого этапа');
         $row = crm_lead_for_user($pdo, $id, $uid);
@@ -365,7 +368,7 @@ switch ($action) {
     case 'delete_lead': {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
-        $uid = (int) $user['id'];
+        $uid = $viewUid;
         if (!crm_lead_for_user($pdo, $id, $uid)) err('Лид не найден');
         $cids = $pdo->prepare('SELECT id FROM crm_comments WHERE lead_id = ?');
         $cids->execute([$id]);
@@ -382,7 +385,7 @@ switch ($action) {
     case 'add_comment': {
         $leadId = strv($_POST['lead_id'] ?? '', 80);
         $text = strv($_POST['text'] ?? '', 20000);
-        if (!crm_lead_for_user($pdo, $leadId, (int) $user['id'])) err('Лид не найден');
+        if (!crm_lead_for_user($pdo, $leadId, $viewUid)) err('Лид не найден');
         $atts = [];
         $files = $_FILES['files'] ?? null;
         if (is_array($files) && !empty($files['name'])) {
@@ -416,7 +419,7 @@ switch ($action) {
         $cid = strv($in['id'] ?? '', 80);
         $text = strv($in['text'] ?? '', 20000);
         if ($text === '') err('Пусто');
-        $c = crm_comment_for_user($pdo, $cid, (int) $user['id']);
+        $c = crm_comment_for_user($pdo, $cid, $viewUid);
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
         $pdo->prepare('UPDATE crm_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
@@ -426,7 +429,7 @@ switch ($action) {
     case 'delete_comment': {
         $in = body_json();
         $cid = strv($in['id'] ?? '', 80);
-        $c = crm_comment_for_user($pdo, $cid, (int) $user['id']);
+        $c = crm_comment_for_user($pdo, $cid, $viewUid);
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
         $pdo->prepare('DELETE FROM crm_attachments WHERE comment_id = ?')->execute([$cid]);
@@ -441,7 +444,7 @@ switch ($action) {
         $ns = array_values(array_filter(array_map(fn($s) => strv($s, 80), $ns)));
         if (!$ns) err('Пустой список этапов');
         if (count($ns) !== count(array_unique($ns))) err('Имя занято');
-        $uid = (int) $user['id'];
+        $uid = $viewUid;
         $old = crm_stages($pdo, $uid);
         $pdo->beginTransaction();
         try {

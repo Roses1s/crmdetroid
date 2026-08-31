@@ -316,6 +316,25 @@ function crm_user_public(array $u): array {
     return ['id' => (int) $u['id'], 'name' => $u['name'], 'email' => $u['email'], 'role' => $u['role']];
 }
 
+function crm_view_uid(PDO $pdo, array $user): int {
+    $as = (int) ($_GET['as'] ?? 0);
+    if ($as <= 0) return (int) $user['id'];
+    if (($user['role'] ?? '') !== 'admin') err('Нет прав');
+    if ($as === (int) $user['id']) return $as;
+    if (!crm_user_by_id($pdo, $as)) err('Сотрудник не найден');
+    return $as;
+}
+
+function crm_search_employees(PDO $pdo, string $q): array {
+    $q = trim($q);
+    if ($q === '') return [];
+    $st = $pdo->prepare('SELECT id, name FROM crm_users WHERE name LIKE ? ORDER BY name ASC LIMIT 20');
+    $st->execute([crm_like_pat($q)]);
+    $out = [];
+    foreach ($st as $r) $out[] = ['id' => (int) $r['id'], 'name' => $r['name']];
+    return $out;
+}
+
 function crm_colleagues(PDO $pdo): array {
     $out = [];
     foreach ($pdo->query('SELECT id, name FROM crm_users ORDER BY name ASC') as $u) {
