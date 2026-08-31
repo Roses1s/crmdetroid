@@ -2,7 +2,7 @@ Options -Indexes
 DirectoryIndex index.html index.php
 
 <IfModule mod_authz_core.c>
-  <FilesMatch "^(config\.php|db\.php|schema\.sql|check-mysql\.php)$">
+  <FilesMatch "^(config\.php|db\.php|schema\.sql|check-mysql\.php|ui\.html)$">
     Require all denied
   </FilesMatch>
 </IfModule>

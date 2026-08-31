@@ -40,6 +40,8 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 
+  body.guest header, body.guest #app-root { display: none !important; }
+  body.guest #login-overlay { display: flex; }
   #login-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 9000; display: none; align-items: center; justify-content: center; }
   #login-overlay.show { display: flex; }
   .login-card { background: #fff; padding: 35px; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); width: 100%; max-width: 380px; }
@@ -389,9 +391,9 @@
   html[data-theme="dark"] .column.drop-target { outline-color: #714B67; }
 </style>
 </head>
-<body>
+<body class="guest">
 
-<div id="login-overlay">
+<div id="login-overlay" class="show">
   <div class="login-card">
     <h2>Вход в CRM</h2>
     <div class="field"><label>E-mail</label><input type="email" id="login-email" autocomplete="username"></div>
@@ -425,215 +427,13 @@
     <div class="user-info">
       <span class="conn-dot" id="conn-dot" title="Связь с сервером"></span>
       <span id="user-display-name">...</span>
+      <span class="logout-btn" id="btn-export-backup" data-action="export-backup" style="display:none;" title="Скачать данные CRM">Копия</span>
       <span class="logout-btn" data-action="logout">Выйти</span>
     </div>
   </div>
 </header>
 
-<section id="kanban-view" class="view-section active">
-  <div class="breadcrumb">
-    <a data-action="go-home">CRM / Лиды</a>
-    <span class="view-user-banner" id="view-user-banner">
-      <span>Доска:</span><b id="view-user-name"></b>
-      <button type="button" class="btn btn-secondary btn-sm" data-action="exit-view-user">К своим</button>
-    </span>
-  </div>
-  <div class="toolbar">
-    <button class="btn btn-primary" data-action="new-lead">+ Создать лид</button>
-    <div class="board-search" id="board-search-wrap">
-      <div class="board-search-field">
-        <input type="text" id="board-search" placeholder="Поиск по названию или ИНН" autocomplete="off" spellcheck="false">
-        <button type="button" class="search-clear" id="board-search-clear" title="Очистить" aria-label="Очистить">×</button>
-      </div>
-      <div class="search-drop" id="search-drop"></div>
-    </div>
-    <div></div>
-  </div>
-  <div class="kanban-board" id="board"></div>
-</section>
-
-<section id="detail-view" class="view-section" style="background:#fff;">
-  <div class="breadcrumb"><a data-action="go-home">CRM / Лиды</a><span>/</span><b id="crumb-name"></b></div>
-  <div class="toolbar" style="background:#f9f9f9; padding:8px 20px;">
-    <button class="btn btn-secondary btn-sm" data-action="go-home">← Назад к лидам</button>
-    <div class="lead-nav" id="lead-nav">
-      <button type="button" class="btn btn-secondary btn-sm" id="btn-prev-lead" data-action="prev-lead" title="Предыдущий лид">←</button>
-      <span class="lead-nav-pos" id="lead-nav-pos"></span>
-      <button type="button" class="btn btn-secondary btn-sm" id="btn-next-lead" data-action="next-lead" title="Следующий лид">→</button>
-    </div>
-    <div class="stages-row" id="stages-row" style="margin-left: 15px;"></div>
-    <button class="btn btn-danger btn-sm" data-action="delete-lead" style="margin-left:auto;">🗑️ Удалить</button>
-  </div>
-  <div class="detail-body">
-    <div class="form-panel">
-      <input type="text" id="f-title" class="editable-title" placeholder="Название компании...">
-      <div class="form-grid">
-        <div>
-          <div class="form-row"><div class="form-label">ИНН</div><input class="form-input" id="f-inn" placeholder="10 или 12 цифр" maxlength="12"></div>
-          <div class="form-row"><div class="form-label">Продавец</div><input class="form-input" id="f-manager" list="colleagues-list" placeholder="Фамилия — передать лид" autocomplete="off"></div>
-          <datalist id="colleagues-list"></datalist>
-        </div>
-        <div>
-          <div class="form-row"><div class="form-label">Email</div><input class="form-input" id="f-email" type="email"></div>
-          <div class="form-row"><div class="form-label">Телефон</div><input class="form-input" id="f-phone"></div>
-        </div>
-      </div>
-      <h3 class="section-title">Информация о клиенте</h3>
-      <div class="form-grid">
-        <div><div class="form-row"><div class="form-label">Что возят?</div><input class="form-input" id="f-cargo"></div><div class="form-row"><div class="form-label">Формат</div><input class="form-input" id="f-format"></div></div>
-        <div><div class="form-row"><div class="form-label">Оплата</div><input class="form-input" id="f-payment"></div><div class="form-row"><div class="form-label">Тип АТИ</div><input class="form-input" id="f-ati"></div></div>
-      </div>
-    </div>
-    <div class="chatter">
-      <div class="chatter-header">
-        <div class="tab-title">Лог примечания</div>
-        <div class="apps-counter"><span>Заявки:</span><input type="number" id="f-apps" min="0" value="0"></div>
-      </div>
-      <div class="comment-form">
-        <textarea id="comment-input" placeholder="Комментарий... Enter — отправить, Shift+Enter — новая строка"></textarea>
-        <div class="files-preview" id="files-preview"></div>
-        <div class="form-actions">
-          <button class="btn btn-primary" data-action="post-comment">Записать в лог</button>
-          <label class="file-label">📎 Прикрепить<input type="file" id="file-input" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label>
-        </div>
-      </div>
-      <div class="chatter-log" id="chatter-log"></div>
-    </div>
-  </div>
-</section>
-
-<section id="routes-view" class="view-section">
-  <div class="breadcrumb"><a data-action="go-home">CRM</a><span>/</span><b>Направления</b></div>
-  <div class="toolbar">
-    <button class="btn btn-primary" data-action="new-direction">+ Добавить направление</button>
-    <div class="routes-toolbar-search">
-      <input type="text" id="routes-search" placeholder="Поиск города" autocomplete="off" spellcheck="false">
-    </div>
-    <div></div>
-  </div>
-  <div class="routes-grid" id="routes-grid"></div>
-</section>
-
-<section id="route-view" class="view-section" style="background:#fff;">
-  <div class="breadcrumb"><a data-action="go-routes">CRM / Направления</a><span>/</span><b id="route-crumb"></b></div>
-  <div class="toolbar" style="background:#f9f9f9; padding:8px 20px;">
-    <button class="btn btn-secondary btn-sm" data-action="go-routes">← К направлениям</button>
-    <button class="btn btn-primary btn-sm" data-action="new-carrier" style="margin-left:10px;">+ Перевозчик</button>
-    <button class="btn btn-danger btn-sm" data-action="delete-direction" style="margin-left:auto;">🗑️ Удалить направление</button>
-  </div>
-  <div class="carriers-wrap">
-    <table class="users-table">
-      <thead><tr><th>Имя</th><th>Телефон</th><th>Компания</th><th>Лог</th><th>Кто добавил</th><th style="width:80px;"></th></tr></thead>
-      <tbody id="carriers-tbody"></tbody>
-    </table>
-  </div>
-</section>
-
-<section id="carrier-view" class="view-section" style="background:#fff;">
-  <div class="breadcrumb"><a data-action="back-carrier">CRM / Направления</a><span>/</span><a data-action="back-carrier" id="carrier-dir-crumb"></a><span>/</span><b id="carrier-crumb"></b></div>
-  <div class="toolbar" style="background:#f9f9f9; padding:8px 20px;">
-    <button class="btn btn-secondary btn-sm" data-action="back-carrier">← К направлению</button>
-    <div class="lead-nav" id="carrier-nav">
-      <button type="button" class="btn btn-secondary btn-sm" id="btn-prev-carrier" data-action="prev-carrier" title="Предыдущий перевозчик">←</button>
-      <span class="lead-nav-pos" id="carrier-nav-pos"></span>
-      <button type="button" class="btn btn-secondary btn-sm" id="btn-next-carrier" data-action="next-carrier" title="Следующий перевозчик">→</button>
-    </div>
-    <button class="btn btn-danger btn-sm" data-action="delete-carrier" style="margin-left:auto;">🗑️ Удалить</button>
-  </div>
-  <div class="detail-body">
-    <div class="form-panel">
-      <input type="text" id="cf-name" class="editable-title" placeholder="Имя / название...">
-      <div class="form-row"><div class="form-label">Телефон</div><input class="form-input" id="cf-phone"></div>
-      <div class="form-row"><div class="form-label">Компания</div><input class="form-input" id="cf-company"></div>
-    </div>
-    <div class="chatter">
-      <div class="chatter-header">
-        <div class="tab-title">Лог примечания</div>
-      </div>
-      <div class="comment-form">
-        <textarea id="carrier-comment-input" placeholder="Комментарий... Enter — отправить, Shift+Enter — новая строка"></textarea>
-        <div class="files-preview" id="carrier-files-preview"></div>
-        <div class="form-actions">
-          <button class="btn btn-primary" data-action="post-carrier-comment">Записать в лог</button>
-          <label class="file-label">📎 Прикрепить<input type="file" id="carrier-file-input" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label>
-        </div>
-      </div>
-      <div class="chatter-log" id="carrier-chatter-log"></div>
-    </div>
-  </div>
-</section>
-
-<section id="users-view" class="view-section" style="padding: 20px; overflow-y: auto;">
-  <div style="max-width: 900px; margin: 0 auto; width: 100%;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-      <h2 style="color: var(--primary);">Сотрудники</h2>
-      <button class="btn btn-primary" data-action="open-add-user">+ Добавить сотрудника</button>
-    </div>
-    <table class="users-table">
-      <thead><tr><th style="width: 50px;">ID</th><th>Имя</th><th>E-mail</th><th>Новый пароль</th><th style="width: 150px;">Действия</th></tr></thead>
-      <tbody id="users-tbody"></tbody>
-    </table>
-  </div>
-</section>
-
-<!-- МОДАЛКИ -->
-<div class="modal-backdrop" id="modal-direction">
-  <div class="modal">
-    <h2>Новое направление</h2>
-    <div class="field"><label>Откуда *</label><input id="d-from" placeholder="Челябинск"></div>
-    <div class="field"><label>Куда *</label><input id="d-to" placeholder="Уфа"></div>
-    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-direction">Создать</button></div>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="modal-carrier">
-  <div class="modal">
-    <h2 id="carrier-modal-title">Новый перевозчик</h2>
-    <input type="hidden" id="k-id">
-    <div class="field"><label>Имя / название *</label><input id="k-name"></div>
-    <div class="field"><label>Телефон</label><input id="k-phone"></div>
-    <div class="field"><label>Компания</label><input id="k-company"></div>
-    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-carrier">Создать</button></div>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="modal-create">
-  <div class="modal">
-    <h2>Новый лид</h2>
-    <div class="field"><label>Название компании *</label><input id="m-title"></div>
-    <div class="field"><label>ИНН</label><input id="m-inn" maxlength="12"></div>
-    <div class="field"><label>Телефон</label><input id="m-phone"></div>
-    <div class="field"><label>Email</label><input id="m-email" type="email"></div>
-    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-lead">Создать</button></div>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="modal-add-user">
-  <div class="modal">
-    <h2>Добавить сотрудника</h2>
-    <div class="field"><label>Имя сотрудника</label><input id="u-name"></div>
-    <div class="field"><label>E-mail (логин)</label><input id="u-email" type="email"></div>
-    <div class="field"><label>Пароль (мин. 6 символов)</label><input id="u-pass" type="password"></div>
-    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-user">Добавить</button></div>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="modal-prompt">
-  <div class="modal">
-    <h2 id="prompt-title"></h2>
-    <p id="prompt-message" style="display:none; margin-bottom: 15px; color: #666;"></p>
-    <div class="field"><input id="prompt-input"></div>
-    <div class="modal-actions"><button class="btn btn-secondary" data-action="prompt-cancel">Отмена</button><button class="btn btn-primary" id="prompt-ok-btn">OK</button></div>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="modal-confirm">
-  <div class="modal">
-    <h2 id="confirm-title"></h2>
-    <p id="confirm-message" style="margin-bottom: 15px; color: #666;"></p>
-    <div class="modal-actions"><button class="btn btn-secondary" data-action="confirm-cancel">Отмена</button><button class="btn btn-danger" id="confirm-ok-btn">Подтвердить</button></div>
-  </div>
-</div>
+<div id="app-root"></div>
 
 <div class="img-lightbox" id="img-lightbox" data-action="close-lightbox">
   <img id="img-lightbox-img" alt="">
@@ -757,18 +557,18 @@ function askConfirm(title, msg='') {
 
 const Net = {
   csrf: null, hash: null, online: true,
-  setOnline(v) { this.online = v; $('#conn-dot').classList.toggle('offline', !v); },
+  setOnline(v) { this.online = v; $('#conn-dot')?.classList.toggle('offline', !v); },
   async req(action, data = null, isFormData = false) {
     try {
       let url = `api.php?action=${encodeURIComponent(action)}`;
       if (action === 'get_data' && this.hash) url += `&hash=${encodeURIComponent(this.hash)}`;
-      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, save_stages:1 };
+      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, save_stages:1, get_comments:1 };
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
         data = null;
       }
-      if (action === 'get_carriers' || action === 'get_carrier') {
+      if (action === 'get_carriers' || action === 'get_carrier' || action === 'get_comments') {
         url += `&id=${encodeURIComponent((data && data.id) || '')}`;
         data = null;
       }
@@ -804,12 +604,15 @@ const Store = {
     $('#user-display-name').textContent = res.user.name;
     $('#login-overlay').classList.remove('show');
     $('#nav-users').style.display = res.user.role === 'admin' ? '' : 'none';
+    const btnB = $('#btn-export-backup');
+    if (btnB) btnB.style.display = res.user.role === 'admin' ? '' : 'none';
     updateSearchPlaceholder();
 
     if (UI.currentView === 'kanban') renderBoard();
     if (UI.currentView === 'lead' && UI.leadId) {
       const lead = this.getLead(UI.leadId);
       if (!lead) { goHome(true); return; }
+      await loadLeadComments(UI.leadId);
       renderDetailStages(); renderLog();
       if (!UI.formDirty) fillLeadForm(lead);
       updateLeadNav();
@@ -825,7 +628,7 @@ const Store = {
   }
 };
 
-const UI = { leadId: null, routeId: null, carrierId: null, carrierComments: [], pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false };
+const UI = { leadId: null, routeId: null, carrierId: null, carrierComments: [], pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
 
 function canEditComment(c) {
   const user = Store.state.user;
@@ -985,7 +788,9 @@ function handleLogoutUI(msg) {
   clearSearch();
   history.replaceState(null, '', location.pathname);
   $$('.view-section').forEach(el => el.classList.remove('active'));
-  $('#kanban-view').classList.add('active');
+  const kv = $('#kanban-view'); if (kv) kv.classList.add('active');
+  const btnB = $('#btn-export-backup'); if (btnB) btnB.style.display = 'none';
+  document.body.classList.add('guest');
   $('#login-overlay').classList.add('show');
   if (msg && msg !== 'Сессия истекла') Toast.error(msg);
 }
@@ -1249,6 +1054,7 @@ async function openLead(id, updateHash = true) {
     history.pushState(null, '', '#lead/' + encodeURIComponent(id));
   }
 
+  await loadLeadComments(id);
   renderDetailStages(); renderFiles(); renderLog();
   updateLeadNav();
 }
@@ -1304,17 +1110,6 @@ async function loadUsers() {
   });
 }
 
-async function execLogin() {
-  const email = $('#login-email').value.trim(), password = $('#login-password').value;
-  $('#login-err').textContent = '';
-  if (!email || !password) { $('#login-err').textContent = 'Заполните поля'; return; }
-  $('#btn-login').disabled = true;
-  const res = await Net.req('login', { email, password });
-  $('#btn-login').disabled = false;
-  if (res && res.success) { Net.csrf = res.csrf; $('#login-password').value = ''; await Store.load(true); handleHashRouting(); startPolling(); }
-  else { $('#login-err').textContent = res?.error || 'Ошибка входа'; }
-}
-
 async function execLogout() {
   if (UI.formDirty && !await askConfirm('Есть несохранённые изменения', 'Выйти без сохранения?')) return;
   await Net.req('logout', {}); location.reload();
@@ -1352,7 +1147,7 @@ function renderBoard() {
   const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.phone, l.manager, l.inn])]);
   if (dataHash === _lastBoardHash) return; _lastBoardHash = dataHash;
 
-  const board = $('#board'); board.innerHTML = ''; const frag = document.createDocumentFragment();
+  const board = $('#board'); if (!board) return; board.innerHTML = ''; const frag = document.createDocumentFragment();
   Store.state.stages.forEach(stage => {
     const leads = Store.state.leads.filter(l => l.stage === stage);
     const col = document.createElement('div'); col.className = 'column'; col.dataset.stage = stage; col.draggable = true;
@@ -1390,6 +1185,7 @@ function renderFiles() {
 
 function renderLog() {
   const lead = Store.getLead(UI.leadId); const log = $('#chatter-log');
+  if (!log) return;
   if (!lead || !lead.comments || !lead.comments.length) { log.innerHTML = '<div class="log-empty">Лог пуст</div>'; return; }
   log.innerHTML = '';
   const frag = document.createDocumentFragment();
@@ -1425,6 +1221,14 @@ function renderLog() {
 }
 
 function initEvents() {
+  $('#btn-login').addEventListener('click', execLogin);
+  $('#login-password').addEventListener('keydown', e => { if (e.key === 'Enter') execLogin(); });
+  $('#login-email').addEventListener('keydown', e => { if (e.key === 'Enter') $('#login-password').focus(); });
+}
+
+function initAppEvents() {
+  if (UI.appEvents) return;
+  UI.appEvents = true;
   setupPhoneMask($('#m-phone')); setupPhoneMask($('#f-phone'));
   $('#m-inn').addEventListener('input', e => formatInnInput(e.target));
   $('#f-inn').addEventListener('input', e => formatInnInput(e.target));
@@ -1457,10 +1261,6 @@ function initEvents() {
   $('#btn-next-lead').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborLead(1); });
   $('#btn-prev-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(-1); });
   $('#btn-next-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(1); });
-
-  $('#btn-login').addEventListener('click', execLogin);
-  $('#login-password').addEventListener('keydown', e => { if (e.key === 'Enter') execLogin(); });
-  $('#login-email').addEventListener('keydown', e => { if (e.key === 'Enter') $('#login-password').focus(); });
 
   window.addEventListener('beforeunload', e => { if (UI.formDirty) { if (UI.carrierId) saveCarrierForm(false); else saveLeadForm(false); } });
   $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title, #f-apps')) { UI.formDirty = true; saveLeadDebounced(); } });
@@ -1597,6 +1397,18 @@ function initEvents() {
         else Toast.error(resPCC?.error || 'Ошибка');
         break;
       }
+      case 'export-backup': {
+        const resB = await Net.req('export_backup', {});
+        if (!resB?.success) { Toast.error(resB?.error || 'Не удалось скачать'); break; }
+        const blob = new Blob([JSON.stringify(resB.backup, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = resB.filename || 'crm-backup.json';
+        a.click();
+        URL.revokeObjectURL(a.href);
+        Toast.success('Резервная копия скачана');
+        break;
+      }
       case 'toggle-theme': Theme.toggle(); break;
       case 'logout': execLogout(); break;
       case 'new-lead': $$('#modal-create input').forEach(i => i.value = ''); Modal.open('modal-create'); setTimeout(() => $('#m-title').focus(), 50); break;
@@ -1669,7 +1481,7 @@ function initEvents() {
         const fd = new FormData(); fd.append('lead_id', UI.leadId); fd.append('text', txt);
         UI.pendingFiles.forEach(f => fd.append('files[]', f.rawFile));
         const resPC = await Net.req('add_comment', fd, true);
-        if (resPC?.success) { $('#comment-input').value = ''; UI.pendingFiles = []; renderFiles(); await Store.load(true); } else Toast.error(resPC?.error || 'Ошибка');
+        if (resPC?.success) { $('#comment-input').value = ''; UI.pendingFiles = []; renderFiles(); await Store.load(true); await loadLeadComments(UI.leadId); renderLog(); } else Toast.error(resPC?.error || 'Ошибка');
         break;
 
       case 'rm-file': UI.pendingFiles.splice(+actEl.dataset.idx, 1); renderFiles(); break;
@@ -1755,27 +1567,102 @@ function initEvents() {
       if (f >= 0 && t >= 0 && f !== t) { ns.splice(t, 0, ns.splice(f, 1)[0]); const res = await Net.req('save_stages', { stages: ns }); if (res?.success) Store.load(true); }
     }
   }));
-
-  Net.req('check_auth').then(async check => {
-    if (check?.success) { Net.csrf = check.csrf; await Store.load(true); handleHashRouting(); startPolling(); }
-    else { $('#login-overlay').classList.add('show'); setTimeout(() => $('#login-email').focus(), 50); }
-  });
 }
 
-let pollTimer = null;
+let pollTimer = null, pollDelay = 15000, unchangedStreak = 0;
 function startPolling() {
   stopPolling();
-  pollTimer = setInterval(() => {
+  const tick = async () => {
     if (!document.hidden && !UI.drag.t && !UI.formDirty && !$('.modal-backdrop.open') && !$('.inline-editor.active')) {
-      Store.load(false);
+      const before = Net.hash;
+      await Store.load(false);
+      if (Net.hash && Net.hash === before) {
+        unchangedStreak++;
+        pollDelay = unchangedStreak >= 3 ? 30000 : 15000;
+      } else {
+        unchangedStreak = 0;
+        pollDelay = 15000;
+      }
     }
-  }, 5000);
+    pollTimer = setTimeout(tick, pollDelay);
+  };
+  pollTimer = setTimeout(tick, pollDelay);
 }
-function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
-document.addEventListener('visibilitychange', () => { if (!document.hidden) Store.load(false); });
+function stopPolling() { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Store.state.user) Store.load(false); });
+
+async function loadLeadComments(id) {
+  const lead = Store.getLead(id);
+  if (!lead) return;
+  const res = await Net.req('get_comments', { id });
+  if (res && res.success) lead.comments = res.comments || [];
+}
+
+async function loadAppShell() {
+  if (UI.shellReady) {
+    document.body.classList.remove('guest');
+    return true;
+  }
+  try {
+    const opts = { method: 'GET', headers: {}, keepalive: true };
+    if (Net.csrf) opts.headers['X-CSRF-Token'] = Net.csrf;
+    const res = await fetch('api.php?action=ui', opts);
+    const ctype = (res.headers.get('content-type') || '');
+    if (!res.ok || ctype.includes('application/json')) {
+      handleLogoutUI();
+      return false;
+    }
+    const html = await res.text();
+    const root = $('#app-root');
+    if (!root) return false;
+    root.innerHTML = html;
+    UI.shellReady = true;
+    document.body.classList.remove('guest');
+    $('#login-overlay').classList.remove('show');
+    initAppEvents();
+    return true;
+  } catch (e) {
+    Net.setOnline(false);
+    return false;
+  }
+}
+
+async function afterLogin() {
+  if (!await loadAppShell()) return;
+  await Store.load(true);
+  handleHashRouting();
+  startPolling();
+}
+
+async function bootApp() {
+  const check = await Net.req('check_auth');
+  if (check?.success) {
+    Net.csrf = check.csrf;
+    await afterLogin();
+  } else {
+    document.body.classList.add('guest');
+    $('#login-overlay').classList.add('show');
+    setTimeout(() => $('#login-email').focus(), 50);
+  }
+}
+
+async function execLogin() {
+  const email = $('#login-email').value.trim(), password = $('#login-password').value;
+  $('#login-err').textContent = '';
+  if (!email || !password) { $('#login-err').textContent = 'Заполните поля'; return; }
+  $('#btn-login').disabled = true;
+  const res = await Net.req('login', { email, password });
+  $('#btn-login').disabled = false;
+  if (res && res.success) {
+    Net.csrf = res.csrf;
+    $('#login-password').value = '';
+    await afterLogin();
+  } else { $('#login-err').textContent = res?.error || 'Ошибка входа'; }
+}
 
 Theme.apply(Theme.get());
 initEvents();
+bootApp();
 </script>
 </body>
 </html>

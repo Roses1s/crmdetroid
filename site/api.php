@@ -86,6 +86,18 @@ function require_user(PDO $pdo): array {
 function require_admin(array $u): void {
     if (($u['role'] ?? '') !== 'admin') err('Нет прав');
 }
+function crm_session_throttled(int $max = 90, int $window = 60): bool {
+    $now = time();
+    $win = (int) ($_SESSION['_rl_t'] ?? 0);
+    $n = (int) ($_SESSION['_rl_n'] ?? 0);
+    if ($win === 0 || ($now - $win) >= $window) {
+        $_SESSION['_rl_t'] = $now;
+        $_SESSION['_rl_n'] = 1;
+        return false;
+    }
+    $_SESSION['_rl_n'] = $n + 1;
+    return $_SESSION['_rl_n'] > $max;
+}
 function can_edit_comment(array $user, array $c): bool {
     if (($c['author'] ?? '') === 'Система') return false;
     if (($user['role'] ?? '') === 'admin') return true;
@@ -111,6 +123,12 @@ if ($action === 'file') {
         http_response_code(401);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Need login';
+        exit;
+    }
+    if (crm_session_throttled(180, 60)) {
+        http_response_code(429);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Too many requests';
         exit;
     }
     crm_serve_file($pdo, (string) ($_GET['f'] ?? ''));
@@ -159,10 +177,36 @@ if ($action === 'logout') {
 }
 
 $user = require_user($pdo);
+if (crm_session_throttled()) err('Слишком много запросов. Подождите минуту');
 if ($method === 'POST') require_csrf();
 $viewUid = crm_view_uid($pdo, $user);
 
 switch ($action) {
+    case 'ui': {
+        $path = __DIR__ . '/ui.html';
+        if (!is_readable($path)) err('Нет интерфейса');
+        header('Content-Type: text/html; charset=utf-8');
+        header('Cache-Control: private, no-store');
+        header('X-Content-Type-Options: nosniff');
+        readfile($path);
+        exit;
+    }
+
+    case 'get_comments': {
+        $id = strv($_GET['id'] ?? '', 80);
+        if ($id === '' || !crm_lead_for_user($pdo, $id, $viewUid)) err('Лид не найден');
+        ok(['comments' => crm_lead_comments($pdo, $id)]);
+    }
+
+    case 'export_backup': {
+        if ($method !== 'POST') err('CSRF');
+        require_admin($user);
+        ok([
+            'filename' => 'crm-backup-' . gmdate('Y-m-d-His') . '.json',
+            'backup' => crm_export_backup($pdo),
+        ]);
+    }
+
     case 'search_leads': {
         $q = strv($_GET['q'] ?? '', 120);
         $out = crm_search_leads($pdo, $viewUid, $q);
