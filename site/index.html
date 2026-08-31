@@ -289,7 +289,8 @@
       <div class="form-grid">
         <div>
           <div class="form-row"><div class="form-label">ИНН</div><input class="form-input" id="f-inn" placeholder="10 или 12 цифр" maxlength="12"></div>
-          <div class="form-row"><div class="form-label">Продавец</div><input class="form-input" id="f-manager"></div>
+          <div class="form-row"><div class="form-label">Продавец</div><input class="form-input" id="f-manager" list="colleagues-list" placeholder="Фамилия — передать лид" autocomplete="off"></div>
+          <datalist id="colleagues-list"></datalist>
         </div>
         <div>
           <div class="form-row"><div class="form-label">Email</div><input class="form-input" id="f-email" type="email"></div>
@@ -555,6 +556,11 @@ const Store = {
     this.state.stages = res.stages || [];
     this.state.leads = res.leads || [];
     this.state.user = res.user;
+    if (res.colleagues) {
+      this.state.colleagues = res.colleagues;
+      const dl = $('#colleagues-list');
+      if (dl) dl.innerHTML = res.colleagues.map(u => `<option value="${esc(u.name)}"></option>`).join('');
+    }
 
     $('#user-display-name').textContent = res.user.name;
     $('#login-overlay').classList.remove('show');
@@ -922,7 +928,7 @@ function renderCarrierLog() {
 function openLead(id, updateHash = true) {
   const lead = Store.getLead(id); if (!lead) return goHome(updateHash);
 
-  if (UI.leadId && UI.formDirty && UI.leadId !== id) saveLeadForm(false);
+  if (UI.leadId && UI.formDirty && UI.leadId !== id) saveLeadForm(true);
 
   UI.leadId = id; UI.currentView = 'lead'; UI.pendingFiles = []; UI.formDirty = false;
   $$('.view-section').forEach(el => el.classList.remove('active'));
@@ -1017,7 +1023,16 @@ async function saveLeadForm(sync = false) {
   if (!UI.leadId) return; const lead = Store.getLead(UI.leadId); if (!lead) return;
   const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), cargo: $('#f-cargo').value.trim(), format: $('#f-format').value.trim(), payment: $('#f-payment').value.trim(), ati: $('#f-ati').value.trim(), applicationsCount: parseInt($('#f-apps').value) || 0, stage: lead.stage };
   Object.assign(lead, patch); $('#crumb-name').textContent = patch.title; UI.formDirty = false;
-  if (sync) await Net.req('save_lead', patch); else Net.req('save_lead', patch);
+  if (sync) patch.transfer = true;
+  const res = await Net.req('save_lead', patch);
+  if (res && res.transferred) {
+    Toast.success('Лид передан: ' + res.to);
+    UI.leadId = null;
+    goHome(true);
+    await Store.load(true);
+    return;
+  }
+  if (res && res.success === false) Toast.error(res.error || 'Ошибка');
 }
 const saveLeadDebounced = debounce(() => saveLeadForm(false), 500);
 
@@ -1144,6 +1159,8 @@ function initEvents() {
 
   window.addEventListener('beforeunload', e => { if (UI.formDirty) { if (UI.carrierId) saveCarrierForm(false); else saveLeadForm(false); } });
   $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title, #f-apps')) { UI.formDirty = true; saveLeadDebounced(); } });
+  $('#f-manager').addEventListener('blur', () => { if (UI.leadId) saveLeadForm(true); });
+  $('#f-manager').addEventListener('change', () => { if (UI.leadId) saveLeadForm(true); });
   $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; saveCarrierDebounced(); } });
 
   $('#comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-comment"]').click(); } });

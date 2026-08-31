@@ -316,6 +316,37 @@ function crm_user_public(array $u): array {
     return ['id' => (int) $u['id'], 'name' => $u['name'], 'email' => $u['email'], 'role' => $u['role']];
 }
 
+function crm_colleagues(PDO $pdo): array {
+    $out = [];
+    foreach ($pdo->query('SELECT id, name FROM crm_users ORDER BY name ASC') as $u) {
+        $out[] = ['id' => (int) $u['id'], 'name' => $u['name']];
+    }
+    return $out;
+}
+
+/** @return array{id:int,name:string}|string|null  string = "ambiguous" */
+function crm_match_employee(PDO $pdo, string $hint) {
+    $hint = trim($hint);
+    if ($hint === '' || mb_strlen($hint) < 2) return null;
+    $h = mb_strtolower($hint);
+    $exact = [];
+    $word = [];
+    foreach ($pdo->query('SELECT id, name FROM crm_users') as $u) {
+        $name = trim((string) $u['name']);
+        if ($name === '') continue;
+        $ln = mb_strtolower($name);
+        if ($ln === $h) { $exact[] = $u; continue; }
+        foreach (preg_split('/\s+/u', $ln) as $part) {
+            if ($part === $h) { $word[] = $u; break; }
+        }
+    }
+    if (count($exact) === 1) return ['id' => (int) $exact[0]['id'], 'name' => $exact[0]['name']];
+    if (count($exact) > 1) return 'ambiguous';
+    if (count($word) === 1) return ['id' => (int) $word[0]['id'], 'name' => $word[0]['name']];
+    if (count($word) > 1) return 'ambiguous';
+    return null;
+}
+
 function crm_user_by_id(PDO $pdo, int $id): ?array {
     $st = $pdo->prepare('SELECT * FROM crm_users WHERE id = ?');
     $st->execute([$id]);

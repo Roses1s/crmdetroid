@@ -291,7 +291,7 @@ switch ($action) {
         if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
             ok(['unchanged' => true, 'hash' => $hash]);
         }
-        ok(['hash' => $hash, 'stages' => crm_stages($pdo, $uid), 'leads' => crm_leads_full($pdo, $uid), 'user' => crm_user_public($user)]);
+        ok(['hash' => $hash, 'stages' => crm_stages($pdo, $uid), 'leads' => crm_leads_full($pdo, $uid), 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo)]);
     }
 
     case 'save_lead': {
@@ -327,6 +327,20 @@ switch ($action) {
         } else {
             $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=? WHERE id=? AND user_id=?');
             $upd->execute([$title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $id, $uid]);
+        }
+
+        if (!empty($in['transfer'])) {
+            $match = crm_match_employee($pdo, $manager);
+            if ($match === 'ambiguous') err('Несколько сотрудников с такой фамилией — напишите имя полностью');
+            if (is_array($match) && (int) $match['id'] !== $uid) {
+                $toId = (int) $match['id'];
+                $toStages = crm_stages($pdo, $toId);
+                $newStage = in_array($stage, $toStages, true) ? $stage : ($toStages[0] ?? $stage);
+                $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ? WHERE id = ?')
+                    ->execute([$toId, $newStage, $match['name'], $id]);
+                crm_sys_comment($pdo, $id, 'Лид передан: ' . $user['name'] . ' → ' . $match['name']);
+                ok(['id' => $id, 'transferred' => true, 'to' => $match['name']]);
+            }
         }
         ok(['id' => $id]);
     }
