@@ -351,6 +351,11 @@
   <div class="breadcrumb"><a data-action="back-carrier">CRM / Направления</a><span>/</span><a data-action="back-carrier" id="carrier-dir-crumb"></a><span>/</span><b id="carrier-crumb"></b></div>
   <div class="toolbar" style="background:#f9f9f9; padding:8px 20px;">
     <button class="btn btn-secondary btn-sm" data-action="back-carrier">← К направлению</button>
+    <div class="lead-nav" id="carrier-nav">
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-prev-carrier" data-action="prev-carrier" title="Предыдущий перевозчик">←</button>
+      <span class="lead-nav-pos" id="carrier-nav-pos"></span>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-next-carrier" data-action="next-carrier" title="Следующий перевозчик">→</button>
+    </div>
     <button class="btn btn-danger btn-sm" data-action="delete-carrier" style="margin-left:auto;">🗑️ Удалить</button>
   </div>
   <div class="detail-body">
@@ -770,7 +775,10 @@ async function openRoute(id, updateHash = true) {
   renderCarriers(res.carriers || []);
 }
 
+let _carriersCache = [];
+
 function renderCarriers(list) {
+  _carriersCache = list || [];
   const tbody = $('#carriers-tbody'); if (!tbody) return;
   if (!list.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:24px;">Пока нет перевозчиков на этом направлении</td></tr>';
@@ -823,6 +831,34 @@ async function openCarrier(id, updateHash = true) {
   }
   renderCarrierLog();
   renderFiles();
+  if (!_carriersCache.length || !_carriersCache.some(x => String(x.id).trim() === String(id).trim())) {
+    if (UI.routeId) {
+      const listRes = await Net.req('get_carriers', { id: UI.routeId });
+      if (listRes && listRes.success) _carriersCache = listRes.carriers || [];
+    }
+  }
+  updateCarrierNav();
+}
+
+function updateCarrierNav() {
+  const prevBtn = $('#btn-prev-carrier'), nextBtn = $('#btn-next-carrier'), pos = $('#carrier-nav-pos');
+  if (!prevBtn || !nextBtn || !pos) return;
+  const list = _carriersCache || [];
+  const n = list.length;
+  let idx = list.findIndex(c => String(c.id).trim() === String(UI.carrierId).trim());
+  if (idx < 0) idx = 0;
+  pos.textContent = n ? `${idx + 1} / ${n}` : '';
+  prevBtn.disabled = n < 2;
+  nextBtn.disabled = n < 2;
+}
+
+function goNeighborCarrier(dir) {
+  const list = _carriersCache || [];
+  if (list.length < 2) return;
+  let idx = list.findIndex(c => String(c.id).trim() === String(UI.carrierId).trim());
+  if (idx < 0) idx = 0;
+  const next = list[(idx + dir + list.length) % list.length];
+  if (next) openCarrier(next.id, true);
 }
 
 function fillCarrierFromForm() {
@@ -1099,6 +1135,8 @@ function initEvents() {
 
   $('#btn-prev-lead').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborLead(-1); });
   $('#btn-next-lead').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborLead(1); });
+  $('#btn-prev-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(-1); });
+  $('#btn-next-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(1); });
 
   $('#btn-login').addEventListener('click', execLogin);
   $('#login-password').addEventListener('keydown', e => { if (e.key === 'Enter') execLogin(); });
@@ -1152,6 +1190,8 @@ function initEvents() {
         break;
       case 'prev-lead': goNeighborLead(-1); break;
       case 'next-lead': goNeighborLead(1); break;
+      case 'prev-carrier': goNeighborCarrier(-1); break;
+      case 'next-carrier': goNeighborCarrier(1); break;
       case 'go-home': goHome(true); break;
       case 'go-routes': switchView('routes-view', true); break;
       case 'go-users': switchView('users-view', true); break;
@@ -1335,11 +1375,12 @@ function initEvents() {
   });
 
   document.addEventListener('keydown', e => {
-    if (UI.currentView === 'lead' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    if ((UI.currentView === 'lead' || UI.currentView === 'carrier') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       const tag = (document.activeElement && document.activeElement.tagName) || '';
       if (!/^(INPUT|TEXTAREA|SELECT)$/.test(tag) && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        goNeighborLead(e.key === 'ArrowLeft' ? -1 : 1);
+        if (UI.currentView === 'carrier') goNeighborCarrier(e.key === 'ArrowLeft' ? -1 : 1);
+        else goNeighborLead(e.key === 'ArrowLeft' ? -1 : 1);
         return;
       }
     }
