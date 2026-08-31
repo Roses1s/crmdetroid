@@ -113,13 +113,9 @@
   .card-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .add-column { width: 260px; flex-shrink: 0; background: rgba(0,0,0,.05); border: 1px dashed #bbb; border-radius: 6px; padding: 10px; text-align: center; color: #666; cursor: pointer; font-weight: 700; font-size: 13px; }
 
-  .lead-flip-bar {
-    display: flex; align-items: center; justify-content: center; gap: 12px;
-    padding: 8px 20px; background: #fff; border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-  .lead-flip-bar .btn { min-width: 170px; justify-content: center; }
-  .lead-nav-pos { font-size: 13px; font-weight: 700; color: var(--primary); min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+  .lead-nav { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .lead-nav .btn { min-width: 32px; justify-content: center; padding: 4px 10px; font-size: 16px; line-height: 1; }
+  .lead-nav-pos { font-size: 12px; color: #555; min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .stages-row { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
   .stage-btn { padding: 6px 14px; border-radius: var(--radius); font-size: 12px; font-weight: 500; border: 1px solid #ccc; background: #fff; color: #555; cursor: pointer; transition: background .2s; }
   .stage-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
@@ -250,13 +246,13 @@
   <div class="breadcrumb"><a data-action="go-home">CRM / Лиды</a><span>/</span><b id="crumb-name"></b></div>
   <div class="toolbar" style="background:#f9f9f9; padding:8px 20px;">
     <button class="btn btn-secondary btn-sm" data-action="go-home">← Назад к лидам</button>
+    <div class="lead-nav" id="lead-nav">
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-prev-lead" data-action="prev-lead" title="Предыдущий лид">←</button>
+      <span class="lead-nav-pos" id="lead-nav-pos"></span>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-next-lead" data-action="next-lead" title="Следующий лид">→</button>
+    </div>
     <div class="stages-row" id="stages-row" style="margin-left: 15px;"></div>
     <button class="btn btn-danger btn-sm" data-action="delete-lead" style="margin-left:auto;">🗑️ Удалить</button>
-  </div>
-  <div class="lead-flip-bar" id="lead-nav">
-    <button type="button" class="btn btn-secondary" id="btn-prev-lead" data-action="prev-lead">← Предыдущий</button>
-    <span class="lead-nav-pos" id="lead-nav-pos">—</span>
-    <button type="button" class="btn btn-secondary" id="btn-next-lead" data-action="next-lead">Следующий →</button>
   </div>
   <div class="detail-body">
     <div class="form-panel">
