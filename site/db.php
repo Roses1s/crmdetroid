@@ -74,7 +74,7 @@ function crm_pdo(): PDO {
     return $pdo;
 }
 
-const CRM_SCHEMA_VERSION = 4;
+const CRM_SCHEMA_VERSION = 5;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -91,6 +91,7 @@ function crm_boot(PDO $pdo): void {
     crm_migrate_owners($pdo);
     crm_migrate_routes($pdo);
     crm_migrate_v4($pdo);
+    crm_migrate_v5($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -126,6 +127,37 @@ function crm_migrate_v4(PDO $pdo): void {
     }
 }
 
+function crm_meta_get(PDO $pdo, string $k): string {
+    try {
+        $st = $pdo->prepare('SELECT v FROM crm_meta WHERE k = ?');
+        $st->execute([$k]);
+        $v = $st->fetchColumn();
+        return $v === false ? '0' : (string) $v;
+    } catch (PDOException $e) {
+        return '0';
+    }
+}
+
+function crm_meta_bump(PDO $pdo, string $k): void {
+    if ($k !== 'routes' && $k !== 'users') return;
+    try {
+        $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = CAST(v AS UNSIGNED) + 1')
+            ->execute([$k, '1']);
+    } catch (PDOException $e) { /* ok */ }
+}
+
+function crm_client_ip(): string {
+    $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+    return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '';
+}
+
+function crm_migrate_v5(PDO $pdo): void {
+    if (!crm_has_column($pdo, 'crm_login_attempts', 'ip')) {
+        $pdo->exec("ALTER TABLE crm_login_attempts ADD COLUMN ip VARCHAR(45) NOT NULL DEFAULT '' AFTER email");
+        try { $pdo->exec('ALTER TABLE crm_login_attempts ADD KEY idx_ip_time (ip, attempted_at)'); } catch (PDOException $e) { /* ok */ }
+    }
+}
+
 function crm_board_rev(PDO $pdo, int $userId): string {
     $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(updated_at),0) u, COALESCE(MAX(created_at),0) cr FROM crm_leads WHERE user_id = ?');
     $st->execute([$userId]);
@@ -135,8 +167,8 @@ function crm_board_rev(PDO $pdo, int $userId): string {
     $st->execute([$userId]);
     $C = $st->fetch() ?: ['c' => 0, 't' => 0, 'e' => 0];
     $stages = implode("\n", crm_stages($pdo, $userId));
-    $users = (int) $pdo->query('SELECT COUNT(*) FROM crm_users')->fetchColumn();
-    return $userId . '|' . $L['c'] . '|' . $L['u'] . '|' . $L['cr'] . '|' . $C['c'] . '|' . $C['t'] . '|' . $C['e'] . '|' . $users . '|' . $stages;
+    return $userId . '|' . $L['c'] . '|' . $L['u'] . '|' . $L['cr'] . '|' . $C['c'] . '|' . $C['t'] . '|' . $C['e']
+        . '|' . crm_meta_get($pdo, 'users') . '|' . crm_meta_get($pdo, 'routes') . '|' . $stages;
 }
 
 function crm_default_stages(): array {
@@ -241,9 +273,11 @@ function crm_migrate(PDO $pdo): void {
     $pdo->exec("CREATE TABLE IF NOT EXISTS crm_login_attempts (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
       email VARCHAR(120) NOT NULL,
+      ip VARCHAR(45) NOT NULL DEFAULT '',
       attempted_at BIGINT NOT NULL,
       PRIMARY KEY (id),
-      KEY idx_email_time (email, attempted_at)
+      KEY idx_email_time (email, attempted_at),
+      KEY idx_ip_time (ip, attempted_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
@@ -366,7 +400,7 @@ function crm_carrier_by_id(PDO $pdo, string $id): ?array {
 }
 
 function crm_carrier_comments(PDO $pdo, string $carrierId): array {
-    $st = $pdo->prepare('SELECT * FROM crm_carrier_comments WHERE carrier_id = ? ORDER BY time ASC');
+    $st = $pdo->prepare('SELECT c.*, u.name AS live_name FROM crm_carrier_comments c LEFT JOIN crm_users u ON u.id = c.user_id AND c.user_id > 0 WHERE c.carrier_id = ? ORDER BY c.time ASC');
     $st->execute([$carrierId]);
     $comments = [];
     $ids = [];
@@ -374,7 +408,7 @@ function crm_carrier_comments(PDO $pdo, string $carrierId): array {
         $item = [
             'id' => $c['id'],
             'text' => $c['text'],
-            'author' => $c['author'],
+            'author' => (trim((string) ($c['live_name'] ?? '')) !== '' ? $c['live_name'] : $c['author']),
             'userId' => (int) ($c['user_id'] ?? 0),
             'time' => (int) $c['time'],
             'attachments' => [],
@@ -639,14 +673,14 @@ function crm_leads_full(PDO $pdo, int $userId): array {
     if (!$leads) return [];
     $leadIds = array_keys($leads);
     $inQ = implode(',', array_fill(0, count($leadIds), '?'));
-    $st = $pdo->prepare("SELECT * FROM crm_comments WHERE lead_id IN ($inQ) ORDER BY time ASC");
+    $st = $pdo->prepare("SELECT c.*, u.name AS live_name FROM crm_comments c LEFT JOIN crm_users u ON u.id = c.user_id AND c.user_id > 0 WHERE c.lead_id IN ($inQ) ORDER BY c.time ASC");
     $st->execute($leadIds);
     $byComment = [];
     foreach ($st as $c) {
         $item = [
             'id' => $c['id'],
             'text' => $c['text'],
-            'author' => $c['author'],
+            'author' => (trim((string) ($c['live_name'] ?? '')) !== '' ? $c['live_name'] : $c['author']),
             'userId' => (int) ($c['user_id'] ?? 0),
             'time' => (int) $c['time'],
             'attachments' => [],
@@ -687,15 +721,23 @@ function crm_sys_comment(PDO $pdo, string $leadId, string $text): void {
     $st->execute(['c_' . bin2hex(random_bytes(6)), $leadId, $text, 'Система', now_ms()]);
 }
 
-function crm_login_throttled(PDO $pdo, string $email): bool {
+function crm_login_throttled(PDO $pdo, string $email, string $ip = ''): bool {
     $since = now_ms() - 15 * 60 * 1000;
+    if ($ip !== '') {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE ip = ? AND attempted_at > ?');
+        $st->execute([$ip, $since]);
+        if ((int) $st->fetchColumn() >= 20) return true;
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE email = ? AND ip = ? AND attempted_at > ?');
+        $st->execute([$email, $ip, $since]);
+        return (int) $st->fetchColumn() >= 8;
+    }
     $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE email = ? AND attempted_at > ?');
     $st->execute([$email, $since]);
     return (int) $st->fetchColumn() >= 8;
 }
 
-function crm_login_fail(PDO $pdo, string $email): void {
-    $pdo->prepare('INSERT INTO crm_login_attempts (email, attempted_at) VALUES (?,?)')->execute([$email, now_ms()]);
+function crm_login_fail(PDO $pdo, string $email, string $ip = ''): void {
+    $pdo->prepare('INSERT INTO crm_login_attempts (email, ip, attempted_at) VALUES (?,?,?)')->execute([$email, $ip, now_ms()]);
     $pdo->prepare('DELETE FROM crm_login_attempts WHERE attempted_at < ?')->execute([now_ms() - 24 * 3600 * 1000]);
 }
 

@@ -771,6 +771,9 @@ const Store = {
       updateLeadNav();
     }
     if (UI.currentView === 'users') loadUsers();
+    if (UI.currentView === 'routes') loadRoutes();
+    if (UI.currentView === 'route' && UI.routeId) openRoute(UI.routeId, false);
+    if (UI.currentView === 'carrier' && UI.carrierId && !UI.pendingFiles.length) openCarrier(UI.carrierId, false);
   },
   getLead(id) {
     if (!id) return null;
@@ -1274,7 +1277,7 @@ async function execLogin() {
 
 async function execLogout() {
   if (UI.formDirty && !await askConfirm('Есть несохранённые изменения', 'Выйти без сохранения?')) return;
-  await Net.req('logout'); location.reload();
+  await Net.req('logout', {}); location.reload();
 }
 
 function fillLeadForm(lead) {

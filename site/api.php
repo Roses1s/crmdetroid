@@ -14,11 +14,19 @@ header('X-Frame-Options: SAMEORIGIN');
 header("Content-Security-Policy: frame-ancestors 'self'");
 header('Referrer-Policy: strict-origin-when-cross-origin');
 
+function crm_ip_is_trusted_proxy(string $ip): bool {
+    if ($ip === '127.0.0.1' || $ip === '::1') return true;
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) return false;
+    return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+}
+
 function crm_is_https(): bool {
-    $fwd = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
-    if ($fwd === 'https') return true;
     if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') return true;
-    return ($_SERVER['REQUEST_SCHEME'] ?? '') === 'https';
+    if ((string) ($_SERVER['SERVER_PORT'] ?? '') === '443') return true;
+    if (($_SERVER['REQUEST_SCHEME'] ?? '') === 'https') return true;
+    $fwd = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    if ($fwd === 'https' && crm_ip_is_trusted_proxy((string) ($_SERVER['REMOTE_ADDR'] ?? ''))) return true;
+    return false;
 }
 
 if (crm_is_https()) {
@@ -66,7 +74,7 @@ function strv($v, int $max = 300, string $fallback = ''): string {
 function require_csrf(): void {
     $sent = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     $have = $_SESSION['csrf'] ?? '';
-    if ($sent === '' || $have === '' || !hash_equals($have, $sent)) err('CSRF');
+    if ($sent === '' || $have === '' || strlen((string) $sent) !== strlen((string) $have) || !hash_equals((string) $have, (string) $sent)) err('CSRF');
 }
 function require_user(PDO $pdo): array {
     $id = (int) ($_SESSION['user_id'] ?? 0);
@@ -84,6 +92,11 @@ function can_edit_comment(array $user, array $c): bool {
     $uid = (int) ($c['user_id'] ?? 0);
     if ($uid > 0) return $uid === (int) $user['id'];
     return ($c['author'] ?? '') === ($user['name'] ?? '');
+}
+function crm_discard_uploads(array $atts): void {
+    foreach ($atts as $a) {
+        if (!empty($a['dataUrl'])) crm_unlink_upload((string) $a['dataUrl']);
+    }
 }
 
 $action = $_GET['action'] ?? '';
@@ -112,14 +125,16 @@ if ($action === 'login') {
     $in = body_json();
     $email = mb_strtolower(strv($in['email'] ?? '', 120));
     $password = (string) ($in['password'] ?? '');
+    $ip = crm_client_ip();
     if ($email === '' || $password === '') err('Заполните поля');
-    if (crm_login_throttled($pdo, $email)) err('Слишком много попыток. Подождите 15 минут');
+    if (crm_login_throttled($pdo, $email, $ip)) err('Слишком много попыток. Подождите 15 минут');
     $u = crm_user_by_email($pdo, $email);
-    $dummy = '$2y$10$abcdefghijklmnopqrstuuC5vGqGqGqGqGqGqGqGqGqGqGqGqGqGqO';
+    $dummy = '$2y$10$ykv1D8WgrA05XNmayGz9Zed0GAmu7FJlclV24IoQpA8sgvCYrPxoK';
     $hash = is_array($u) ? (string) ($u['password'] ?? $dummy) : $dummy;
+    if ($hash === '' || !preg_match('/^\$2[aby]\$/', $hash)) $hash = $dummy;
     $okPass = password_verify($password, $hash);
     if (!$u || !$okPass) {
-        crm_login_fail($pdo, $email);
+        crm_login_fail($pdo, $email, $ip);
         err('Неверный e-mail или пароль');
     }
     crm_login_ok($pdo, $email);
@@ -130,6 +145,10 @@ if ($action === 'login') {
 }
 
 if ($action === 'logout') {
+    if ($method !== 'POST') err('CSRF');
+    $sent = (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    $have = (string) ($_SESSION['csrf'] ?? '');
+    if ($have !== '' && ($sent === '' || strlen($sent) !== strlen($have) || !hash_equals($have, $sent))) err('CSRF');
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $p = session_get_cookie_params();
@@ -177,6 +196,7 @@ switch ($action) {
             if ($dup->fetch()) err('Такое направление уже есть');
             $pdo->prepare('UPDATE crm_directions SET city_from = ?, city_to = ? WHERE id = ?')->execute([$from, $to, $id]);
         }
+        crm_meta_bump($pdo, 'routes');
         ok(['id' => $id]);
     }
 
@@ -188,6 +208,7 @@ switch ($action) {
         $ids->execute([$id]);
         foreach ($ids->fetchAll(PDO::FETCH_COLUMN) as $cid) crm_purge_carrier($pdo, (string) $cid);
         $pdo->prepare('DELETE FROM crm_directions WHERE id = ?')->execute([$id]);
+        crm_meta_bump($pdo, 'routes');
         ok();
     }
 
@@ -214,10 +235,10 @@ switch ($action) {
         if ($name === '') err('Укажите имя или название');
         $phone = strv($in['phone'] ?? '', 40);
         $company = strv($in['company'] ?? '', 200);
-        $note = strv($in['note'] ?? '', 2000);
         $id = strv($in['id'] ?? '', 80);
         $uid = (int) $user['id'];
         if ($id === '') {
+            $note = strv($in['note'] ?? '', 2000);
             $id = 'k_' . bin2hex(random_bytes(6));
             $pdo->prepare('INSERT INTO crm_carriers (id, direction_id, name, phone, company, note, created_by, created_at) VALUES (?,?,?,?,?,?,?,?)')
                 ->execute([$id, $dirId, $name, $phone, $company, $note, $uid, now_ms()]);
@@ -225,9 +246,16 @@ switch ($action) {
             $st = $pdo->prepare('SELECT id FROM crm_carriers WHERE id = ? AND direction_id = ?');
             $st->execute([$id, $dirId]);
             if (!$st->fetch()) err('Контакт не найден');
-            $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ?, note = ? WHERE id = ?')
-                ->execute([$name, $phone, $company, $note, $id]);
+            if (array_key_exists('note', $in)) {
+                $note = strv($in['note'] ?? '', 2000);
+                $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ?, note = ? WHERE id = ?')
+                    ->execute([$name, $phone, $company, $note, $id]);
+            } else {
+                $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ? WHERE id = ?')
+                    ->execute([$name, $phone, $company, $id]);
+            }
         }
+        crm_meta_bump($pdo, 'routes');
         ok(['id' => $id]);
     }
 
@@ -236,6 +264,7 @@ switch ($action) {
         $id = strv($in['id'] ?? '', 80);
         if (!crm_carrier_by_id($pdo, $id)) err('Контакт не найден');
         crm_purge_carrier($pdo, $id);
+        crm_meta_bump($pdo, 'routes');
         ok();
     }
 
@@ -278,20 +307,29 @@ switch ($action) {
                 if (count($atts) >= 8) break;
                 if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
                 $size = (int) ($sizes[$i] ?? 0);
-                if ($size > CRM_MAX_UPLOAD) err('Файл больше 5 МБ');
+                if ($size > CRM_MAX_UPLOAD) { crm_discard_uploads($atts); err('Файл больше 5 МБ'); }
                 $ext = crm_allowed_upload((string) $name);
-                if ($ext === null) err('Этот тип файла не разрешён');
+                if ($ext === null) { crm_discard_uploads($atts); err('Этот тип файла не разрешён'); }
                 $fname = bin2hex(random_bytes(8)) . '.' . $ext;
-                if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) err('Не удалось сохранить файл');
+                if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) { crm_discard_uploads($atts); err('Не удалось сохранить файл'); }
                 $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => (string) ($types[$i] ?? ''), 'dataUrl' => 'uploads/' . $fname];
             }
         }
         if ($text === '' && !$atts) err('Пусто');
         $cid = 'cc_' . bin2hex(random_bytes(6));
-        $pdo->prepare('INSERT INTO crm_carrier_comments (id, carrier_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,?,?,NULL)')
-            ->execute([$cid, $carrierId, $text, $user['name'], (int) $user['id'], now_ms()]);
-        $insA = $pdo->prepare('INSERT INTO crm_carrier_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
-        foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
+        try {
+            $pdo->beginTransaction();
+            $pdo->prepare('INSERT INTO crm_carrier_comments (id, carrier_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,?,?,NULL)')
+                ->execute([$cid, $carrierId, $text, $user['name'], (int) $user['id'], now_ms()]);
+            $insA = $pdo->prepare('INSERT INTO crm_carrier_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
+            foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            crm_discard_uploads($atts);
+            err('Не удалось сохранить');
+        }
+        crm_meta_bump($pdo, 'routes');
         ok();
     }
 
@@ -304,6 +342,7 @@ switch ($action) {
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
         $pdo->prepare('UPDATE crm_carrier_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
+        crm_meta_bump($pdo, 'routes');
         ok();
     }
 
@@ -315,6 +354,7 @@ switch ($action) {
         if (!can_edit_comment($user, $c)) err('Нет прав');
         crm_delete_atts($pdo, 'crm_carrier_attachments', [$cid]);
         $pdo->prepare('DELETE FROM crm_carrier_comments WHERE id = ?')->execute([$cid]);
+        crm_meta_bump($pdo, 'routes');
         ok();
     }
 
@@ -322,7 +362,7 @@ switch ($action) {
         $uid = $viewUid;
         $hash = substr(hash('sha256', crm_board_rev($pdo, $uid)), 0, 32);
         $client = (string) ($_GET['hash'] ?? '');
-        if ($client !== '' && hash_equals($hash, $client)) {
+        if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
             ok(['unchanged' => true, 'hash' => $hash]);
         }
         $stages = crm_stages($pdo, $uid);
@@ -392,7 +432,7 @@ switch ($action) {
         $row = crm_lead_for_user($pdo, $id, $uid);
         if (!$row) err('Лид не найден');
         if ($row['stage'] !== $stage) {
-            $from = strv($in['from'] ?? '', 80) ?: $row['stage'];
+            $from = (string) $row['stage'];
             $pdo->prepare('UPDATE crm_leads SET stage = ?, updated_at = ? WHERE id = ? AND user_id = ?')->execute([$stage, now_ms(), $id, $uid]);
             crm_sys_comment($pdo, $id, "Статус изменен: {$from} ➔ {$stage}");
         }
@@ -424,20 +464,28 @@ switch ($action) {
                 if (count($atts) >= 8) break;
                 if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
                 $size = (int) ($sizes[$i] ?? 0);
-                if ($size > CRM_MAX_UPLOAD) err('Файл больше 5 МБ');
+                if ($size > CRM_MAX_UPLOAD) { crm_discard_uploads($atts); err('Файл больше 5 МБ'); }
                 $ext = crm_allowed_upload((string) $name);
-                if ($ext === null) err('Этот тип файла не разрешён');
+                if ($ext === null) { crm_discard_uploads($atts); err('Этот тип файла не разрешён'); }
                 $fname = bin2hex(random_bytes(8)) . '.' . $ext;
-                if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) err('Не удалось сохранить файл');
+                if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) { crm_discard_uploads($atts); err('Не удалось сохранить файл'); }
                 $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => (string) ($types[$i] ?? ''), 'dataUrl' => 'uploads/' . $fname];
             }
         }
         if ($text === '' && !$atts) err('Пусто');
         $cid = 'c_' . bin2hex(random_bytes(6));
-        $pdo->prepare('INSERT INTO crm_comments (id, lead_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,?,?,NULL)')
-            ->execute([$cid, $leadId, $text, $user['name'], (int) $user['id'], now_ms()]);
-        $insA = $pdo->prepare('INSERT INTO crm_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
-        foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
+        try {
+            $pdo->beginTransaction();
+            $pdo->prepare('INSERT INTO crm_comments (id, lead_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,?,?,NULL)')
+                ->execute([$cid, $leadId, $text, $user['name'], (int) $user['id'], now_ms()]);
+            $insA = $pdo->prepare('INSERT INTO crm_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
+            foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            crm_discard_uploads($atts);
+            err('Не удалось сохранить');
+        }
         ok();
     }
 
@@ -513,6 +561,7 @@ switch ($action) {
             ->execute([$name, $email, password_hash($pass, PASSWORD_DEFAULT), 'user', now_ms()]);
         $newId = (int) $pdo->lastInsertId();
         crm_ensure_user_stages($pdo, $newId);
+        crm_meta_bump($pdo, 'users');
         ok(['id' => $newId]);
     }
 
@@ -530,10 +579,15 @@ switch ($action) {
         $other = crm_user_by_email($pdo, $email);
         if ($other && (int) $other['id'] !== $id) err('E-mail уже занят');
         $pdo->prepare('UPDATE crm_users SET name = ?, email = ? WHERE id = ?')->execute([$name, $email, $id]);
+        if ($name !== (string) $target['name']) {
+            $pdo->prepare('UPDATE crm_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
+            $pdo->prepare('UPDATE crm_carrier_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
+        }
         if ($pass !== '') {
             if (strlen($pass) < 6) err('Пароль мин. 6 символов');
             $pdo->prepare('UPDATE crm_users SET password = ? WHERE id = ?')->execute([password_hash($pass, PASSWORD_DEFAULT), $id]);
         }
+        crm_meta_bump($pdo, 'users');
         ok();
     }
 
@@ -545,6 +599,7 @@ switch ($action) {
         if ($id === (int) $user['id']) err('Нельзя удалить себя');
         if (!crm_user_by_id($pdo, $id)) err('Сотрудник не найден');
         crm_purge_user($pdo, $id);
+        crm_meta_bump($pdo, 'users');
         ok();
     }
 
