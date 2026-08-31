@@ -426,7 +426,7 @@ function crm_carrier_comments(PDO $pdo, string $carrierId): array {
             $comments[$a['comment_id']]['attachments'][] = [
                 'name' => $a['name'],
                 'size' => (int) $a['size'],
-                'type' => $a['type'],
+                'type' => crm_att_mime((string) $a['type'], (string) $a['data_url'], (string) $a['name']),
                 'dataUrl' => crm_file_url((string) $a['data_url']),
             ];
         }
@@ -445,6 +445,24 @@ function crm_unlink_upload(string $url): void {
     if (!preg_match('#^uploads/([a-f0-9]+\.[a-z0-9]+)$#i', $url, $m)) return;
     $path = CRM_UPLOAD_DIR . '/' . $m[1];
     if (is_file($path)) @unlink($path);
+}
+
+function crm_image_mime(string $ext): ?string {
+    $map = [
+        'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+        'gif' => 'image/gif', 'webp' => 'image/webp', 'bmp' => 'image/bmp',
+    ];
+    $ext = strtolower($ext);
+    return $map[$ext] ?? null;
+}
+
+function crm_att_mime(string $storedType, string $dataUrl, string $origName = ''): string {
+    $ext = strtolower(pathinfo($dataUrl, PATHINFO_EXTENSION));
+    if ($ext === '') $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+    $img = crm_image_mime($ext);
+    if ($img !== null) return $img;
+    $t = trim($storedType);
+    return $t !== '' ? $t : 'application/octet-stream';
 }
 
 function crm_file_url(string $dataUrl): string {
@@ -494,11 +512,16 @@ function crm_serve_file(PDO $pdo, string $name): never {
     $mime = $mimes[$ext] ?? 'application/octet-stream';
     $orig = preg_replace('/[\r\n"\\\\]/', '', basename((string) $row['name']));
     if ($orig === '') $orig = $name;
+    $ascii = preg_replace('/[^\x20-\x7E]/', '_', $orig) ?: $name;
     header('Content-Type: ' . $mime);
     header('X-Content-Type-Options: nosniff');
     header('Cache-Control: private, max-age=3600');
     header('Content-Length: ' . (string) filesize($path));
-    header('Content-Disposition: inline; filename="' . $orig . '"');
+    if (str_starts_with($mime, 'image/')) {
+        header('Content-Disposition: inline');
+    } else {
+        header('Content-Disposition: inline; filename="' . $ascii . '"');
+    }
     readfile($path);
     exit;
 }
@@ -699,7 +722,7 @@ function crm_leads_full(PDO $pdo, int $userId): array {
             $byComment[$a['comment_id']]['attachments'][] = [
                 'name' => $a['name'],
                 'size' => (int) $a['size'],
-                'type' => $a['type'],
+                'type' => crm_att_mime((string) $a['type'], (string) $a['data_url'], (string) $a['name']),
                 'dataUrl' => crm_file_url((string) $a['data_url']),
             ];
         }

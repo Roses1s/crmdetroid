@@ -312,7 +312,8 @@ switch ($action) {
                 if ($ext === null) { crm_discard_uploads($atts); err('Этот тип файла не разрешён'); }
                 $fname = bin2hex(random_bytes(8)) . '.' . $ext;
                 if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) { crm_discard_uploads($atts); err('Не удалось сохранить файл'); }
-                $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => (string) ($types[$i] ?? ''), 'dataUrl' => 'uploads/' . $fname];
+                $mime = crm_image_mime($ext) ?? (string) ($types[$i] ?? '');
+                $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => $mime, 'dataUrl' => 'uploads/' . $fname];
             }
         }
         if ($text === '' && !$atts) err('Пусто');
@@ -469,7 +470,8 @@ switch ($action) {
                 if ($ext === null) { crm_discard_uploads($atts); err('Этот тип файла не разрешён'); }
                 $fname = bin2hex(random_bytes(8)) . '.' . $ext;
                 if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) { crm_discard_uploads($atts); err('Не удалось сохранить файл'); }
-                $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => (string) ($types[$i] ?? ''), 'dataUrl' => 'uploads/' . $fname];
+                $mime = crm_image_mime($ext) ?? (string) ($types[$i] ?? '');
+                $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => $mime, 'dataUrl' => 'uploads/' . $fname];
             }
         }
         if ($text === '' && !$atts) err('Пусто');

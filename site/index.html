@@ -194,7 +194,15 @@
   .att-file { display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: var(--radius); padding: 5px 10px; font-size: 12px; color: #334155; text-decoration: none; transition: background .2s;}
   .att-file:hover { background: #e2e8f0; }
   .att-size { color: #94a3b8; font-size: 10px; flex-shrink: 0; }
+  .att-image a { display: inline-block; cursor: zoom-in; }
   .att-image img { max-width: 250px; max-height: 150px; border-radius: var(--radius); border: 1px solid #cbd5e1; display: block; object-fit: cover; }
+  .img-lightbox {
+    display: none; position: fixed; inset: 0; z-index: 9500;
+    background: rgba(0,0,0,.85); align-items: center; justify-content: center;
+    padding: 24px; cursor: zoom-out;
+  }
+  .img-lightbox.open { display: flex; }
+  .img-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius); box-shadow: var(--shadow-lg); }
 
   .inline-editor { display: none; margin-top: 5px; }
   .inline-editor.active { display: block; }
@@ -486,7 +494,7 @@
         <div class="files-preview" id="files-preview"></div>
         <div class="form-actions">
           <button class="btn btn-primary" data-action="post-comment">Записать в лог</button>
-          <label class="file-label">📎 Прикрепить<input type="file" id="file-input" multiple hidden></label>
+          <label class="file-label">📎 Прикрепить<input type="file" id="file-input" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label>
         </div>
       </div>
       <div class="chatter-log" id="chatter-log"></div>
@@ -547,7 +555,7 @@
         <div class="files-preview" id="carrier-files-preview"></div>
         <div class="form-actions">
           <button class="btn btn-primary" data-action="post-carrier-comment">Записать в лог</button>
-          <label class="file-label">📎 Прикрепить<input type="file" id="carrier-file-input" multiple hidden></label>
+          <label class="file-label">📎 Прикрепить<input type="file" id="carrier-file-input" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label>
         </div>
       </div>
       <div class="chatter-log" id="carrier-chatter-log"></div>
@@ -627,6 +635,10 @@
   </div>
 </div>
 
+<div class="img-lightbox" id="img-lightbox" data-action="close-lightbox">
+  <img id="img-lightbox-img" alt="">
+</div>
+
 <div class="toast-container" id="toast-container"></div>
 
 <script>
@@ -660,6 +672,38 @@ const debounce = (fn, ms) => { let t; const d = (...a) => { clearTimeout(t); t =
 const fmtTime = ts => new Date(ts).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 const fmtBytes = b => { if (!b) return '0 B'; const k=1024, s=['B','KB','MB']; const i=Math.min(2, Math.floor(Math.log(b)/Math.log(k))); return `${(b/Math.pow(k,i)).toFixed(1)} ${s[i]}`; };
 const isValidEmail = v => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+const IMG_EXTS = ['png','jpg','jpeg','gif','webp','bmp'];
+function attExt(a) {
+  const n = String(a?.name || '');
+  const u = String(a?.dataUrl || '');
+  const m = n.match(/\.([a-z0-9]+)$/i) || u.match(/\.([a-z0-9]+)(?:$|[?&#])/i);
+  return (m ? m[1] : '').toLowerCase();
+}
+function isImageAtt(a) {
+  const t = String(a?.type || '').toLowerCase();
+  if (t.startsWith('image/')) return true;
+  return IMG_EXTS.includes(attExt(a));
+}
+function renderAttHtml(a) {
+  const raw = String(a.dataUrl || '');
+  const u = escAttr(raw), n = esc(a.name);
+  if (isImageAtt(a) && raw) {
+    return `<div class="att-image"><a href="${u}" target="_blank" rel="noopener" data-action="open-image" data-src="${u}"><img src="${u}" alt="${n}"></a></div>`;
+  }
+  return `<a class="att-file" href="${u}" target="_blank" rel="noopener">📄 ${n} <span class="att-size">${fmtBytes(a.size)}</span></a>`;
+}
+function openImageLightbox(src) {
+  const box = $('#img-lightbox'), img = $('#img-lightbox-img');
+  if (!box || !img || !src) return;
+  img.src = src;
+  box.classList.add('open');
+}
+function closeImageLightbox() {
+  const box = $('#img-lightbox'), img = $('#img-lightbox-img');
+  if (!box) return;
+  box.classList.remove('open');
+  if (img) img.removeAttribute('src');
+}
 
 function formatInnInput(inp) { inp.value = inp.value.replace(/\D/g, '').slice(0, 12); }
 function setupPhoneMask(input) {
@@ -1162,11 +1206,7 @@ function renderCarrierLog() {
   [...comments].reverse().forEach(c => {
     const canEdit = canEditComment(c);
     const init = (c.author[0] || '?').toUpperCase();
-    const atts = (c.attachments || []).map(a => {
-      const u = escAttr(a.dataUrl), n = esc(a.name);
-      if ((a.type || '').startsWith('image/')) return `<div class="att-image"><a href="${u}" target="_blank" rel="noopener"><img src="${u}"></a></div>`;
-      return `<a class="att-file" href="${u}" download="${n}" rel="noopener">📄 ${n} <span class="att-size">${fmtBytes(a.size)}</span></a>`;
-    }).join('');
+    const atts = (c.attachments || []).map(renderAttHtml).join('');
     const el = document.createElement('div'); el.className = 'log-entry';
     el.innerHTML = `
       <div class="log-avatar" style="background:#714B67">${esc(init)}</div>
@@ -1357,11 +1397,7 @@ function renderLog() {
   [...lead.comments].reverse().forEach(c => {
     const isSys = c.author === 'Система', canEdit = canEditComment(c);
     const init = isSys ? '⚙' : (c.author[0] || '?').toUpperCase(), bg = isSys ? '#cbd5e1' : '#714B67';
-    const atts = (c.attachments || []).map(a => {
-      const u = escAttr(a.dataUrl), n = esc(a.name);
-      if ((a.type || '').startsWith('image/')) return `<div class="att-image"><a href="${u}" target="_blank" rel="noopener"><img src="${u}"></a></div>`;
-      return `<a class="att-file" href="${u}" download="${n}" rel="noopener">📄 ${n} <span class="att-size">${fmtBytes(a.size)}</span></a>`;
-    }).join('');
+    const atts = (c.attachments || []).map(renderAttHtml).join('');
 
     const el = document.createElement('div'); el.className = 'log-entry';
     el.innerHTML = `
@@ -1472,6 +1508,12 @@ function initEvents() {
       return;
     }
     if (act === 'close-modals') { Modal.closeAll(); return; }
+    if (act === 'close-lightbox') { closeImageLightbox(); return; }
+    if (act === 'open-image') {
+      e.preventDefault();
+      openImageLightbox(actEl.dataset.src || actEl.getAttribute('href') || '');
+      return;
+    }
 
     await withLock(async () => {
     switch (act) {
@@ -1682,6 +1724,7 @@ function initEvents() {
       }
     }
     if (e.key === 'Escape') {
+      if ($('#img-lightbox.open')) { closeImageLightbox(); return; }
       if ($('.inline-editor.active')) { $$('.inline-editor.active').forEach(el=>el.classList.remove('active')); $$('.log-text.hidden').forEach(el=>el.classList.remove('hidden')); UI.editingCommentId = null; }
       else if ($('.modal-backdrop.open')) {
         const pr = _promptResolver; _promptResolver = null;
