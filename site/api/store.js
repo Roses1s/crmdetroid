@@ -372,25 +372,25 @@ function createStore(config) {
 
   async function searchLeads(userId, q) {
     q = String(q || '').trim();
-    if (!q || [...q].length < 2) return { leads: [], intersections: [] };
+    if (!q) return { leads: [], intersections: [] };
     const digits = q.replace(/\D/g, '');
-    const esc = s => String(s).replace(/[|%_]/g, ch => '|' + ch);
+    const esc = s => String(s).replace(/[\\%_]/g, ch => '\\' + ch);
     const titlePat = '%' + esc(q) + '%';
     const p = await pool();
-    let ownSql = 'SELECT id, title, inn, stage, phone FROM crm_leads WHERE user_id = ? AND title LIKE ? ESCAPE \'|\'';
+    let ownSql = 'SELECT id, title, inn, stage, phone FROM crm_leads WHERE user_id = ? AND title LIKE ?';
     const ownParams = [userId, titlePat];
-    if (digits.length >= 3) {
-      ownSql += ' OR (user_id = ? AND inn LIKE ? ESCAPE \'|\')';
+    if (digits.length >= 2) {
+      ownSql += ' OR (user_id = ? AND inn LIKE ?)';
       ownParams.push(userId, '%' + esc(digits) + '%');
     }
     ownSql += ' ORDER BY title ASC LIMIT 40';
     const [ownRows] = await p.execute(ownSql, ownParams);
     const leads = ownRows.map(r => ({ id: r.id, title: r.title, inn: r.inn, stage: r.stage, phone: r.phone }));
 
-    let othSql = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND l.title LIKE ? ESCAPE \'|\'';
+    let othSql = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND l.title LIKE ?';
     const othParams = [userId, titlePat];
-    if (digits.length >= 3) {
-      othSql += ' OR (l.user_id <> ? AND l.inn LIKE ? ESCAPE \'|\')';
+    if (digits.length >= 2) {
+      othSql += ' OR (l.user_id <> ? AND l.inn LIKE ?)';
       othParams.push(userId, '%' + esc(digits) + '%');
     }
     othSql += ' LIMIT 60';

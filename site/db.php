@@ -283,19 +283,19 @@ function crm_stage_renames(array $old, array $ns): array {
 }
 
 function crm_like_pat(string $s): string {
-    $s = str_replace(['|', '%', '_'], ['||', '|%', '|_'], $s);
+    $s = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $s);
     return '%' . $s . '%';
 }
 
 function crm_search_leads(PDO $pdo, int $userId, string $q): array {
     $q = trim($q);
-    if ($q === '' || mb_strlen($q) < 2) return ['leads' => [], 'intersections' => []];
+    if ($q === '') return ['leads' => [], 'intersections' => []];
     $digits = preg_replace('/\D/', '', $q);
     $titlePat = crm_like_pat($q);
-    $ownSql = 'SELECT id, title, inn, stage, phone FROM crm_leads WHERE user_id = ? AND title LIKE ? ESCAPE \'|\'';
+    $ownSql = 'SELECT id, title, inn, stage, phone FROM crm_leads WHERE user_id = ? AND title LIKE ?';
     $ownParams = [$userId, $titlePat];
-    if (strlen($digits) >= 3) {
-        $ownSql .= ' OR (user_id = ? AND inn LIKE ? ESCAPE \'|\')';
+    if (strlen($digits) >= 2) {
+        $ownSql .= ' OR (user_id = ? AND inn LIKE ?)';
         $ownParams[] = $userId;
         $ownParams[] = crm_like_pat($digits);
     }
@@ -313,10 +313,10 @@ function crm_search_leads(PDO $pdo, int $userId, string $q): array {
         ];
     }
 
-    $othSql = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND l.title LIKE ? ESCAPE \'|\'';
+    $othSql = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND l.title LIKE ?';
     $othParams = [$userId, $titlePat];
-    if (strlen($digits) >= 3) {
-        $othSql .= ' OR (l.user_id <> ? AND l.inn LIKE ? ESCAPE \'|\')';
+    if (strlen($digits) >= 2) {
+        $othSql .= ' OR (l.user_id <> ? AND l.inn LIKE ?)';
         $othParams[] = $userId;
         $othParams[] = crm_like_pat($digits);
     }

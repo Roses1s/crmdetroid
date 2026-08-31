@@ -60,9 +60,9 @@
   }
   .board-search.has-query .search-clear { display: block; }
   .search-drop {
-    display: none; position: absolute; left: 0; right: 0; top: calc(100% + 4px);
+    display: none; position: fixed; left: 0; top: 0; width: 320px;
     background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md); z-index: 300; max-height: 360px; overflow-y: auto;
+    box-shadow: var(--shadow-lg); z-index: 8000; max-height: 360px; overflow-y: auto;
   }
   .search-drop.open { display: block; }
   .search-item { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
@@ -457,6 +457,26 @@ const UI = { leadId: null, pendingFiles: [], drag: {}, currentView: 'kanban', fo
 
 function closeSearchDrop() { $('#search-drop')?.classList.remove('open'); }
 
+function placeSearchDrop() {
+  const inp = $('#board-search'), box = $('#search-drop');
+  if (!inp || !box) return;
+  const r = inp.getBoundingClientRect();
+  box.style.left = Math.max(8, r.left) + 'px';
+  box.style.width = Math.max(240, r.width) + 'px';
+  box.style.top = (r.bottom + 4) + 'px';
+}
+
+function localSearchLeads(q) {
+  const query = String(q || '').trim().toLowerCase();
+  const digits = query.replace(/\D/g, '');
+  if (!query) return [];
+  return Store.state.leads.filter(l => {
+    const title = String(l.title || '').toLowerCase();
+    const inn = String(l.inn || '').replace(/\D/g, '');
+    return title.includes(query) || (digits.length >= 2 && inn.includes(digits));
+  }).slice(0, 40).map(l => ({ id: l.id, title: l.title, inn: l.inn, stage: l.stage, phone: l.phone }));
+}
+
 function ownersOf(lead, intersections) {
   const inn = String(lead.inn || '').replace(/\D/g, '');
   const title = String(lead.title || '').toLowerCase();
@@ -494,20 +514,25 @@ function renderSearchDrop(payload) {
   });
   if (!html) html = '<div class="search-empty">Ничего не найдено</div>';
   box.innerHTML = html;
+  placeSearchDrop();
   box.classList.add('open');
 }
 
 let _searchGen = 0;
 async function liveSearch(q) {
   const wrap = $('#board-search-wrap');
-  wrap?.classList.toggle('has-query', !!String(q || '').trim());
   const query = String(q || '').trim();
-  if (query.length < 2) { closeSearchDrop(); return; }
+  wrap?.classList.toggle('has-query', !!query);
+  if (!query) { closeSearchDrop(); return; }
+  const local = localSearchLeads(query);
+  renderSearchDrop({ leads: local, intersections: [] });
   const gen = ++_searchGen;
   const res = await Net.req('search_leads', { q: query });
   if (gen !== _searchGen) return;
-  if (!res || !res.success) { closeSearchDrop(); return; }
-  renderSearchDrop(res);
+  if (res && res.success) {
+    const leads = (res.leads && res.leads.length) ? res.leads : local;
+    renderSearchDrop({ leads, intersections: res.intersections || [] });
+  }
 }
 
 function clearSearch() {
@@ -724,20 +749,24 @@ function initEvents() {
   $('#f-inn').addEventListener('input', e => formatInnInput(e.target));
 
   const searchInp = $('#board-search');
-  const runSearch = debounce(() => applySearch(searchInp.value), 120);
+  const runSearch = debounce(() => liveSearch(searchInp.value), 150);
   searchInp.addEventListener('input', runSearch);
+  searchInp.addEventListener('focus', () => { if (searchInp.value.trim()) liveSearch(searchInp.value); });
   searchInp.addEventListener('keydown', e => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      applySearch(searchInp.value);
-      const hits = visibleLeads();
-      if (hits.length === 1) openLead(hits[0].id, true);
-    } else if (e.key === 'Escape' && searchInp.value) {
+      const first = $('#search-drop .search-item[data-id]');
+      if (first) { closeSearchDrop(); openLead(first.dataset.id, true); }
+    } else if (e.key === 'Escape' && (searchInp.value || $('#search-drop.open'))) {
       e.preventDefault(); e.stopPropagation();
-      searchInp.value = ''; applySearch('');
+      clearSearch();
     }
   });
-  $('#board-search-clear').addEventListener('click', () => { searchInp.value = ''; applySearch(''); searchInp.focus(); });
+  $('#board-search-clear').addEventListener('click', () => { clearSearch(); searchInp.focus(); });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#board-search-wrap') && !e.target.closest('#search-drop')) closeSearchDrop();
+  });
+  window.addEventListener('resize', () => { if ($('#search-drop.open')) placeSearchDrop(); });
 
   $('#btn-login').addEventListener('click', execLogin);
   $('#login-password').addEventListener('keydown', e => { if (e.key === 'Enter') execLogin(); });
