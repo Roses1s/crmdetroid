@@ -236,10 +236,13 @@ async function ensureLeadFull(id) {
   return lead;
 }
 
+function isSystemComment(c) {
+  return String(c?.author || '').trim() === 'Система';
+}
 function canEditComment(c) {
   const user = Store.state.user;
   if (!user) return false;
-  if ((c.author || '') === 'Система') return false;
+  if (isSystemComment(c)) return false;
   if (user.role === 'admin') return true;
   const uid = Number(c.userId || 0);
   if (uid > 0) return uid === Number(user.id);
@@ -247,7 +250,7 @@ function canEditComment(c) {
 }
 function canDeleteComment(c) {
   if (!Store.state.user) return false;
-  if ((c.author || '') === 'Система') return true;
+  if (isSystemComment(c)) return true;
   return canEditComment(c);
 }
 function logActionsHtml(c) {
@@ -845,7 +848,7 @@ function renderLog() {
   const frag = document.createDocumentFragment();
 
   [...lead.comments].reverse().forEach(c => {
-    const isSys = c.author === 'Система', canEdit = canEditComment(c);
+    const isSys = isSystemComment(c);
     const init = isSys ? '⚙' : (c.author[0] || '?').toUpperCase();
     const atts = (c.attachments || []).map(renderAttHtml).join('');
 
@@ -855,7 +858,7 @@ function renderLog() {
       <div class="log-body">
         <div class="log-head">
           <div><div class="log-author">${esc(c.author)}</div><div>${esc(fmtTime(c.time))}${c.editedAt ? ` <span class="log-edited">изм. ${esc(fmtTime(c.editedAt))}</span>` : ''}</div></div>
-          ${canEdit ? `<div class="log-actions"><span class="log-btn" data-action="toggle-edit" data-cid="${esc(c.id)}">✎ Изменить</span><span class="log-btn del" data-action="del-comment" data-cid="${esc(c.id)}">🗑️</span></div>` : ''}
+          ${logActionsHtml(c)}
         </div>
         <div class="log-text" data-txt="${esc(c.id)}">${esc(c.text)}</div>
         <div class="inline-editor" data-edt="${esc(c.id)}">
@@ -1210,16 +1213,24 @@ function initAppEvents() {
       case 'del-comment': {
         if (!await askConfirm('Удалить комментарий?')) return;
         const isCarrier = UI.currentView === 'carrier';
-        const resDC = await Net.req(isCarrier ? 'delete_carrier_comment' : 'delete_comment', { id: actEl.dataset.cid });
+        const delId = String(actEl.dataset.cid || '');
+        const resDC = await Net.req(isCarrier ? 'delete_carrier_comment' : 'delete_comment', { id: delId });
         if (resDC?.success) {
           UI.editingCommentId = null;
           if (isCarrier) {
             if (resDC.updatedAt) UI.carrierRev = resDC.updatedAt;
+            UI.carrierComments = (UI.carrierComments || []).filter(c => String(c.id) !== delId);
+            renderCarrierLog();
             await openCarrier(UI.carrierId, false);
           } else {
             const L = Store.getLead(UI.leadId);
-            if (L && resDC.updatedAt) { L.updatedAt = resDC.updatedAt; L._editRev = resDC.updatedAt; }
+            if (L) {
+              if (resDC.updatedAt) { L.updatedAt = resDC.updatedAt; L._editRev = resDC.updatedAt; }
+              if (Array.isArray(L.comments)) L.comments = L.comments.filter(c => String(c.id) !== delId);
+            }
+            renderLog();
             await Store.load(true);
+            if (UI.leadId) { await loadLeadComments(UI.leadId); renderLog(); }
           }
         } else Toast.error(resDC?.error || 'Ошибка');
         break;
@@ -1409,4 +1420,3 @@ async function execLogin() {
 Theme.apply(Theme.get());
 initEvents();
 bootApp();
-ootApp();

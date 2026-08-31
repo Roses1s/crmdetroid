@@ -182,15 +182,18 @@ function crm_session_throttled(int $max = 90, int $window = 60): bool {
     $_SESSION['_rl_n'] = $n + 1;
     return $_SESSION['_rl_n'] > $max;
 }
+function crm_is_sys_comment(array $c): bool {
+    return trim((string) ($c['author'] ?? '')) === 'Система';
+}
 function can_edit_comment(array $user, array $c): bool {
-    if (($c['author'] ?? '') === 'Система') return false;
+    if (crm_is_sys_comment($c)) return false;
     if (($user['role'] ?? '') === 'admin') return true;
     $uid = (int) ($c['user_id'] ?? 0);
     if ($uid > 0) return $uid === (int) $user['id'];
     return ($c['author'] ?? '') === ($user['name'] ?? '');
 }
 function can_delete_comment(array $user, array $c): bool {
-    if (($c['author'] ?? '') === 'Система') return true;
+    if (crm_is_sys_comment($c)) return true;
     return can_edit_comment($user, $c);
 }
 function crm_discard_uploads(array $atts): void {
