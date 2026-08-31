@@ -18,15 +18,18 @@ CREATE TABLE IF NOT EXISTS crm_users (
 
 CREATE TABLE IF NOT EXISTS crm_stages (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id INT UNSIGNED NOT NULL,
   name VARCHAR(80) NOT NULL,
   position INT NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_stage_name (name),
+  UNIQUE KEY uq_user_stage (user_id, name),
+  KEY idx_user (user_id),
   KEY idx_position (position)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_leads (
   id VARCHAR(80) NOT NULL,
+  user_id INT UNSIGNED NOT NULL,
   title VARCHAR(200) NOT NULL,
   inn VARCHAR(12) NOT NULL DEFAULT '',
   phone VARCHAR(40) NOT NULL DEFAULT '',
@@ -40,7 +43,8 @@ CREATE TABLE IF NOT EXISTS crm_leads (
   stage VARCHAR(80) NOT NULL,
   created_at BIGINT NOT NULL,
   PRIMARY KEY (id),
-  KEY idx_stage (stage)
+  KEY idx_stage (stage),
+  KEY idx_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_comments (

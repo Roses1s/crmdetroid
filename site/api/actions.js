@@ -67,24 +67,26 @@ function createActions({ store, sessions, config, limiter }) {
 
     async get_data({ session, url }) {
       const user = await requireUser(store, session);
-      const hash = await store.dataHash();
+      const uid = Number(user.id);
+      const hash = await store.dataHash(uid);
       const clientHash = url.searchParams.get('hash') || '';
       if (clientHash && clientHash.length === hash.length && clientHash === hash) {
         return { unchanged: true, hash };
       }
       return {
         hash,
-        stages: await store.listStages(),
-        leads: await store.listLeads(),
+        stages: await store.listStages(uid),
+        leads: await store.listLeads(uid),
         user: store.publicUser(user),
       };
     },
 
     async save_lead({ session, body }) {
       const user = await requireUser(store, session);
-      const stages = await store.listStages();
+      const uid = Number(user.id);
+      const stages = await store.listStages(uid);
       const id = v.str(body.id, { max: 80 }) || ('l_' + randomId(6));
-      let lead = await store.getLead(id);
+      let lead = await store.getLead(id, uid);
       if (!lead) {
         lead = {
           id,
@@ -97,38 +99,39 @@ function createActions({ store, sessions, config, limiter }) {
         };
         applyLeadPatch(lead, body, config);
         if (!stages.includes(lead.stage)) lead.stage = stages[0] || 'Новый';
-        await store.createLead(lead);
+        await store.createLead(lead, uid);
         await store.addSysComment(lead.id, 'Лид создан');
       } else {
         const prevStage = lead.stage;
         applyLeadPatch(lead, body, config);
         if (lead.stage && !stages.includes(lead.stage)) lead.stage = prevStage;
-        await store.updateLead(id, lead);
+        await store.updateLead(id, lead, uid);
       }
       return { id: lead.id };
     },
 
     async move_lead({ session, body }) {
-      await requireUser(store, session);
+      const user = await requireUser(store, session);
+      const uid = Number(user.id);
       const id = v.idStr(body.id);
       const stage = v.str(body.stage, { max: config.maxStageChars });
-      const stages = await store.listStages();
+      const stages = await store.listStages(uid);
       if (!stage || !stages.includes(stage)) throw fail('Нет такого этапа');
-      const lead = await store.getLead(id);
+      const lead = await store.getLead(id, uid);
       if (!lead) throw fail('Лид не найден');
       const from = v.str(body.from, { max: config.maxStageChars }) || lead.stage;
       if (lead.stage !== stage) {
         lead.stage = stage;
-        await store.updateLead(id, lead);
+        await store.updateLead(id, lead, uid);
         await store.addSysComment(id, `Статус изменен: ${from} ➔ ${stage}`);
       }
       return {};
     },
 
     async delete_lead({ session, body }) {
-      await requireUser(store, session);
+      const user = await requireUser(store, session);
       const id = v.idStr(body.id);
-      const okDel = await store.deleteLead(id);
+      const okDel = await store.deleteLead(id, Number(user.id));
       if (!okDel) throw fail('Лид не найден');
       return {};
     },
@@ -137,7 +140,7 @@ function createActions({ store, sessions, config, limiter }) {
       const user = await requireUser(store, session);
       const leadId = v.idStr(fields.lead_id);
       const text = v.str(fields.text, { max: config.maxCommentChars });
-      const lead = await store.getLead(leadId);
+      const lead = await store.getLead(leadId, Number(user.id));
       if (!lead) throw fail('Лид не найден');
       const attachments = [];
       for (const f of files || []) {
@@ -154,7 +157,7 @@ function createActions({ store, sessions, config, limiter }) {
       const cid = v.idStr(body.id);
       const text = v.str(body.text, { max: config.maxCommentChars });
       if (!text) throw fail('Пусто');
-      const c = await store.getComment(cid);
+      const c = await store.getComment(cid, Number(user.id));
       if (!c) throw fail('Комментарий не найден');
       if (!canEditComment(user, c)) throw fail('Нет прав');
       await store.updateComment(cid, text);
@@ -164,7 +167,7 @@ function createActions({ store, sessions, config, limiter }) {
     async delete_comment({ session, body }) {
       const user = await requireUser(store, session);
       const cid = v.idStr(body.id);
-      const c = await store.getComment(cid);
+      const c = await store.getComment(cid, Number(user.id));
       if (!c) throw fail('Комментарий не найден');
       if (!canEditComment(user, c)) throw fail('Нет прав');
       await store.deleteComment(cid);
@@ -173,12 +176,11 @@ function createActions({ store, sessions, config, limiter }) {
 
     async save_stages({ session, body }) {
       const user = await requireUser(store, session);
-      requireAdmin(user);
       if (!Array.isArray(body.stages)) throw fail('Пустой список этапов');
       const ns = body.stages.map(s => v.str(s, { max: config.maxStageChars })).filter(Boolean);
       if (!ns.length) throw fail('Пустой список этапов');
       if (new Set(ns).size !== ns.length) throw fail('Имя занято');
-      await store.saveStages(ns);
+      await store.saveStages(ns, Number(user.id));
       return {};
     },
 

@@ -209,8 +209,15 @@ function jsonReq(port, action, { method, cookie, csrf, body } = {}) {
   const mc = loginM.cookie, mcsrf = loginM.json.csrf;
   r = await jsonReq(port, 'get_users', { cookie: mc });
   check('Менеджер не видит сотрудников', r.json && r.json.success === false);
-  r = await jsonReq(port, 'save_stages', { cookie: mc, csrf: mcsrf, body: { stages: ['A'] } });
-  check('Менеджер не меняет этапы', r.json && r.json.success === false);
+  r = await jsonReq(port, 'get_data', { cookie: mc });
+  check('Менеджер не видит чужие лиды', r.json && r.json.success && r.json.leads.length === 0);
+  check('У менеджера свои этапы по умолчанию', r.json && r.json.stages.length === 6);
+  r = await jsonReq(port, 'save_stages', { cookie: mc, csrf: mcsrf, body: { stages: ['A', 'B'] } });
+  check('Менеджер меняет свои этапы', r.json && r.json.success);
+  r = await jsonReq(port, 'get_data', { cookie: mc });
+  check('Этапы менеджера свои', r.json && r.json.stages.join('|') === 'A|B');
+  r = await jsonReq(port, 'get_data', { cookie });
+  check('Этапы админа не затронуты', r.json && r.json.stages.join('|') === 'Новый|В работе|Готово');
 
   r = await jsonReq(port, 'delete_lead', { cookie, csrf, body: { id: 'l_test' } });
   check('Удаление лида', r.json && r.json.success);

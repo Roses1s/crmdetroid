@@ -114,22 +114,27 @@ if ($method === 'POST') require_csrf();
 
 switch ($action) {
     case 'get_data': {
-        $hash = crm_data_hash($pdo);
+        $uid = (int) $user['id'];
+        $hash = crm_data_hash($pdo, $uid);
         $client = (string) ($_GET['hash'] ?? '');
         if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
             ok(['unchanged' => true, 'hash' => $hash]);
         }
-        ok(['hash' => $hash, 'stages' => crm_stages($pdo), 'leads' => crm_leads_full($pdo), 'user' => crm_user_public($user)]);
+        ok(['hash' => $hash, 'stages' => crm_stages($pdo, $uid), 'leads' => crm_leads_full($pdo, $uid), 'user' => crm_user_public($user)]);
     }
 
     case 'save_lead': {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
         if ($id === '') $id = 'l_' . bin2hex(random_bytes(6));
-        $stages = crm_stages($pdo);
-        $st = $pdo->prepare('SELECT * FROM crm_leads WHERE id = ?');
-        $st->execute([$id]);
-        $row = $st->fetch();
+        $uid = (int) $user['id'];
+        $stages = crm_stages($pdo, $uid);
+        $row = crm_lead_for_user($pdo, $id, $uid);
+        if (!$row) {
+            $any = $pdo->prepare('SELECT id FROM crm_leads WHERE id = ?');
+            $any->execute([$id]);
+            if ($any->fetch()) err('Лид не найден');
+        }
 
         $title = strv($in['title'] ?? ($row['title'] ?? ''), 200, 'Без названия');
         $inn = preg_replace('/\D/', '', strv($in['inn'] ?? ($row['inn'] ?? ''), 12));
@@ -145,12 +150,12 @@ switch ($action) {
         if (!in_array($stage, $stages, true)) $stage = $row['stage'] ?? ($stages[0] ?? 'Новый');
 
         if (!$row) {
-            $ins = $pdo->prepare('INSERT INTO crm_leads (id,title,inn,phone,email,manager,cargo,format,payment,ati,applications_count,stage,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
-            $ins->execute([$id, $title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, now_ms()]);
+            $ins = $pdo->prepare('INSERT INTO crm_leads (id,user_id,title,inn,phone,email,manager,cargo,format,payment,ati,applications_count,stage,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+            $ins->execute([$id, $uid, $title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, now_ms()]);
             crm_sys_comment($pdo, $id, 'Лид создан');
         } else {
-            $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=? WHERE id=?');
-            $upd->execute([$title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $id]);
+            $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=? WHERE id=? AND user_id=?');
+            $upd->execute([$title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $id, $uid]);
         }
         ok(['id' => $id]);
     }
@@ -159,15 +164,14 @@ switch ($action) {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
         $stage = strv($in['stage'] ?? '', 80);
-        $stages = crm_stages($pdo);
+        $uid = (int) $user['id'];
+        $stages = crm_stages($pdo, $uid);
         if ($stage === '' || !in_array($stage, $stages, true)) err('Нет такого этапа');
-        $st = $pdo->prepare('SELECT * FROM crm_leads WHERE id = ?');
-        $st->execute([$id]);
-        $row = $st->fetch();
+        $row = crm_lead_for_user($pdo, $id, $uid);
         if (!$row) err('Лид не найден');
         if ($row['stage'] !== $stage) {
             $from = strv($in['from'] ?? '', 80) ?: $row['stage'];
-            $pdo->prepare('UPDATE crm_leads SET stage = ? WHERE id = ?')->execute([$stage, $id]);
+            $pdo->prepare('UPDATE crm_leads SET stage = ? WHERE id = ? AND user_id = ?')->execute([$stage, $id, $uid]);
             crm_sys_comment($pdo, $id, "Статус изменен: {$from} ➔ {$stage}");
         }
         ok();
@@ -176,9 +180,8 @@ switch ($action) {
     case 'delete_lead': {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
-        $st = $pdo->prepare('SELECT id FROM crm_leads WHERE id = ?');
-        $st->execute([$id]);
-        if (!$st->fetch()) err('Лид не найден');
+        $uid = (int) $user['id'];
+        if (!crm_lead_for_user($pdo, $id, $uid)) err('Лид не найден');
         $cids = $pdo->prepare('SELECT id FROM crm_comments WHERE lead_id = ?');
         $cids->execute([$id]);
         $ids = $cids->fetchAll(PDO::FETCH_COLUMN);
@@ -194,9 +197,7 @@ switch ($action) {
     case 'add_comment': {
         $leadId = strv($_POST['lead_id'] ?? '', 80);
         $text = strv($_POST['text'] ?? '', 20000);
-        $st = $pdo->prepare('SELECT id FROM crm_leads WHERE id = ?');
-        $st->execute([$leadId]);
-        if (!$st->fetch()) err('Лид не найден');
+        if (!crm_lead_for_user($pdo, $leadId, (int) $user['id'])) err('Лид не найден');
         $atts = [];
         $files = $_FILES['files'] ?? null;
         if (is_array($files) && !empty($files['name'])) {
@@ -230,9 +231,7 @@ switch ($action) {
         $cid = strv($in['id'] ?? '', 80);
         $text = strv($in['text'] ?? '', 20000);
         if ($text === '') err('Пусто');
-        $st = $pdo->prepare('SELECT * FROM crm_comments WHERE id = ?');
-        $st->execute([$cid]);
-        $c = $st->fetch();
+        $c = crm_comment_for_user($pdo, $cid, (int) $user['id']);
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
         $pdo->prepare('UPDATE crm_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
@@ -242,9 +241,7 @@ switch ($action) {
     case 'delete_comment': {
         $in = body_json();
         $cid = strv($in['id'] ?? '', 80);
-        $st = $pdo->prepare('SELECT * FROM crm_comments WHERE id = ?');
-        $st->execute([$cid]);
-        $c = $st->fetch();
+        $c = crm_comment_for_user($pdo, $cid, (int) $user['id']);
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
         $pdo->prepare('DELETE FROM crm_attachments WHERE comment_id = ?')->execute([$cid]);
@@ -253,25 +250,25 @@ switch ($action) {
     }
 
     case 'save_stages': {
-        require_admin($user);
         $in = body_json();
         $ns = $in['stages'] ?? null;
         if (!is_array($ns) || !$ns) err('Пустой список этапов');
         $ns = array_values(array_filter(array_map(fn($s) => strv($s, 80), $ns)));
         if (!$ns) err('Пустой список этапов');
         if (count($ns) !== count(array_unique($ns))) err('Имя занято');
-        $old = crm_stages($pdo);
+        $uid = (int) $user['id'];
+        $old = crm_stages($pdo, $uid);
         $pdo->beginTransaction();
         try {
-            $updL = $pdo->prepare('UPDATE crm_leads SET stage = ? WHERE stage = ?');
+            $updL = $pdo->prepare('UPDATE crm_leads SET stage = ? WHERE stage = ? AND user_id = ?');
             foreach (crm_stage_renames($old, $ns) as [$from, $to]) {
-                $updL->execute([$to, $from]);
+                $updL->execute([$to, $from, $uid]);
             }
-            $pdo->exec('DELETE FROM crm_stages');
-            $ins = $pdo->prepare('INSERT INTO crm_stages (name, position) VALUES (?,?)');
-            foreach ($ns as $i => $name) $ins->execute([$name, $i]);
+            $pdo->prepare('DELETE FROM crm_stages WHERE user_id = ?')->execute([$uid]);
+            $ins = $pdo->prepare('INSERT INTO crm_stages (user_id, name, position) VALUES (?,?,?)');
+            foreach ($ns as $i => $name) $ins->execute([$uid, $name, $i]);
             $inQ = implode(',', array_fill(0, count($ns), '?'));
-            $pdo->prepare("UPDATE crm_leads SET stage = ? WHERE stage NOT IN ($inQ)")->execute(array_merge([$ns[0]], $ns));
+            $pdo->prepare("UPDATE crm_leads SET stage = ? WHERE user_id = ? AND stage NOT IN ($inQ)")->execute(array_merge([$ns[0], $uid], $ns));
             $pdo->commit();
         } catch (Throwable $e) {
             $pdo->rollBack();
@@ -299,7 +296,9 @@ switch ($action) {
         if (crm_user_by_email($pdo, $email)) err('E-mail уже занят');
         $pdo->prepare('INSERT INTO crm_users (name, email, password, role, created_at) VALUES (?,?,?,?,?)')
             ->execute([$name, $email, password_hash($pass, PASSWORD_DEFAULT), 'user', now_ms()]);
-        ok(['id' => (int) $pdo->lastInsertId()]);
+        $newId = (int) $pdo->lastInsertId();
+        crm_ensure_user_stages($pdo, $newId);
+        ok(['id' => $newId]);
     }
 
     case 'update_user': {

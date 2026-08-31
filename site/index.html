@@ -535,15 +535,14 @@ const saveLeadDebounced = debounce(() => saveLeadForm(false), 500);
 let _lastBoardHash = null;
 function renderBoard() {
   if (UI.currentView !== 'kanban') return;
-  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.phone, l.manager]), Store.state.user?.role]);
+  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.phone, l.manager])]);
   if (dataHash === _lastBoardHash) return; _lastBoardHash = dataHash;
 
-  const isAdmin = Store.state.user?.role === 'admin';
   const board = $('#board'); board.innerHTML = ''; const frag = document.createDocumentFragment();
   Store.state.stages.forEach(stage => {
     const leads = Store.state.leads.filter(l => l.stage === stage);
-    const col = document.createElement('div'); col.className = 'column'; col.dataset.stage = stage; col.draggable = isAdmin;
-    col.innerHTML = `<div class="column-header"${isAdmin ? '' : ' style="cursor:default"'}><div class="col-title"><span>${esc(stage)}</span>${isAdmin ? '<span class="col-edit" data-action="edit-stage">✎</span>' : ''}</div><span class="col-count">${leads.length}</span></div><div class="cards-container"></div>`;
+    const col = document.createElement('div'); col.className = 'column'; col.dataset.stage = stage; col.draggable = true;
+    col.innerHTML = `<div class="column-header"><div class="col-title"><span>${esc(stage)}</span><span class="col-edit" data-action="edit-stage">✎</span></div><span class="col-count">${leads.length}</span></div><div class="cards-container"></div>`;
     const cont = col.querySelector('.cards-container');
     leads.forEach(l => {
       const card = document.createElement('div'); card.className = 'card'; card.draggable = true; card.dataset.id = l.id;
@@ -552,9 +551,7 @@ function renderBoard() {
     });
     frag.appendChild(col);
   });
-  if (isAdmin) {
-    const add = document.createElement('div'); add.className = 'add-column'; add.textContent = '+ Добавить этап'; add.dataset.action = 'add-stage'; frag.appendChild(add);
-  }
+  const add = document.createElement('div'); add.className = 'add-column'; add.textContent = '+ Добавить этап'; add.dataset.action = 'add-stage'; frag.appendChild(add);
   board.appendChild(frag);
 }
 
@@ -696,14 +693,12 @@ function initEvents() {
         break;
 
       case 'add-stage':
-        if (Store.state.user?.role !== 'admin') return;
         const stN = await askPrompt('Новый этап', '', 'Название этапа'); if (!stN || !stN.trim()) return;
         const resSt = await Net.req('save_stages', { stages: [...Store.state.stages, stN.trim()] });
         if (resSt?.success) await Store.load(true); else Toast.error(resSt?.error || 'Ошибка');
         break;
 
       case 'edit-stage':
-        if (Store.state.user?.role !== 'admin') return;
         const oldSt = actEl.closest('.column').dataset.stage, newSt = await askPrompt('Изменить этап', oldSt, 'Пустое = удалить');
         if (newSt === null || newSt.trim() === oldSt) return;
         let ns = [...Store.state.stages];

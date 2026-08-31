@@ -19,13 +19,16 @@ const MIGRATE = [
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS crm_stages (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id INT UNSIGNED NOT NULL,
     name VARCHAR(80) NOT NULL,
     position INT NOT NULL,
     PRIMARY KEY (id),
-    UNIQUE KEY uq_stage_name (name)
+    UNIQUE KEY uq_user_stage (user_id, name),
+    KEY idx_user (user_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS crm_leads (
     id VARCHAR(80) NOT NULL,
+    user_id INT UNSIGNED NOT NULL,
     title VARCHAR(200) NOT NULL,
     inn VARCHAR(12) NOT NULL DEFAULT '',
     phone VARCHAR(40) NOT NULL DEFAULT '',
@@ -39,7 +42,8 @@ const MIGRATE = [
     stage VARCHAR(80) NOT NULL,
     created_at BIGINT NOT NULL,
     PRIMARY KEY (id),
-    KEY idx_stage (stage)
+    KEY idx_stage (stage),
+    KEY idx_user (user_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS crm_comments (
     id VARCHAR(80) NOT NULL,
@@ -85,6 +89,37 @@ function stageRenames(old, ns) {
   return renames;
 }
 
+async function hasColumn(pool, table, col) {
+  const [rows] = await pool.query(
+    'SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+    [table, col]
+  );
+  return Number(rows[0].n) > 0;
+}
+
+async function ensureOwnerColumns(pool) {
+  if (!(await hasColumn(pool, 'crm_stages', 'user_id'))) {
+    await pool.query('ALTER TABLE crm_stages ADD COLUMN user_id INT UNSIGNED NOT NULL DEFAULT 1 AFTER id');
+    try { await pool.query('ALTER TABLE crm_stages DROP INDEX uq_stage_name'); } catch { /* ignore */ }
+    try { await pool.query('ALTER TABLE crm_stages ADD UNIQUE KEY uq_user_stage (user_id, name)'); } catch { /* ignore */ }
+    try { await pool.query('ALTER TABLE crm_stages ADD KEY idx_user (user_id)'); } catch { /* ignore */ }
+  }
+  if (!(await hasColumn(pool, 'crm_leads', 'user_id'))) {
+    await pool.query('ALTER TABLE crm_leads ADD COLUMN user_id INT UNSIGNED NOT NULL DEFAULT 1 AFTER id');
+    try { await pool.query('ALTER TABLE crm_leads ADD KEY idx_user (user_id)'); } catch { /* ignore */ }
+  }
+}
+
+async function seedUserStages(pool, userId) {
+  const [rows] = await pool.execute('SELECT COUNT(*) AS n FROM crm_stages WHERE user_id = ?', [userId]);
+  if (Number(rows[0].n) > 0) return;
+  const ins = 'INSERT INTO crm_stages (user_id, name, position) VALUES (?,?,?)';
+  const stages = [
+    'Новый', 'Вышел на ЛПР', 'Потенциальный клиент', 'Сделали просчет', 'Разместили заявку', 'Уехали, ждем заявку',
+  ];
+  for (let i = 0; i < stages.length; i++) await pool.execute(ins, [userId, stages[i], i]);
+}
+
 function rowLead(r) {
   return {
     id: r.id,
@@ -121,6 +156,7 @@ function createStore(config) {
         charset: 'utf8mb4',
       });
       for (const sql of MIGRATE) await pool.query(sql);
+      await ensureOwnerColumns(pool);
       const [users] = await pool.query('SELECT COUNT(*) AS n FROM crm_users');
       if (!Number(users[0].n)) {
         await pool.execute(
@@ -129,13 +165,8 @@ function createStore(config) {
         );
         try { await pool.query('ALTER TABLE crm_users AUTO_INCREMENT = 2'); } catch { /* ignore */ }
       }
-      const [stages] = await pool.query('SELECT COUNT(*) AS n FROM crm_stages');
-      if (!Number(stages[0].n)) {
-        const ins = 'INSERT INTO crm_stages (name, position) VALUES (?,?)';
-        for (let i = 0; i < config.defaultStages.length; i++) {
-          await pool.execute(ins, [config.defaultStages[i], i]);
-        }
-      }
+      const [allUsers] = await pool.query('SELECT id FROM crm_users');
+      for (const u of allUsers) await seedUserStages(pool, Number(u.id));
       return pool;
     } catch (e) {
       const msg = (e && (e.sqlMessage || e.message)) || '';
@@ -174,7 +205,9 @@ function createStore(config) {
       'INSERT INTO crm_users (name, email, password, role, created_at) VALUES (?,?,?,?,?)',
       [name, email, hashPassword(password), role, Date.now()]
     );
-    return Number(res.insertId);
+    const id = Number(res.insertId);
+    await seedUserStages(p, id);
+    return id;
   }
   async function updateUser(id, { name, email, password }) {
     const p = await pool();
@@ -183,32 +216,44 @@ function createStore(config) {
   }
   async function deleteUser(id) {
     const p = await pool();
+    const [coms] = await p.execute(
+      'SELECT c.id FROM crm_comments c INNER JOIN crm_leads l ON l.id = c.lead_id WHERE l.user_id = ?',
+      [id]
+    );
+    if (coms.length) {
+      const ids = coms.map(c => c.id);
+      const ph = ids.map(() => '?').join(',');
+      await p.execute(`DELETE FROM crm_attachments WHERE comment_id IN (${ph})`, ids);
+      await p.execute(`DELETE FROM crm_comments WHERE id IN (${ph})`, ids);
+    }
+    await p.execute('DELETE FROM crm_leads WHERE user_id = ?', [id]);
+    await p.execute('DELETE FROM crm_stages WHERE user_id = ?', [id]);
     const [res] = await p.execute('DELETE FROM crm_users WHERE id = ?', [id]);
     return res.affectedRows > 0;
   }
 
-  async function listStages() {
+  async function listStages(userId) {
     const p = await pool();
-    const [rows] = await p.query('SELECT name FROM crm_stages ORDER BY position ASC, id ASC');
+    const [rows] = await p.execute('SELECT name FROM crm_stages WHERE user_id = ? ORDER BY position ASC, id ASC', [userId]);
     return rows.map(r => r.name);
   }
 
-  async function saveStages(ns) {
+  async function saveStages(ns, userId) {
     const p = await pool();
     const conn = await p.getConnection();
     try {
       await conn.beginTransaction();
-      const [oldRows] = await conn.query('SELECT name FROM crm_stages ORDER BY position ASC, id ASC');
+      const [oldRows] = await conn.execute('SELECT name FROM crm_stages WHERE user_id = ? ORDER BY position ASC, id ASC', [userId]);
       const old = oldRows.map(r => r.name);
       for (const [from, to] of stageRenames(old, ns)) {
-        await conn.execute('UPDATE crm_leads SET stage = ? WHERE stage = ?', [to, from]);
+        await conn.execute('UPDATE crm_leads SET stage = ? WHERE stage = ? AND user_id = ?', [to, from, userId]);
       }
-      await conn.query('DELETE FROM crm_stages');
+      await conn.execute('DELETE FROM crm_stages WHERE user_id = ?', [userId]);
       for (let i = 0; i < ns.length; i++) {
-        await conn.execute('INSERT INTO crm_stages (name, position) VALUES (?,?)', [ns[i], i]);
+        await conn.execute('INSERT INTO crm_stages (user_id, name, position) VALUES (?,?,?)', [userId, ns[i], i]);
       }
       const ph = ns.map(() => '?').join(',');
-      await conn.execute(`UPDATE crm_leads SET stage = ? WHERE stage NOT IN (${ph})`, [ns[0], ...ns]);
+      await conn.execute(`UPDATE crm_leads SET stage = ? WHERE user_id = ? AND stage NOT IN (${ph})`, [ns[0], userId, ...ns]);
       await conn.commit();
     } catch (e) {
       await conn.rollback();
@@ -218,9 +263,9 @@ function createStore(config) {
     }
   }
 
-  async function listLeads() {
+  async function listLeads(userId) {
     const p = await pool();
-    const [leadRows] = await p.query('SELECT * FROM crm_leads ORDER BY created_at ASC');
+    const [leadRows] = await p.execute('SELECT * FROM crm_leads WHERE user_id = ? ORDER BY created_at ASC', [userId]);
     const leads = {};
     for (const r of leadRows) leads[r.id] = rowLead(r);
     const [coms] = await p.query('SELECT * FROM crm_comments ORDER BY time ASC');
@@ -243,30 +288,32 @@ function createStore(config) {
     return Object.values(leads);
   }
 
-  async function getLead(id) {
+  async function getLead(id, userId) {
     const p = await pool();
-    const [rows] = await p.execute('SELECT * FROM crm_leads WHERE id = ?', [id]);
+    const [rows] = await p.execute('SELECT * FROM crm_leads WHERE id = ? AND user_id = ?', [id, userId]);
     return rows[0] ? rowLead(rows[0]) : null;
   }
 
-  async function createLead(lead) {
+  async function createLead(lead, userId) {
     const p = await pool();
     await p.execute(
-      'INSERT INTO crm_leads (id,title,inn,phone,email,manager,cargo,format,payment,ati,applications_count,stage,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      [lead.id, lead.title, lead.inn, lead.phone, lead.email, lead.manager, lead.cargo, lead.format, lead.payment, lead.ati, lead.applicationsCount, lead.stage, lead.createdAt || Date.now()]
+      'INSERT INTO crm_leads (id,user_id,title,inn,phone,email,manager,cargo,format,payment,ati,applications_count,stage,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [lead.id, userId, lead.title, lead.inn, lead.phone, lead.email, lead.manager, lead.cargo, lead.format, lead.payment, lead.ati, lead.applicationsCount, lead.stage, lead.createdAt || Date.now()]
     );
   }
 
-  async function updateLead(id, lead) {
+  async function updateLead(id, lead, userId) {
     const p = await pool();
     await p.execute(
-      'UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=? WHERE id=?',
-      [lead.title, lead.inn, lead.phone, lead.email, lead.manager, lead.cargo, lead.format, lead.payment, lead.ati, lead.applicationsCount, lead.stage, id]
+      'UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=? WHERE id=? AND user_id=?',
+      [lead.title, lead.inn, lead.phone, lead.email, lead.manager, lead.cargo, lead.format, lead.payment, lead.ati, lead.applicationsCount, lead.stage, id, userId]
     );
   }
 
-  async function deleteLead(id) {
+  async function deleteLead(id, userId) {
     const p = await pool();
+    const own = await getLead(id, userId);
+    if (!own) return false;
     const [coms] = await p.execute('SELECT id FROM crm_comments WHERE lead_id = ?', [id]);
     if (coms.length) {
       const ids = coms.map(c => c.id);
@@ -302,9 +349,12 @@ function createStore(config) {
     return cid;
   }
 
-  async function getComment(id) {
+  async function getComment(id, userId) {
     const p = await pool();
-    const [rows] = await p.execute('SELECT * FROM crm_comments WHERE id = ?', [id]);
+    const [rows] = await p.execute(
+      'SELECT c.* FROM crm_comments c INNER JOIN crm_leads l ON l.id = c.lead_id WHERE c.id = ? AND l.user_id = ?',
+      [id, userId]
+    );
     return rows[0] || null;
   }
 
@@ -320,9 +370,9 @@ function createStore(config) {
     return res.affectedRows > 0;
   }
 
-  async function dataHash() {
-    const stages = await listStages();
-    const leads = await listLeads();
+  async function dataHash(userId) {
+    const stages = await listStages(userId);
+    const leads = await listLeads(userId);
     return sha256(JSON.stringify({ s: stages, l: leads })).slice(0, 32);
   }
 

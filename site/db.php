@@ -15,8 +15,40 @@ function crm_pdo(): PDO {
         err('Не удалось подключиться к MySQL. Проверьте CRM_DB_* в config.php');
     }
     crm_migrate($pdo);
+    crm_migrate_owners($pdo);
     crm_seed($pdo);
     return $pdo;
+}
+
+function crm_default_stages(): array {
+    return ['Новый', 'Вышел на ЛПР', 'Потенциальный клиент', 'Сделали просчет', 'Разместили заявку', 'Уехали, ждем заявку'];
+}
+
+function crm_has_column(PDO $pdo, string $table, string $col): bool {
+    $st = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?');
+    $st->execute([$table, $col]);
+    return (int) $st->fetchColumn() > 0;
+}
+
+function crm_migrate_owners(PDO $pdo): void {
+    if (!crm_has_column($pdo, 'crm_stages', 'user_id')) {
+        $pdo->exec('ALTER TABLE crm_stages ADD COLUMN user_id INT UNSIGNED NOT NULL DEFAULT 1 AFTER id');
+        try { $pdo->exec('ALTER TABLE crm_stages DROP INDEX uq_stage_name'); } catch (PDOException $e) { /* already dropped */ }
+        try { $pdo->exec('ALTER TABLE crm_stages ADD UNIQUE KEY uq_user_stage (user_id, name)'); } catch (PDOException $e) { /* exists */ }
+        try { $pdo->exec('ALTER TABLE crm_stages ADD KEY idx_user (user_id)'); } catch (PDOException $e) { /* exists */ }
+    }
+    if (!crm_has_column($pdo, 'crm_leads', 'user_id')) {
+        $pdo->exec('ALTER TABLE crm_leads ADD COLUMN user_id INT UNSIGNED NOT NULL DEFAULT 1 AFTER id');
+        try { $pdo->exec('ALTER TABLE crm_leads ADD KEY idx_user (user_id)'); } catch (PDOException $e) { /* exists */ }
+    }
+}
+
+function crm_ensure_user_stages(PDO $pdo, int $userId): void {
+    $st = $pdo->prepare('SELECT COUNT(*) FROM crm_stages WHERE user_id = ?');
+    $st->execute([$userId]);
+    if ((int) $st->fetchColumn() > 0) return;
+    $ins = $pdo->prepare('INSERT INTO crm_stages (user_id, name, position) VALUES (?,?,?)');
+    foreach (crm_default_stages() as $i => $name) $ins->execute([$userId, $name, $i]);
 }
 
 function crm_migrate(PDO $pdo): void {
@@ -33,14 +65,17 @@ function crm_migrate(PDO $pdo): void {
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS crm_stages (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id INT UNSIGNED NOT NULL,
       name VARCHAR(80) NOT NULL,
       position INT NOT NULL,
       PRIMARY KEY (id),
-      UNIQUE KEY uq_stage_name (name)
+      UNIQUE KEY uq_user_stage (user_id, name),
+      KEY idx_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS crm_leads (
       id VARCHAR(80) NOT NULL,
+      user_id INT UNSIGNED NOT NULL,
       title VARCHAR(200) NOT NULL,
       inn VARCHAR(12) NOT NULL DEFAULT '',
       phone VARCHAR(40) NOT NULL DEFAULT '',
@@ -54,7 +89,8 @@ function crm_migrate(PDO $pdo): void {
       stage VARCHAR(80) NOT NULL,
       created_at BIGINT NOT NULL,
       PRIMARY KEY (id),
-      KEY idx_stage (stage)
+      KEY idx_stage (stage),
+      KEY idx_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS crm_comments (
@@ -101,11 +137,8 @@ function crm_seed(PDO $pdo): void {
         ]);
         try { $pdo->exec('ALTER TABLE crm_users AUTO_INCREMENT = 2'); } catch (PDOException $e) { /* shared hosting */ }
     }
-    $n = (int) $pdo->query('SELECT COUNT(*) FROM crm_stages')->fetchColumn();
-    if ($n === 0) {
-        $stages = ['Новый', 'Вышел на ЛПР', 'Потенциальный клиент', 'Сделали просчет', 'Разместили заявку', 'Уехали, ждем заявку'];
-        $st = $pdo->prepare('INSERT INTO crm_stages (name, position) VALUES (?,?)');
-        foreach ($stages as $i => $name) $st->execute([$name, $i]);
+    foreach ($pdo->query('SELECT id FROM crm_users') as $u) {
+        crm_ensure_user_stages($pdo, (int) $u['id']);
     }
 }
 
@@ -127,9 +160,24 @@ function crm_user_by_email(PDO $pdo, string $email): ?array {
     return $u ?: null;
 }
 
-function crm_stages(PDO $pdo): array {
-    $rows = $pdo->query('SELECT name FROM crm_stages ORDER BY position ASC, id ASC')->fetchAll();
-    return array_map(fn($r) => $r['name'], $rows);
+function crm_stages(PDO $pdo, int $userId): array {
+    $st = $pdo->prepare('SELECT name FROM crm_stages WHERE user_id = ? ORDER BY position ASC, id ASC');
+    $st->execute([$userId]);
+    return array_map(fn($r) => $r['name'], $st->fetchAll());
+}
+
+function crm_lead_for_user(PDO $pdo, string $id, int $userId): ?array {
+    $st = $pdo->prepare('SELECT * FROM crm_leads WHERE id = ? AND user_id = ?');
+    $st->execute([$id, $userId]);
+    $row = $st->fetch();
+    return $row ?: null;
+}
+
+function crm_comment_for_user(PDO $pdo, string $cid, int $userId): ?array {
+    $st = $pdo->prepare('SELECT c.* FROM crm_comments c INNER JOIN crm_leads l ON l.id = c.lead_id WHERE c.id = ? AND l.user_id = ?');
+    $st->execute([$cid, $userId]);
+    $row = $st->fetch();
+    return $row ?: null;
 }
 
 function crm_lead_row_to_api(array $r): array {
@@ -151,9 +199,11 @@ function crm_lead_row_to_api(array $r): array {
     ];
 }
 
-function crm_leads_full(PDO $pdo): array {
+function crm_leads_full(PDO $pdo, int $userId): array {
     $leads = [];
-    foreach ($pdo->query('SELECT * FROM crm_leads ORDER BY created_at ASC') as $r) {
+    $st = $pdo->prepare('SELECT * FROM crm_leads WHERE user_id = ? ORDER BY created_at ASC');
+    $st->execute([$userId]);
+    foreach ($st as $r) {
         $leads[$r['id']] = crm_lead_row_to_api($r);
     }
     $byComment = [];
@@ -187,8 +237,8 @@ function crm_leads_full(PDO $pdo): array {
     return array_values($leads);
 }
 
-function crm_data_hash(PDO $pdo): string {
-    $payload = json_encode(['s' => crm_stages($pdo), 'l' => crm_leads_full($pdo)], JSON_UNESCAPED_UNICODE);
+function crm_data_hash(PDO $pdo, int $userId): string {
+    $payload = json_encode(['s' => crm_stages($pdo, $userId), 'l' => crm_leads_full($pdo, $userId)], JSON_UNESCAPED_UNICODE);
     return substr(hash('sha256', $payload), 0, 32);
 }
 

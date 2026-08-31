@@ -38,7 +38,7 @@ CRM_DB_HOST=127.0.0.1 CRM_DB_USER=root CRM_DB_PASS=... CRM_DB_NAME=crm_detroid n
 | таблица | что внутри |
 |---|---|
 | `crm_users` | сотрудники, bcrypt-пароли, роль |
-| `crm_stages` | колонки канбана |
-| `crm_leads` | карточки |
+| `crm_stages` | колонки канбана **своего** аккаунта |
+| `crm_leads` | карточки **своего** аккаунта |
 | `crm_comments` | лог |
 | `crm_attachments` | пути к файлам в `uploads/` |
