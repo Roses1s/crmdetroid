@@ -2,6 +2,11 @@ Options -Indexes
 DirectoryIndex index.html index.php
 ServerSignature Off
 
+<IfModule mod_mime.c>
+  AddType text/css .css
+  AddType application/javascript .js
+</IfModule>
+
 <IfModule mod_authz_core.c>
   <FilesMatch "^(config\.php|db\.php|schema\.sql|check-mysql\.php|ui\.html|README\.md|server\.js|preview-server\.js)$">
     Require all denied
@@ -14,6 +19,9 @@ ServerSignature Off
 </IfModule>
 
 <IfModule mod_headers.c>
+  <FilesMatch "\.css$">
+    Header set Content-Type "text/css; charset=utf-8"
+  </FilesMatch>
   Header unset Server
   Header always unset Server
   Header unset X-Powered-By
