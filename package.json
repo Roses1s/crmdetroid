@@ -2,12 +2,18 @@
   "name": "crmdetroid",
   "version": "1.1.0",
   "private": true,
-  "description": "Однофайловая канбан-CRM для ведения лидов (воронка продаж) — без сборки и сервера",
+  "description": "Канбан-CRM «Детроид»: фронт + API (сессии, лиды, комментарии, сотрудники)",
   "scripts": {
-    "test": "node tests/smoke.test.js"
+    "test": "node tests/smoke.test.js && node tests/api.test.js",
+    "test:api": "node tests/api.test.js",
+    "start": "node site/server.js"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.0.1"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "mysql2": "^3.24.2"
   }
 }

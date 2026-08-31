@@ -1,0 +1,44 @@
+# CRM «Детроид» — MySQL API
+
+Данные хранятся в **MySQL** (не в JSON). Фронт: `index.html`. API: `api.php?action=…`.
+
+## SpaceWeb: база + заливка
+
+1. Панель [cp.sweb.ru](https://cp.sweb.ru/main/) → **Базы данных** → **Создать**.
+   - запомните **имя БД**, **логин**, **пароль**.
+   - хост почти всегда `localhost`.
+2. Скачайте архив `crm-spaceweb.zip`, откройте `config.php` **на компьютере** и подставьте:
+
+```php
+define('CRM_DB_HOST', 'localhost');
+define('CRM_DB_NAME', 'uXXXX_crm');   // имя из панели
+define('CRM_DB_USER', 'uXXXX_crm');   // логин из панели
+define('CRM_DB_PASS', 'ваш_пароль');
+```
+
+3. Залейте архив в `public_html` (файловый менеджер → распаковать **«Сюда»**).
+   Таблицы `crm_users`, `crm_leads`, `crm_comments`… создадутся **сами** при первом входе.
+4. Сайт: http://roses1syan.temp.swtest.ru/
+   - e-mail: `admin@detroid.local`
+   - пароль: `admin123`  
+   Сразу смените пароль в «Сотрудники».
+
+MySQL в панели создавать **нужно**. Импортировать `schema.sql` вручную не обязательно.
+
+## Локально (Node)
+
+Нужен свой MySQL/MariaDB, затем:
+
+```
+CRM_DB_HOST=127.0.0.1 CRM_DB_USER=root CRM_DB_PASS=... CRM_DB_NAME=crm_detroid npm start
+```
+
+## Таблицы
+
+| таблица | что внутри |
+|---|---|
+| `crm_users` | сотрудники, bcrypt-пароли, роль |
+| `crm_stages` | колонки канбана |
+| `crm_leads` | карточки |
+| `crm_comments` | лог |
+| `crm_attachments` | пути к файлам в `uploads/` |
