@@ -252,12 +252,33 @@
   @keyframes slideOut { to { transform: translateX(120%); opacity: 0; } }
 
   .theme-toggle {
-    width: 28px; height: 28px; border-radius: 4px; cursor: pointer;
-    border: 0; background: transparent; color: #fff; font-size: 15px; line-height: 1;
-    display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0;
-    opacity: .85;
+    border: 0; background: transparent; padding: 0; cursor: pointer; flex-shrink: 0;
+    line-height: 0; border-radius: 999px;
   }
-  .theme-toggle:hover { background: rgba(255,255,255,.12); opacity: 1; }
+  .theme-toggle-track {
+    position: relative; display: block; width: 64px; height: 32px; border-radius: 999px;
+    background: #1c1c1c;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,.55), 0 1px 0 rgba(255,255,255,.12);
+  }
+  .theme-toggle-icon {
+    position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
+    width: 16px; height: 16px; color: rgba(255,255,255,.42); pointer-events: none;
+    display: flex; transition: color .2s;
+  }
+  .theme-toggle-icon svg { width: 16px; height: 16px; display: block; }
+  .theme-toggle-icon.sun { left: 8px; }
+  .theme-toggle-icon.moon { right: 8px; }
+  .theme-toggle-knob {
+    position: absolute; top: 3px; left: 3px; z-index: 2;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%, #4a4a4a, #2a2a2a 62%);
+    box-shadow: 0 2px 4px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.2);
+    transition: transform .22s cubic-bezier(.4,0,.2,1);
+  }
+  html:not([data-theme="dark"]) .theme-toggle-icon.sun { color: #fff; }
+  html[data-theme="dark"] .theme-toggle-knob { transform: translateX(32px); }
+  html[data-theme="dark"] .theme-toggle-icon.moon { color: #fff; }
+  .theme-toggle:hover .theme-toggle-track { filter: brightness(1.12); }
 
   html[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #555; }
   html[data-theme="dark"] header { background: #714B67; color: #fff; }
@@ -381,7 +402,17 @@
   </div>
   <div class="user-info">
     <span class="conn-dot" id="conn-dot" title="Связь с сервером"></span>
-    <button type="button" class="theme-toggle" id="theme-toggle" data-action="toggle-theme" title="Тёмная тема" aria-label="Тёмная тема">🌙</button>
+    <button type="button" class="theme-toggle" id="theme-toggle" data-action="toggle-theme" title="Тёмная тема" aria-label="Тёмная тема" aria-pressed="false">
+      <span class="theme-toggle-track">
+        <span class="theme-toggle-icon sun" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        </span>
+        <span class="theme-toggle-icon moon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 14.3A8.5 8.5 0 1 1 9.7 3 7 7 0 0 0 21 14.3z"/></svg>
+        </span>
+        <span class="theme-toggle-knob"></span>
+      </span>
+    </button>
     <span id="user-display-name">...</span>
     <span class="logout-btn" data-action="logout">Выйти</span>
   </div>
@@ -606,9 +637,9 @@ const Theme = {
     const btn = document.getElementById('theme-toggle');
     if (!btn) return;
     const dark = t === 'dark';
-    btn.textContent = dark ? '☀️' : '🌙';
     btn.title = dark ? 'Светлая тема' : 'Тёмная тема';
     btn.setAttribute('aria-label', btn.title);
+    btn.setAttribute('aria-pressed', dark ? 'true' : 'false');
   },
   toggle() {
     const next = this.get() === 'dark' ? 'light' : 'dark';
