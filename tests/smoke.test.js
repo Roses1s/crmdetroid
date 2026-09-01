@@ -35,7 +35,8 @@ check('зарезервированное имя', appjs.includes('isReservedUse
 check('beforeunload спрашивает', appjs.includes('e.returnValue'));
 check('drag не открывает карточку', appjs.includes('dragSuppressUntil'));
 check('npm start — PHP', String(pkg.scripts.start).includes('php -S'));
-check('нет принудительного HTTPS', !ht.includes('RewriteRule ^ https://') && !ht.includes('Strict-Transport-Security'));
+check('редирект HTTP→HTTPS как у SpaceWeb', ht.includes('RewriteCond %{HTTP:HTTPS} !=on') && ht.includes('https://%{SERVER_NAME}%{REQUEST_URI}'));
+check('HSTS не из htaccess', !ht.includes('Strict-Transport-Security'));
 check('Permissions-Policy в htaccess', ht.includes('Permissions-Policy'));
 check('schema v8 заявки', dbphp.includes('CRM_SCHEMA_VERSION = 8') && dbphp.includes('crm_lead_apps'));
 check('API save_lead_app', api.includes("case 'save_lead_app'") && api.includes("case 'delete_lead_app'"));
