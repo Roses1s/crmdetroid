@@ -917,8 +917,6 @@ function initEvents() {
   $('#btn-login').addEventListener('click', execLogin);
   $('#login-password').addEventListener('keydown', e => { if (e.key === 'Enter') execLogin(); });
   $('#login-email').addEventListener('keydown', e => { if (e.key === 'Enter') $('#login-password').focus(); });
-  const warn = $('#login-insecure');
-  if (warn && location.protocol !== 'https:') warn.classList.add('show');
 }
 
 function initAppEvents() {
