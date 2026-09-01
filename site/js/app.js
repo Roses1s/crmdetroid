@@ -239,6 +239,18 @@ async function ensureLeadFull(id) {
 function isSystemComment(c) {
   return String(c?.author || '').trim() === 'Система';
 }
+function isReservedUserName(name) {
+  const n = String(name || '').trim().toLowerCase();
+  return n === 'система' || n === 'system';
+}
+function persistOk(res) {
+  if (res == null) return true;
+  return res.success !== false;
+}
+function authorInitial(c) {
+  const a = String(c?.author || '').trim();
+  return a ? a[0].toUpperCase() : '?';
+}
 function canEditComment(c) {
   const user = Store.state.user;
   if (!user) return false;
@@ -435,7 +447,12 @@ window.addEventListener('popstate', () => { if (Store.state.user) handleHashRout
 async function switchView(viewId, updateHash = true) {
   if (UI.leadId && UI.formDirty) {
     const saved = await saveLeadForm(true);
-    if (saved && saved.transferred) await Store.load(true);
+    if (!persistOk(saved)) return;
+    if (saved.transferred) await Store.load(true);
+  }
+  if (UI.carrierId && UI.formDirty) {
+    const savedC = await saveCarrierForm(true);
+    if (!persistOk(savedC)) return;
   }
   UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = []; UI.pendingFiles = []; UI.formDirty = false; UI.editingCommentId = null;
   UI.currentView = viewId.replace('-view', '');
@@ -494,7 +511,14 @@ function carrierWord(n) {
 }
 
 async function openRoute(id, updateHash = true) {
-  if (UI.leadId && UI.formDirty) await saveLeadForm(true);
+  if (UI.leadId && UI.formDirty) {
+    const saved = await saveLeadForm(true);
+    if (!persistOk(saved)) return;
+  }
+  if (UI.carrierId && UI.formDirty) {
+    const savedC = await saveCarrierForm(true);
+    if (!persistOk(savedC)) return;
+  }
   UI.leadId = null; UI.formDirty = false; UI.pendingFiles = [];
   const res = await Net.req('get_carriers', { id });
   if (!res || !res.success) { switchView('routes-view', updateHash); return; }
@@ -536,8 +560,14 @@ function renderCarriers(list) {
 }
 
 async function openCarrier(id, updateHash = true) {
-  if (UI.leadId && UI.formDirty) await saveLeadForm(true);
-  if (UI.carrierId && UI.formDirty) await saveCarrierForm(true);
+  if (UI.leadId && UI.formDirty) {
+    const savedL = await saveLeadForm(true);
+    if (!persistOk(savedL)) return;
+  }
+  if (UI.carrierId && UI.formDirty) {
+    const savedC = await saveCarrierForm(true);
+    if (!persistOk(savedC)) return;
+  }
   const res = await Net.req('get_carrier', { id });
   if (!res || !res.success) {
     if (UI.routeId) { openRoute(UI.routeId, updateHash); return; }
@@ -642,7 +672,7 @@ function renderCarrierLog() {
   log.innerHTML = '';
   const frag = document.createDocumentFragment();
   [...comments].reverse().forEach(c => {
-    const init = (c.author[0] || '?').toUpperCase();
+    const init = authorInitial(c);
     const atts = (c.attachments || []).map(renderAttHtml).join('');
     const el = document.createElement('div'); el.className = 'log-entry';
     el.innerHTML = `
@@ -674,6 +704,7 @@ async function openLead(id, updateHash = true) {
 
   if (UI.leadId && UI.formDirty && UI.leadId !== id) {
     const saved = await saveLeadForm(true);
+    if (!persistOk(saved)) return;
     if (saved && saved.transferred) await Store.load(true);
   }
   const still = Store.getLead(id); if (!still || !still._full) return goHome(updateHash);
@@ -681,7 +712,7 @@ async function openLead(id, updateHash = true) {
   UI.leadId = id; UI.currentView = 'lead'; UI.pendingFiles = []; UI.formDirty = false;
   $$('.view-section').forEach(el => el.classList.remove('active'));
   $('#detail-view').classList.add('active');
-  fillLeadForm(still);
+  fillLeadForm(still, true);
 
   if (updateHash && window.location.hash !== '#lead/' + encodeURIComponent(id)) {
     history.pushState(null, '', '#lead/' + encodeURIComponent(id));
@@ -747,12 +778,13 @@ async function loadUsers() {
 
 async function execLogout() {
   if (UI.formDirty && !await askConfirm('Есть несохранённые изменения', 'Выйти без сохранения?')) return;
+  UI.formDirty = false;
   await Net.req('logout', {}); location.reload();
 }
 
-function fillLeadForm(lead) {
+function fillLeadForm(lead, fromServer = false) {
   if (!lead || !lead._full) return;
-  lead._editRev = lead.updatedAt;
+  if (fromServer || lead._editRev == null) lead._editRev = lead.updatedAt;
   $('#f-title').value = lead.title;
   ['inn','phone','email','manager','cargo','format','payment','ati'].forEach(f => {
     const el = $(`#f-${f}`); if (el && document.activeElement !== el) el.value = lead[f] || '';
@@ -767,6 +799,10 @@ async function saveLeadForm(sync = false, keepalive = false, transfer = false) {
   const run = async () => {
     const cur = Store.getLead(UI.leadId); if (!cur || !cur._full) return null;
     const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), cargo: $('#f-cargo').value.trim(), format: $('#f-format').value.trim(), payment: $('#f-payment').value.trim(), ati: $('#f-ati').value.trim(), applicationsCount: parseInt($('#f-apps').value) || 0, stage: cur.stage, updatedAt: cur._editRev ?? cur.updatedAt };
+    if (!isValidEmail(patch.email)) {
+      Toast.error('Некорректный email');
+      return { success: false, error: 'Некорректный email' };
+    }
     $('#crumb-name').textContent = patch.title;
     if (transfer) patch.transfer = true;
     const extra = keepalive ? { keepalive: true } : {};
@@ -781,7 +817,7 @@ async function saveLeadForm(sync = false, keepalive = false, transfer = false) {
       if (res.error === 'Карточка изменена в другом месте') {
         Toast.error('Карточку изменили в другой вкладке — обновляю');
         await Store.load(true);
-        if (UI.leadId) { await ensureLeadFull(UI.leadId); const fresh = Store.getLead(UI.leadId); if (fresh) fillLeadForm(fresh); }
+        if (UI.leadId) { await ensureLeadFull(UI.leadId); const fresh = Store.getLead(UI.leadId); if (fresh) { fresh._editRev = fresh.updatedAt; fillLeadForm(fresh, true); } }
       } else Toast.error(res.error || 'Ошибка');
       return res;
     }
@@ -849,7 +885,7 @@ function renderLog() {
 
   [...lead.comments].reverse().forEach(c => {
     const isSys = isSystemComment(c);
-    const init = isSys ? '⚙' : (c.author[0] || '?').toUpperCase();
+    const init = isSys ? '⚙' : authorInitial(c);
     const atts = (c.attachments || []).map(renderAttHtml).join('');
 
     const el = document.createElement('div'); el.className = 'log-entry';
@@ -921,7 +957,12 @@ function initAppEvents() {
   $('#btn-prev-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(-1); });
   $('#btn-next-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(1); });
 
-  window.addEventListener('beforeunload', e => { if (UI.formDirty) { if (UI.carrierId) saveCarrierForm(false, true); else saveLeadForm(false, true); } });
+  window.addEventListener('beforeunload', e => {
+    if (!UI.formDirty) return;
+    if (UI.carrierId) saveCarrierForm(false, true); else saveLeadForm(false, true);
+    e.preventDefault();
+    e.returnValue = '';
+  });
   $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title, #f-apps')) { UI.formDirty = true; saveLeadDebounced(); } });
   $('#f-manager').addEventListener('blur', async () => {
     if (!UI.leadId) return;
@@ -1052,7 +1093,10 @@ function initAppEvents() {
         if (actEl.dataset.id) openCarrier(actEl.dataset.id, true);
         break;
       case 'back-carrier':
-        if (UI.carrierId && UI.formDirty) await saveCarrierForm(true);
+        if (UI.carrierId && UI.formDirty) {
+          const savedB = await saveCarrierForm(true);
+          if (!persistOk(savedB)) return;
+        }
         if (UI.routeId) openRoute(UI.routeId, true); else switchView('routes-view', true);
         break;
       case 'delete-carrier': {
@@ -1101,6 +1145,7 @@ function initAppEvents() {
         const t = $('#m-title').value.trim(), i = $('#m-inn').value.trim(), em = $('#m-email').value.trim();
         if (!t) return Toast.error('Введите название');
         if (i && i.length !== 10 && i.length !== 12) return Toast.error('ИНН 10 или 12 цифр');
+        if (!isValidEmail(em)) return Toast.error('Некорректный email');
         const resL = await Net.req('save_lead', { id: 'l_'+uid(), title: t, inn: i, phone: $('#m-phone').value.trim(), email: em, manager: Store.state.user.name, stage: Store.state.stages[0], applicationsCount: 0 });
         if (resL?.success) { Modal.closeAll(); await Store.load(true); } else Toast.error(resL?.error || 'Ошибка');
         break;
@@ -1108,6 +1153,8 @@ function initAppEvents() {
       case 'submit-user':
         const n = $('#u-name').value.trim(), ue = $('#u-email').value.trim(), p = $('#u-pass').value;
         if (!n || !ue || !p) return Toast.error('Все поля');
+        if (isReservedUserName(n)) return Toast.error('Это имя зарезервировано');
+        if (!isValidEmail(ue)) return Toast.error('Некорректный email');
         if (p.length < 8) return Toast.error('Пароль мин. 8 символов');
         const resU = await Net.req('register_user', { name: n, email: ue, password: p, role: $('#u-admin')?.checked ? 'admin' : 'user' });
         if (resU?.success) { Toast.success('Добавлен'); Modal.closeAll(); loadUsers(); } else Toast.error(resU?.error || 'Ошибка');
@@ -1116,6 +1163,8 @@ function initAppEvents() {
       case 'save-user': {
         const id = actEl.dataset.id, un = $(`#uname-${id}`).value.trim(), uem = $(`#uemail-${id}`).value.trim(), up = $(`#upass-${id}`).value, ur = $(`#urole-${id}`)?.value || 'user';
         if (!un || !uem) return Toast.error('Обязательны Имя и Email');
+        if (isReservedUserName(un)) return Toast.error('Это имя зарезервировано');
+        if (!isValidEmail(uem)) return Toast.error('Некорректный email');
         if (up && up.length < 8) return Toast.error('Пароль мин. 8 символов');
         const resS = await Net.req('update_user', { id: +id, name: un, email: uem, password: up, role: ur });
         if (resS?.success) { Toast.success('Сохранено'); loadUsers(); } else Toast.error(resS?.error || 'Ошибка');
@@ -1241,6 +1290,7 @@ function initAppEvents() {
 
   $('#board').addEventListener('click', e => {
     if (e.target.closest('.col-edit') || e.target.closest('.add-column')) return;
+    if (Date.now() < (UI.dragSuppressUntil || 0)) return;
     const card = e.target.closest('.card'); if (card) openLead(card.dataset.id, true);
   });
 
@@ -1272,7 +1322,11 @@ function initAppEvents() {
     if (card) { UI.drag = { t: 'card', id: card.dataset.id }; card.classList.add('dragging'); e.dataTransfer.setData('text/plain', card.dataset.id); e.stopPropagation(); }
     else if (col) { UI.drag = { t: 'col', s: col.dataset.stage }; col.classList.add('dragging'); e.dataTransfer.setData('text/plain', col.dataset.stage); }
   });
-  b.addEventListener('dragend', () => { $$('.dragging, .drop-target').forEach(el => el.classList.remove('dragging', 'drop-target')); UI.drag = {}; });
+  b.addEventListener('dragend', () => {
+    $$('.dragging, .drop-target').forEach(el => el.classList.remove('dragging', 'drop-target'));
+    UI.dragSuppressUntil = Date.now() + 400;
+    UI.drag = {};
+  });
   b.addEventListener('dragover', e => { if (UI.drag.t && e.target.closest('.column')) e.preventDefault(); });
   b.addEventListener('dragenter', e => { const c = e.target.closest('.column'); if (c && UI.drag.t) c.classList.add('drop-target'); });
   b.addEventListener('dragleave', e => { const c = e.target.closest('.column'); if (c && !c.contains(e.relatedTarget)) c.classList.remove('drop-target'); });
@@ -1282,6 +1336,7 @@ function initAppEvents() {
       const lead = Store.getLead(UI.drag.id); if (!lead || lead.stage === tgt) return;
       const res = await Net.req('move_lead', { id: UI.drag.id, stage: tgt, from: lead.stage, updatedAt: lead.updatedAt });
       if (res?.success) Store.load(true);
+      else { Toast.error(res?.error || 'Не удалось переместить'); Store.load(true); }
     } else if (UI.drag.t === 'col') {
       const ns = [...Store.state.stages], f = ns.indexOf(UI.drag.s), t = ns.indexOf(tgt);
       if (f >= 0 && t >= 0 && f !== t) { ns.splice(t, 0, ns.splice(f, 1)[0]); const res = await Net.req('save_stages', { stages: ns }); if (res?.success) Store.load(true); }
@@ -1361,7 +1416,10 @@ function revealLogin() {
 function usersTableBusy() {
   const tbody = $('#users-tbody'); if (!tbody) return false;
   if (tbody.contains(document.activeElement)) return true;
-  return [...tbody.querySelectorAll('input[type=password]')].some(i => i.value);
+  return [...tbody.querySelectorAll('input, select')].some(i => {
+    if (i.type === 'password') return !!i.value;
+    return i.value !== i.defaultValue;
+  });
 }
 
 function showMustChangePassword() {

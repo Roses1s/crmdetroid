@@ -26,13 +26,15 @@ MySQL в панели создавать **нужно**. Импортирова�
 
 Обновление уже работающего сайта: залейте `api.php`, `db.php`, `index.html`, `ui.html`, `app.css`, `noscript.css`, `js/`, `.htaccess` (и при необходимости `uploads/.htaccess`). **Не перезаписывайте** живой `config.php` — там пароль MySQL.
 
-## Локально (Node)
+## Локально
 
-Нужен свой MySQL/MariaDB, затем:
+PHP 8.1+ с `pdo_mysql` и MySQL. Пропишите доступ в `config.php`, затем из корня репозитория:
 
 ```
-CRM_DB_HOST=127.0.0.1 CRM_DB_USER=root CRM_DB_PASS=... CRM_DB_NAME=crm_detroid npm start
+npm start
 ```
+
+поднимется `php -S 0.0.0.0:8080 -t site`. Node-API больше нет.
 
 ## Таблицы
 

@@ -143,19 +143,6 @@ function crm_client_ip(): string {
     return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '';
 }
 
-function crm_ip_bind_key(string $ip): string {
-    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-        $p = explode('.', $ip);
-        return $p[0] . '.' . $p[1] . '.' . $p[2];
-    }
-    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
-        $bin = @inet_pton($ip);
-        if ($bin === false) return $ip;
-        return substr(bin2hex($bin), 0, 16);
-    }
-    return $ip;
-}
-
 function crm_migrate_v5(PDO $pdo): void {
     if (!crm_has_column($pdo, 'crm_login_attempts', 'ip')) {
         $pdo->exec("ALTER TABLE crm_login_attempts ADD COLUMN ip VARCHAR(45) NOT NULL DEFAULT '' AFTER email");
@@ -566,44 +553,101 @@ function crm_serve_file(PDO $pdo, string $name, array $user): never {
     exit;
 }
 
-function crm_delete_atts(PDO $pdo, string $table, array $commentIds): void {
-    if (!$commentIds) return;
-    if ($table !== 'crm_attachments' && $table !== 'crm_carrier_attachments') return;
+function crm_att_urls(PDO $pdo, string $table, array $commentIds): array {
+    if (!$commentIds) return [];
+    if ($table !== 'crm_attachments' && $table !== 'crm_carrier_attachments') return [];
     $ids = array_values($commentIds);
     $inQ = implode(',', array_fill(0, count($ids), '?'));
     $st = $pdo->prepare("SELECT data_url FROM {$table} WHERE comment_id IN ($inQ)");
     $st->execute($ids);
-    foreach ($st as $a) crm_unlink_upload((string) $a['data_url']);
+    $urls = [];
+    foreach ($st as $a) $urls[] = (string) $a['data_url'];
+    return $urls;
+}
+function crm_delete_att_rows(PDO $pdo, string $table, array $commentIds): void {
+    if (!$commentIds) return;
+    if ($table !== 'crm_attachments' && $table !== 'crm_carrier_attachments') return;
+    $ids = array_values($commentIds);
+    $inQ = implode(',', array_fill(0, count($ids), '?'));
     $pdo->prepare("DELETE FROM {$table} WHERE comment_id IN ($inQ)")->execute($ids);
 }
+function crm_unlink_urls(array $urls): void {
+    foreach ($urls as $u) crm_unlink_upload((string) $u);
+}
+function crm_delete_atts(PDO $pdo, string $table, array $commentIds): void {
+    $urls = crm_att_urls($pdo, $table, $commentIds);
+    crm_delete_att_rows($pdo, $table, $commentIds);
+    crm_unlink_urls($urls);
+}
 
-function crm_purge_lead(PDO $pdo, string $id): void {
-    $cids = $pdo->prepare('SELECT id FROM crm_comments WHERE lead_id = ?');
-    $cids->execute([$id]);
-    crm_delete_atts($pdo, 'crm_attachments', $cids->fetchAll(PDO::FETCH_COLUMN));
-    $pdo->prepare('DELETE FROM crm_comments WHERE lead_id = ?')->execute([$id]);
-    $pdo->prepare('DELETE FROM crm_leads WHERE id = ?')->execute([$id]);
+function crm_purge_lead(PDO $pdo, string $id, bool $ownTxn = true): array {
+    $cidsSt = $pdo->prepare('SELECT id FROM crm_comments WHERE lead_id = ?');
+    $cidsSt->execute([$id]);
+    $cids = $cidsSt->fetchAll(PDO::FETCH_COLUMN);
+    $urls = crm_att_urls($pdo, 'crm_attachments', $cids);
+    $start = $ownTxn && !$pdo->inTransaction();
+    if ($start) $pdo->beginTransaction();
+    try {
+        crm_delete_att_rows($pdo, 'crm_attachments', $cids);
+        $pdo->prepare('DELETE FROM crm_comments WHERE lead_id = ?')->execute([$id]);
+        $pdo->prepare('DELETE FROM crm_leads WHERE id = ?')->execute([$id]);
+        if ($start) $pdo->commit();
+    } catch (Throwable $e) {
+        if ($start && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    if ($ownTxn) {
+        crm_unlink_urls($urls);
+        return [];
+    }
+    return $urls;
 }
 
 function crm_purge_user(PDO $pdo, int $id): void {
     $st = $pdo->prepare('SELECT id FROM crm_leads WHERE user_id = ?');
     $st->execute([$id]);
-    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $lid) crm_purge_lead($pdo, (string) $lid);
-    $pdo->prepare('DELETE FROM crm_stages WHERE user_id = ?')->execute([$id]);
-    $pdo->prepare('UPDATE crm_directions SET created_by = 0 WHERE created_by = ?')->execute([$id]);
-    $pdo->prepare('UPDATE crm_carriers SET created_by = 0 WHERE created_by = ?')->execute([$id]);
-    $pdo->prepare('UPDATE crm_carrier_comments SET user_id = 0 WHERE user_id = ?')->execute([$id]);
-    $pdo->prepare('UPDATE crm_comments SET user_id = 0 WHERE user_id = ?')->execute([$id]);
-    $pdo->prepare('DELETE FROM crm_users WHERE id = ?')->execute([$id]);
+    $lids = $st->fetchAll(PDO::FETCH_COLUMN);
+    $urls = [];
+    $pdo->beginTransaction();
+    try {
+        foreach ($lids as $lid) {
+            $urls = array_merge($urls, crm_purge_lead($pdo, (string) $lid, false));
+        }
+        $pdo->prepare('DELETE FROM crm_stages WHERE user_id = ?')->execute([$id]);
+        $pdo->prepare('UPDATE crm_directions SET created_by = 0 WHERE created_by = ?')->execute([$id]);
+        $pdo->prepare('UPDATE crm_carriers SET created_by = 0 WHERE created_by = ?')->execute([$id]);
+        $pdo->prepare('UPDATE crm_carrier_comments SET user_id = 0 WHERE user_id = ?')->execute([$id]);
+        $pdo->prepare('UPDATE crm_comments SET user_id = 0 WHERE user_id = ?')->execute([$id]);
+        $pdo->prepare('DELETE FROM crm_users WHERE id = ?')->execute([$id]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    crm_unlink_urls($urls);
 }
 
-function crm_purge_carrier(PDO $pdo, string $id): void {
-    $cids = $pdo->prepare('SELECT id FROM crm_carrier_comments WHERE carrier_id = ?');
-    $cids->execute([$id]);
-    $ids = $cids->fetchAll(PDO::FETCH_COLUMN);
-    crm_delete_atts($pdo, 'crm_carrier_attachments', $ids);
-    if ($ids) $pdo->prepare('DELETE FROM crm_carrier_comments WHERE carrier_id = ?')->execute([$id]);
-    $pdo->prepare('DELETE FROM crm_carriers WHERE id = ?')->execute([$id]);
+function crm_purge_carrier(PDO $pdo, string $id, bool $ownTxn = true): array {
+    $cidsSt = $pdo->prepare('SELECT id FROM crm_carrier_comments WHERE carrier_id = ?');
+    $cidsSt->execute([$id]);
+    $ids = $cidsSt->fetchAll(PDO::FETCH_COLUMN);
+    $urls = crm_att_urls($pdo, 'crm_carrier_attachments', $ids);
+    $start = $ownTxn && !$pdo->inTransaction();
+    if ($start) $pdo->beginTransaction();
+    try {
+        crm_delete_att_rows($pdo, 'crm_carrier_attachments', $ids);
+        if ($ids) $pdo->prepare('DELETE FROM crm_carrier_comments WHERE carrier_id = ?')->execute([$id]);
+        $pdo->prepare('DELETE FROM crm_carriers WHERE id = ?')->execute([$id]);
+        if ($start) $pdo->commit();
+    } catch (Throwable $e) {
+        if ($start && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    if ($ownTxn) {
+        crm_unlink_urls($urls);
+        return [];
+    }
+    return $urls;
 }
 
 function crm_seed(PDO $pdo): void {
@@ -799,7 +843,7 @@ function crm_sys_comment(PDO $pdo, string $leadId, string $text): void {
 function crm_login_throttled(PDO $pdo, string $email, string $ip = ''): bool {
     $since = now_ms() - 15 * 60 * 1000;
     if ($ip !== '') {
-        $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE ip = ? AND attempted_at > ?');
+        $st = $pdo->prepare("SELECT COUNT(*) FROM crm_login_attempts WHERE ip = ? AND email NOT LIKE '#%' AND attempted_at > ?");
         $st->execute([$ip, $since]);
         if ((int) $st->fetchColumn() >= 80) return true;
         $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE email = ? AND ip = ? AND attempted_at > ?');
@@ -900,4 +944,50 @@ function crm_allowed_upload(string $originalName): ?string {
     if ($ext === '' || !in_array($ext, $ok, true)) return null;
     if (preg_match('/\.(php|phtml|phar|cgi|exe|js|htm|html|svg|shtml)(\.|$)/i', $originalName)) return null;
     return $ext;
+}
+
+function crm_upload_magic_ok(string $tmp, string $ext): bool {
+    if ($tmp === '' || !is_file($tmp) || !is_readable($tmp)) return false;
+    $ext = strtolower($ext);
+    $fh = fopen($tmp, 'rb');
+    if ($fh === false) return false;
+    $head = fread($fh, 16);
+    fclose($fh);
+    if ($head === false) return false;
+    if ($head === '') return $ext === 'txt' || $ext === 'csv';
+    switch ($ext) {
+        case 'png': return strncmp($head, "\x89PNG\r\n\x1a\n", 8) === 0;
+        case 'jpg':
+        case 'jpeg': return strncmp($head, "\xFF\xD8\xFF", 3) === 0;
+        case 'gif': return strncmp($head, 'GIF87a', 6) === 0 || strncmp($head, 'GIF89a', 6) === 0;
+        case 'webp': return strlen($head) >= 12 && strncmp($head, 'RIFF', 4) === 0 && substr($head, 8, 4) === 'WEBP';
+        case 'bmp': return strncmp($head, 'BM', 2) === 0;
+        case 'pdf': return strncmp($head, '%PDF', 4) === 0;
+        case 'zip':
+        case 'docx':
+        case 'xlsx':
+        case 'pptx': return strncmp($head, 'PK', 2) === 0;
+        case '7z': return strncmp($head, "7z\xBC\xAF\x27\x1C", 6) === 0;
+        case 'doc':
+        case 'xls':
+        case 'ppt': return strncmp($head, "\xD0\xCF\x11\xE0", 4) === 0;
+        case 'txt':
+        case 'csv': return strpos($head, "\0") === false;
+        default: return false;
+    }
+}
+
+function crm_name_key(string $name): string {
+    $name = trim($name);
+    if (function_exists('mb_strtolower')) return mb_strtolower($name, 'UTF-8');
+    return strtolower($name);
+}
+
+function crm_reserved_user_name(string $name): bool {
+    $n = crm_name_key($name);
+    return $n === 'система' || $n === 'system';
+}
+
+function crm_is_sys_comment(array $c): bool {
+    return trim((string) ($c['author'] ?? '')) === 'Система';
 }

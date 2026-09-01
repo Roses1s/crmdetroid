@@ -14,6 +14,7 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 header("Content-Security-Policy: frame-ancestors 'self'");
 header('Referrer-Policy: strict-origin-when-cross-origin');
+header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()');
 
 function crm_ip_is_trusted_proxy(string $ip): bool {
     if ($ip === '127.0.0.1' || $ip === '::1') return true;
@@ -67,12 +68,13 @@ function crm_session_kill(string $msg = 'Сессия истекла'): never {
     err($msg, true);
 }
 function crm_session_touch(bool $touch = true): void {
-    $ip = crm_ip_bind_key(crm_client_ip());
-    $have = (string) ($_SESSION['ip'] ?? '');
-    if ($have !== '' && $ip !== '' && $have !== $ip) crm_session_kill();
     $last = (int) ($_SESSION['last'] ?? 0);
     if ($last > 0 && (time() - $last) > CRM_IDLE_SEC) crm_session_kill();
-    if ($touch) $_SESSION['last'] = time();
+    if ($touch) {
+        $_SESSION['last'] = time();
+        $ip = crm_client_ip();
+        if ($ip !== '') $_SESSION['ip'] = $ip;
+    }
 }
 function crm_csrf_secret(): string {
     $dir = __DIR__ . '/data';
@@ -182,8 +184,18 @@ function crm_session_throttled(int $max = 90, int $window = 60): bool {
     $_SESSION['_rl_n'] = $n + 1;
     return $_SESSION['_rl_n'] > $max;
 }
-function crm_is_sys_comment(array $c): bool {
-    return trim((string) ($c['author'] ?? '')) === 'Система';
+function crm_anon_throttled(PDO $pdo, string $ip, string $key, int $max, int $windowMs): bool {
+    if ($ip === '') $ip = '0.0.0.0';
+    $since = now_ms() - $windowMs;
+    try {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE ip = ? AND email = ? AND attempted_at > ?');
+        $st->execute([$ip, $key, $since]);
+        if ((int) $st->fetchColumn() >= $max) return true;
+        $pdo->prepare('INSERT INTO crm_login_attempts (email, ip, attempted_at) VALUES (?,?,?)')->execute([$key, $ip, now_ms()]);
+    } catch (Throwable $e) {
+        return false;
+    }
+    return false;
 }
 function can_edit_comment(array $user, array $c): bool {
     if (crm_is_sys_comment($c)) return false;
@@ -213,6 +225,9 @@ if ($hasSess) crm_session_boot();
 $pdo = crm_pdo();
 
 if ($action === 'csrf') {
+    if (crm_anon_throttled($pdo, crm_client_ip(), '#csrf', 40, 15 * 60 * 1000)) {
+        err('Слишком много запросов. Подождите минуту');
+    }
     ok(['csrf' => crm_login_csrf_issue($pdo)]);
 }
 
@@ -270,7 +285,7 @@ if ($action === 'login') {
     crm_session_boot();
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int) $u['id'];
-    $_SESSION['ip'] = crm_ip_bind_key($ip);
+    $_SESSION['ip'] = $ip;
     $_SESSION['last'] = time();
     unset($_SESSION['csrf']);
     if (defined('CRM_DEFAULT_ADMIN_PASS') && $password === CRM_DEFAULT_ADMIN_PASS) {
@@ -297,7 +312,7 @@ if ($action === 'logout') {
 }
 
 if (!$hasSess && session_status() !== PHP_SESSION_ACTIVE) err('Сессия истекла', true);
-$user = require_user($pdo, $action !== 'get_data');
+$user = require_user($pdo);
 if (!empty($_SESSION['must_change']) && $action !== 'change_password' && $action !== 'ui') {
     out(['success' => false, 'error' => 'Смените временный пароль', 'must_change_password' => true]);
 }
@@ -372,8 +387,19 @@ switch ($action) {
         if (!crm_direction_by_id($pdo, $id)) err('Направление не найдено');
         $ids = $pdo->prepare('SELECT id FROM crm_carriers WHERE direction_id = ?');
         $ids->execute([$id]);
-        foreach ($ids->fetchAll(PDO::FETCH_COLUMN) as $cid) crm_purge_carrier($pdo, (string) $cid);
-        $pdo->prepare('DELETE FROM crm_directions WHERE id = ?')->execute([$id]);
+        $urls = [];
+        $pdo->beginTransaction();
+        try {
+            foreach ($ids->fetchAll(PDO::FETCH_COLUMN) as $cid) {
+                $urls = array_merge($urls, crm_purge_carrier($pdo, (string) $cid, false));
+            }
+            $pdo->prepare('DELETE FROM crm_directions WHERE id = ?')->execute([$id]);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            err('Не удалось удалить');
+        }
+        crm_unlink_urls($urls);
         crm_meta_bump($pdo, 'routes');
         ok();
     }
@@ -484,6 +510,7 @@ switch ($action) {
                 if ($size > CRM_MAX_UPLOAD) { crm_discard_uploads($atts); err('Файл больше 5 МБ'); }
                 $ext = crm_allowed_upload((string) $name);
                 if ($ext === null) { crm_discard_uploads($atts); err('Этот тип файла не разрешён'); }
+                if (!crm_upload_magic_ok((string) ($tmps[$i] ?? ''), $ext)) { crm_discard_uploads($atts); err('Файл не соответствует типу'); }
                 $fname = bin2hex(random_bytes(8)) . '.' . $ext;
                 if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) { crm_discard_uploads($atts); err('Не удалось сохранить файл'); }
                 $mime = crm_image_mime($ext) ?? (string) ($types[$i] ?? '');
@@ -529,9 +556,18 @@ switch ($action) {
         $c = crm_carrier_comment_by_id($pdo, $cid);
         if (!$c) err('Комментарий не найден');
         if (!can_delete_comment($user, $c)) err('Нет прав');
-        crm_delete_atts($pdo, 'crm_carrier_attachments', [$cid]);
-        $pdo->prepare('DELETE FROM crm_carrier_comments WHERE id = ?')->execute([$cid]);
-        $rev = crm_touch_carrier($pdo, (string) $c['carrier_id']);
+        $urls = crm_att_urls($pdo, 'crm_carrier_attachments', [$cid]);
+        $pdo->beginTransaction();
+        try {
+            crm_delete_att_rows($pdo, 'crm_carrier_attachments', [$cid]);
+            $pdo->prepare('DELETE FROM crm_carrier_comments WHERE id = ?')->execute([$cid]);
+            $rev = crm_touch_carrier($pdo, (string) $c['carrier_id']);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            err('Не удалось удалить');
+        }
+        crm_unlink_urls($urls);
         crm_meta_bump($pdo, 'routes');
         ok(['updatedAt' => $rev]);
     }
@@ -565,6 +601,7 @@ switch ($action) {
         $inn = preg_replace('/\D/', '', strv($in['inn'] ?? ($row['inn'] ?? ''), 12)) ?? '';
         $phone = strv($in['phone'] ?? ($row['phone'] ?? ''), 40);
         $email = strv($in['email'] ?? ($row['email'] ?? ''), 120);
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) err('Некорректный email');
         $manager = strv($in['manager'] ?? ($row['manager'] ?? $user['name']), 80);
         $cargo = strv($in['cargo'] ?? ($row['cargo'] ?? ''), 300);
         $format = strv($in['format'] ?? ($row['format'] ?? ''), 300);
@@ -579,6 +616,7 @@ switch ($action) {
         }
 
         $now = now_ms();
+        $transferredTo = null;
         $pdo->beginTransaction();
         try {
             if (!$row) {
@@ -593,28 +631,35 @@ switch ($action) {
                     err('Карточка изменена в другом месте');
                 }
             }
+            if (!empty($in['transfer'])) {
+                $match = crm_match_employee($pdo, $manager);
+                if ($match === 'ambiguous') {
+                    $pdo->rollBack();
+                    err('Несколько сотрудников с такой фамилией — напишите имя полностью');
+                }
+                if (is_array($match) && (int) $match['id'] !== $uid) {
+                    $toId = (int) $match['id'];
+                    $toStages = crm_stages($pdo, $toId);
+                    $newStage = in_array($stage, $toStages, true) ? $stage : ($toStages[0] ?? $stage);
+                    $now2 = now_ms();
+                    $tr = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
+                    $tr->execute([$toId, $newStage, $match['name'], $now2, $id, $uid, $now]);
+                    if ($tr->rowCount() === 0) {
+                        $pdo->rollBack();
+                        err('Карточка изменена в другом месте');
+                    }
+                    crm_sys_comment($pdo, $id, 'Лид передан: ' . $user['name'] . ' → ' . $match['name']);
+                    $transferredTo = $match['name'];
+                    $now = $now2;
+                }
+            }
             $pdo->commit();
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             if ($e instanceof PDOException) err('Не удалось сохранить');
             throw $e;
         }
-
-        if (!empty($in['transfer'])) {
-            $match = crm_match_employee($pdo, $manager);
-            if ($match === 'ambiguous') err('Несколько сотрудников с такой фамилией — напишите имя полностью');
-            if (is_array($match) && (int) $match['id'] !== $uid) {
-                $toId = (int) $match['id'];
-                $toStages = crm_stages($pdo, $toId);
-                $newStage = in_array($stage, $toStages, true) ? $stage : ($toStages[0] ?? $stage);
-                $now2 = now_ms();
-                $tr = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
-                $tr->execute([$toId, $newStage, $match['name'], $now2, $id, $uid, $now]);
-                if ($tr->rowCount() === 0) err('Карточка изменена в другом месте');
-                crm_sys_comment($pdo, $id, 'Лид передан: ' . $user['name'] . ' → ' . $match['name']);
-                ok(['id' => $id, 'transferred' => true, 'to' => $match['name'], 'updatedAt' => $now2]);
-            }
-        }
+        if ($transferredTo !== null) ok(['id' => $id, 'transferred' => true, 'to' => $transferredTo, 'updatedAt' => $now]);
         ok(['id' => $id, 'updatedAt' => $now]);
     }
 
@@ -669,6 +714,7 @@ switch ($action) {
                 if ($size > CRM_MAX_UPLOAD) { crm_discard_uploads($atts); err('Файл больше 5 МБ'); }
                 $ext = crm_allowed_upload((string) $name);
                 if ($ext === null) { crm_discard_uploads($atts); err('Этот тип файла не разрешён'); }
+                if (!crm_upload_magic_ok((string) ($tmps[$i] ?? ''), $ext)) { crm_discard_uploads($atts); err('Файл не соответствует типу'); }
                 $fname = bin2hex(random_bytes(8)) . '.' . $ext;
                 if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) { crm_discard_uploads($atts); err('Не удалось сохранить файл'); }
                 $mime = crm_image_mime($ext) ?? (string) ($types[$i] ?? '');
@@ -712,9 +758,18 @@ switch ($action) {
         $c = crm_comment_for_user($pdo, $cid, $viewUid);
         if (!$c) err('Комментарий не найден');
         if (!can_delete_comment($user, $c)) err('Нет прав');
-        crm_delete_atts($pdo, 'crm_attachments', [$cid]);
-        $pdo->prepare('DELETE FROM crm_comments WHERE id = ?')->execute([$cid]);
-        $rev = crm_touch_lead($pdo, (string) $c['lead_id']);
+        $urls = crm_att_urls($pdo, 'crm_attachments', [$cid]);
+        $pdo->beginTransaction();
+        try {
+            crm_delete_att_rows($pdo, 'crm_attachments', [$cid]);
+            $pdo->prepare('DELETE FROM crm_comments WHERE id = ?')->execute([$cid]);
+            $rev = crm_touch_lead($pdo, (string) $c['lead_id']);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            err('Не удалось удалить');
+        }
+        crm_unlink_urls($urls);
         ok(['updatedAt' => $rev]);
     }
 
@@ -760,6 +815,7 @@ switch ($action) {
         $email = mb_strtolower(strv($in['email'] ?? '', 120));
         $pass = (string) ($in['password'] ?? '');
         if ($name === '' || $email === '' || $pass === '') err('Все поля');
+        if (crm_reserved_user_name($name)) err('Это имя зарезервировано');
         $bad = crm_pass_ok($pass);
         if ($bad) err($bad);
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) err('Некорректный email');
@@ -782,6 +838,7 @@ switch ($action) {
         $email = mb_strtolower(strv($in['email'] ?? '', 120));
         $pass = (string) ($in['password'] ?? '');
         if ($name === '' || $email === '') err('Обязательны Имя и Email');
+        if (crm_reserved_user_name($name)) err('Это имя зарезервировано');
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) err('Некорректный email');
         if ($pass !== '') {
             $bad = crm_pass_ok($pass);

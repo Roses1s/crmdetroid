@@ -1,12 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-const { createServer } = require('./api/http');
-
-const PORT = Number(process.env.PORT || 8080);
-const HOST = process.env.HOST || '0.0.0.0';
-
-const server = createServer();
-server.listen(PORT, HOST, () => {
-  console.log(`CRM Детроид API: http://${HOST}:${PORT}/`);
-});
+console.error('Node-API больше не используется.');
+console.error('Локально: php -S 0.0.0.0:8080 -t site');
+console.error('На SpaceWeb залейте содержимое site/ в public_html (не перезаписывая живой config.php).');
+process.exit(1);
