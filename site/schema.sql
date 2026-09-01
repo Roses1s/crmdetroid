@@ -147,4 +147,21 @@ CREATE TABLE IF NOT EXISTS crm_login_nonces (
   KEY idx_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS crm_lead_apps (
+  id VARCHAR(80) NOT NULL,
+  lead_id VARCHAR(80) NOT NULL,
+  city_from VARCHAR(80) NOT NULL DEFAULT '',
+  city_to VARCHAR(80) NOT NULL DEFAULT '',
+  rate VARCHAR(40) NOT NULL DEFAULT '',
+  vat TINYINT NOT NULL DEFAULT 0,
+  carrier_company VARCHAR(200) NOT NULL DEFAULT '',
+  carrier_inn VARCHAR(12) NOT NULL DEFAULT '',
+  carrier_name VARCHAR(80) NOT NULL DEFAULT '',
+  carrier_phone VARCHAR(40) NOT NULL DEFAULT '',
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  KEY idx_lead (lead_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

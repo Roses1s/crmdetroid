@@ -122,7 +122,7 @@ const Net = {
     try {
       let url = `api.php?action=${encodeURIComponent(action)}`;
       if (action === 'get_data' && this.hash) url += `&hash=${encodeURIComponent(this.hash)}`;
-      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, save_stages:1, get_comments:1, get_lead:1 };
+      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1 };
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
@@ -162,12 +162,12 @@ const Store = {
       const o = prevMap[String(l.id)];
       if (!o) return l;
       if (o._full && Number(o.updatedAt) === Number(l.updatedAt)) {
-        return Object.assign({}, o, l, { _full: true, comments: o.comments, _editRev: o._editRev });
+        return Object.assign({}, o, l, { _full: true, comments: o.comments, applications: o.applications, _editRev: o._editRev });
       }
       if (UI.formDirty && UI.leadId && String(l.id).trim() === String(UI.leadId).trim()) {
         l._editRev = o._editRev ?? o.updatedAt;
         l._full = o._full;
-        ['email','logistName','logistPhone','comments'].forEach(k => { if (o[k] !== undefined) l[k] = o[k]; });
+        ['email','logistName','logistPhone','comments','applications'].forEach(k => { if (o[k] !== undefined) l[k] = o[k]; });
       }
       return l;
     });
@@ -191,6 +191,7 @@ const Store = {
       await loadLeadComments(UI.leadId);
       renderDetailStages(); renderLog();
       if (!UI.formDirty) fillLeadForm(lead);
+      renderLeadApps();
       updateLeadNav();
     }
     if (UI.currentView === 'users' && !usersTableBusy()) loadUsers();
@@ -713,6 +714,7 @@ async function openLead(id, updateHash = true) {
   $$('.view-section').forEach(el => el.classList.remove('active'));
   $('#detail-view').classList.add('active');
   fillLeadForm(still, true);
+  renderLeadApps();
 
   if (updateHash && window.location.hash !== '#lead/' + encodeURIComponent(id)) {
     history.pushState(null, '', '#lead/' + encodeURIComponent(id));
@@ -791,8 +793,125 @@ function fillLeadForm(lead, fromServer = false) {
   });
   const ln = $('#f-logist-name'); if (ln && document.activeElement !== ln) ln.value = lead.logistName || '';
   const lp = $('#f-logist-phone'); if (lp && document.activeElement !== lp) lp.value = lead.logistPhone || '';
-  if (document.activeElement !== $('#f-apps')) $('#f-apps').value = lead.applicationsCount || 0;
   $('#crumb-name').textContent = lead.title; setupPhoneMask($('#f-phone')); setupPhoneMask($('#f-logist-phone'));
+  renderLeadApps();
+}
+
+function leadAppsOf(lead) {
+  return Array.isArray(lead?.applications) ? lead.applications : [];
+}
+
+function fmtRate(s) {
+  const d = String(s || '').replace(/\D/g, '');
+  if (!d) return '';
+  return d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+function updateAppsCount(n) {
+  const el = $('#f-apps');
+  if (el) el.textContent = String(n || 0);
+}
+
+function renderLeadApps() {
+  const box = $('#lead-apps-list');
+  const lead = Store.getLead(UI.leadId);
+  const apps = leadAppsOf(lead);
+  const n = apps.length || Number(lead?.applicationsCount || 0);
+  updateAppsCount(Array.isArray(lead?.applications) ? apps.length : n);
+  if (!box) return;
+  if (!apps.length) {
+    box.innerHTML = '<div class="lead-apps-empty">Пока нет заявок</div>';
+    return;
+  }
+  box.innerHTML = apps.map(a => {
+    const route = [a.cityFrom, a.cityTo].filter(Boolean).join(' → ') || 'Без маршрута';
+    const rate = fmtRate(a.rate);
+    const vat = Number(a.vat) ? 'с НДС' : 'без НДС';
+    const rateLine = rate ? `${esc(rate)} ₽ · ${vat}` : vat;
+    const who = [a.carrierCompany, a.carrierName].filter(Boolean).join(' · ');
+    const inn = a.carrierInn ? 'ИНН ' + a.carrierInn : '';
+    const phone = a.carrierPhone || '';
+    const meta = [who, inn, phone].filter(Boolean).join(' · ');
+    return `<div class="lead-app-card">
+      <div class="lead-app-main">
+        <div class="lead-app-route">${esc(route)}</div>
+        <div class="lead-app-rate">${rateLine}</div>
+        ${meta ? `<div class="lead-app-meta">${esc(meta)}</div>` : ''}
+      </div>
+      <div class="lead-app-actions">
+        <button type="button" class="btn btn-secondary btn-sm" data-action="edit-lead-app" data-id="${esc(a.id)}">Изменить</button>
+        <button type="button" class="btn btn-danger btn-sm" data-action="delete-lead-app" data-id="${esc(a.id)}">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openLeadAppModal(app) {
+  $('#la-id').value = app?.id || '';
+  $('#lead-app-modal-title').textContent = app?.id ? 'Заявка' : 'Новая заявка';
+  $('#la-from').value = app?.cityFrom || '';
+  $('#la-to').value = app?.cityTo || '';
+  $('#la-rate').value = String(app?.rate || '').replace(/\D/g, '');
+  const vat = Number(app?.vat) ? '1' : '0';
+  $$('input[name="la-vat"]').forEach(r => { r.checked = r.value === vat; });
+  $('#la-company').value = app?.carrierCompany || '';
+  $('#la-inn').value = app?.carrierInn || '';
+  $('#la-name').value = app?.carrierName || '';
+  $('#la-phone').value = app?.carrierPhone || '';
+  setupPhoneMask($('#la-phone'));
+  Modal.open('modal-lead-app');
+  setTimeout(() => $('#la-from')?.focus(), 50);
+}
+
+async function saveLeadAppFromModal() {
+  if (!UI.leadId) return;
+  const from = ($('#la-from').value || '').trim();
+  const to = ($('#la-to').value || '').trim();
+  if (!from || !to) return Toast.error('Укажите откуда и куда');
+  const inn = ($('#la-inn').value || '').replace(/\D/g, '');
+  if (inn && inn.length !== 10 && inn.length !== 12) return Toast.error('ИНН 10 или 12 цифр');
+  const vatEl = $('input[name="la-vat"]:checked');
+  const payload = {
+    id: ($('#la-id').value || '').trim(),
+    leadId: UI.leadId,
+    cityFrom: from,
+    cityTo: to,
+    rate: ($('#la-rate').value || '').replace(/\D/g, ''),
+    vat: vatEl && vatEl.value === '1' ? 1 : 0,
+    carrierCompany: ($('#la-company').value || '').trim(),
+    carrierInn: inn,
+    carrierName: ($('#la-name').value || '').trim(),
+    carrierPhone: ($('#la-phone').value || '').trim()
+  };
+  const res = await Net.req('save_lead_app', payload);
+  if (!res?.success) return Toast.error(res?.error || 'Ошибка');
+  Modal.closeAll();
+  const lead = Store.getLead(UI.leadId);
+  if (lead) {
+    if (res.application) {
+      const apps = leadAppsOf(lead).slice();
+      const i = apps.findIndex(a => String(a.id) === String(res.application.id));
+      if (i >= 0) apps[i] = res.application; else apps.push(res.application);
+      lead.applications = apps;
+    }
+    if (res.applicationsCount != null) lead.applicationsCount = res.applicationsCount;
+    if (res.updatedAt) { lead.updatedAt = res.updatedAt; lead._editRev = res.updatedAt; }
+  }
+  renderLeadApps();
+}
+
+async function deleteLeadApp(id) {
+  if (!id || !UI.leadId) return;
+  if (!await askConfirm('Удалить заявку?')) return;
+  const res = await Net.req('delete_lead_app', { id, leadId: UI.leadId });
+  if (!res?.success) return Toast.error(res?.error || 'Ошибка');
+  const lead = Store.getLead(UI.leadId);
+  if (lead) {
+    lead.applications = leadAppsOf(lead).filter(a => String(a.id) !== String(id));
+    if (res.applicationsCount != null) lead.applicationsCount = res.applicationsCount;
+    if (res.updatedAt) { lead.updatedAt = res.updatedAt; lead._editRev = res.updatedAt; }
+  }
+  renderLeadApps();
 }
 
 let _leadSaveChain = Promise.resolve();
@@ -800,7 +919,7 @@ async function saveLeadForm(sync = false, keepalive = false, transfer = false) {
   if (!UI.leadId) return null; const lead = Store.getLead(UI.leadId); if (!lead || !lead._full) return null;
   const run = async () => {
     const cur = Store.getLead(UI.leadId); if (!cur || !cur._full) return null;
-    const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), logistName: ($('#f-logist-name')?.value || '').trim(), logistPhone: ($('#f-logist-phone')?.value || '').trim(), applicationsCount: parseInt($('#f-apps').value) || 0, stage: cur.stage, updatedAt: cur._editRev ?? cur.updatedAt };
+    const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), logistName: ($('#f-logist-name')?.value || '').trim(), logistPhone: ($('#f-logist-phone')?.value || '').trim(), stage: cur.stage, updatedAt: cur._editRev ?? cur.updatedAt };
     if (!isValidEmail(patch.email)) {
       Toast.error('Некорректный email');
       return { success: false, error: 'Некорректный email' };
@@ -963,7 +1082,9 @@ function initAppEvents() {
     e.preventDefault();
     e.returnValue = '';
   });
-  $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title, #f-apps')) { UI.formDirty = true; saveLeadDebounced(); } });
+  $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; saveLeadDebounced(); } });
+  $('#la-inn')?.addEventListener('input', e => formatInnInput(e.target));
+  $('#la-rate')?.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 15); });
   $('#f-manager').addEventListener('blur', async () => {
     if (!UI.leadId) return;
     saveLeadDebounced.cancel();
@@ -1138,6 +1259,22 @@ function initAppEvents() {
         break;
       }
       case 'logout': execLogout(); break;
+      case 'new-lead-app':
+        if (!UI.leadId) return;
+        openLeadAppModal(null);
+        break;
+      case 'edit-lead-app': {
+        const app = leadAppsOf(Store.getLead(UI.leadId)).find(a => String(a.id) === String(actEl.dataset.id || ''));
+        if (!app) return;
+        openLeadAppModal(app);
+        break;
+      }
+      case 'delete-lead-app':
+        await deleteLeadApp(actEl.dataset.id);
+        break;
+      case 'submit-lead-app':
+        await saveLeadAppFromModal();
+        break;
       case 'new-lead': $$('#modal-create input').forEach(i => i.value = ''); Modal.open('modal-create'); setTimeout(() => $('#m-title').focus(), 50); break;
       case 'open-add-user': $$('#modal-add-user input').forEach(i => { if (i.type === 'checkbox') i.checked = false; else i.value = ''; }); Modal.open('modal-add-user'); setTimeout(() => $('#u-name').focus(), 50); break;
 

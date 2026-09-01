@@ -65,7 +65,7 @@ function crm_pdo(): PDO {
     return $pdo;
 }
 
-const CRM_SCHEMA_VERSION = 7;
+const CRM_SCHEMA_VERSION = 8;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -85,6 +85,7 @@ function crm_boot(PDO $pdo): void {
     crm_migrate_v5($pdo);
     crm_migrate_v6($pdo);
     crm_migrate_v7($pdo);
+    crm_migrate_v8($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -171,6 +172,25 @@ function crm_migrate_v7(PDO $pdo): void {
     if (!crm_has_column($pdo, 'crm_leads', 'logist_phone')) {
         $pdo->exec("ALTER TABLE crm_leads ADD COLUMN logist_phone VARCHAR(40) NOT NULL DEFAULT '' AFTER logist_name");
     }
+}
+
+function crm_migrate_v8(PDO $pdo): void {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_lead_apps (
+      id VARCHAR(80) NOT NULL,
+      lead_id VARCHAR(80) NOT NULL,
+      city_from VARCHAR(80) NOT NULL DEFAULT '',
+      city_to VARCHAR(80) NOT NULL DEFAULT '',
+      rate VARCHAR(40) NOT NULL DEFAULT '',
+      vat TINYINT NOT NULL DEFAULT 0,
+      carrier_company VARCHAR(200) NOT NULL DEFAULT '',
+      carrier_inn VARCHAR(12) NOT NULL DEFAULT '',
+      carrier_name VARCHAR(80) NOT NULL DEFAULT '',
+      carrier_phone VARCHAR(40) NOT NULL DEFAULT '',
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL DEFAULT 0,
+      PRIMARY KEY (id),
+      KEY idx_lead (lead_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
 function crm_board_rev(PDO $pdo, int $userId): string {
@@ -602,6 +622,7 @@ function crm_purge_lead(PDO $pdo, string $id, bool $ownTxn = true): array {
     try {
         crm_delete_att_rows($pdo, 'crm_attachments', $cids);
         $pdo->prepare('DELETE FROM crm_comments WHERE lead_id = ?')->execute([$id]);
+        try { $pdo->prepare('DELETE FROM crm_lead_apps WHERE lead_id = ?')->execute([$id]); } catch (PDOException $e) { /* v8 */ }
         $pdo->prepare('DELETE FROM crm_leads WHERE id = ?')->execute([$id]);
         if ($start) $pdo->commit();
     } catch (Throwable $e) {
@@ -758,6 +779,70 @@ function crm_lead_for_user(PDO $pdo, string $id, int $userId): ?array {
     $st->execute([$id, $userId]);
     $row = $st->fetch();
     return $row ?: null;
+}
+
+function crm_lead_visible(PDO $pdo, string $id, array $user, int $viewUid): ?array {
+    $row = crm_lead_for_user($pdo, $id, $viewUid);
+    if ($row) return $row;
+    if (($user['role'] ?? '') === 'admin') {
+        $st = $pdo->prepare('SELECT * FROM crm_leads WHERE id = ?');
+        $st->execute([$id]);
+        $row = $st->fetch();
+        return $row ?: null;
+    }
+    return null;
+}
+
+function crm_lead_app_to_api(array $r): array {
+    return [
+        'id' => $r['id'],
+        'leadId' => $r['lead_id'],
+        'cityFrom' => $r['city_from'],
+        'cityTo' => $r['city_to'],
+        'rate' => $r['rate'],
+        'vat' => ((int) $r['vat']) ? 1 : 0,
+        'carrierCompany' => $r['carrier_company'],
+        'carrierInn' => $r['carrier_inn'],
+        'carrierName' => $r['carrier_name'],
+        'carrierPhone' => $r['carrier_phone'],
+        'createdAt' => (int) $r['created_at'],
+        'updatedAt' => (int) ($r['updated_at'] ?? $r['created_at'] ?? 0),
+    ];
+}
+
+function crm_lead_apps(PDO $pdo, string $leadId): array {
+    try {
+        $st = $pdo->prepare('SELECT * FROM crm_lead_apps WHERE lead_id = ? ORDER BY created_at ASC, id ASC');
+        $st->execute([$leadId]);
+    } catch (PDOException $e) {
+        return [];
+    }
+    $out = [];
+    foreach ($st as $r) $out[] = crm_lead_app_to_api($r);
+    return $out;
+}
+
+function crm_lead_app_by_id(PDO $pdo, string $id): ?array {
+    try {
+        $st = $pdo->prepare('SELECT * FROM crm_lead_apps WHERE id = ?');
+        $st->execute([$id]);
+    } catch (PDOException $e) {
+        return null;
+    }
+    $row = $st->fetch();
+    return $row ?: null;
+}
+
+function crm_sync_lead_apps_count(PDO $pdo, string $leadId): int {
+    try {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM crm_lead_apps WHERE lead_id = ?');
+        $st->execute([$leadId]);
+        $n = (int) $st->fetchColumn();
+    } catch (PDOException $e) {
+        $n = 0;
+    }
+    $pdo->prepare('UPDATE crm_leads SET applications_count = ? WHERE id = ?')->execute([$n, $leadId]);
+    return $n;
 }
 
 function crm_comment_for_user(PDO $pdo, string $cid, int $userId): ?array {

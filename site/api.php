@@ -341,7 +341,69 @@ switch ($action) {
         $id = strv($_GET['id'] ?? '', 80);
         $row = $id === '' ? null : crm_lead_for_user($pdo, $id, $viewUid);
         if (!$row) err('Лид не найден');
-        ok(['lead' => crm_lead_row_to_api($row, true)]);
+        $lead = crm_lead_row_to_api($row, true);
+        $lead['applications'] = crm_lead_apps($pdo, $id);
+        $lead['applicationsCount'] = count($lead['applications']);
+        ok(['lead' => $lead]);
+    }
+
+    case 'save_lead_app': {
+        $in = body_json();
+        $leadId = strv($in['leadId'] ?? '', 80);
+        $row = $leadId === '' ? null : crm_lead_for_user($pdo, $leadId, $viewUid);
+        if (!$row) err('Лид не найден');
+        $from = crm_norm_city(strv($in['cityFrom'] ?? '', 80));
+        $to = crm_norm_city(strv($in['cityTo'] ?? '', 80));
+        if ($from === '' || $to === '') err('Укажите откуда и куда');
+        $rate = preg_replace('/\D/', '', strv($in['rate'] ?? '', 40)) ?? '';
+        $vat = !empty($in['vat']) ? 1 : 0;
+        $company = strv($in['carrierCompany'] ?? '', 200);
+        $inn = preg_replace('/\D/', '', strv($in['carrierInn'] ?? '', 12)) ?? '';
+        if ($inn !== '' && strlen($inn) !== 10 && strlen($inn) !== 12) err('ИНН 10 или 12 цифр');
+        $name = strv($in['carrierName'] ?? '', 80);
+        $phone = strv($in['carrierPhone'] ?? '', 40);
+        $id = strv($in['id'] ?? '', 80);
+        $now = now_ms();
+        $existing = $id !== '' ? crm_lead_app_by_id($pdo, $id) : null;
+        if ($id !== '' && (!$existing || (string) $existing['lead_id'] !== $leadId)) err('Заявка не найдена');
+        if ($id === '') $id = 'a_' . bin2hex(random_bytes(6));
+        try {
+            if (!$existing) {
+                $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, city_from, city_to, rate, vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+                    ->execute([$id, $leadId, $from, $to, $rate, $vat, $company, $inn, $name, $phone, $now, $now]);
+            } else {
+                $pdo->prepare('UPDATE crm_lead_apps SET city_from=?, city_to=?, rate=?, vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=?')
+                    ->execute([$from, $to, $rate, $vat, $company, $inn, $name, $phone, $now, $id, $leadId]);
+            }
+        } catch (PDOException $e) {
+            err('Не удалось сохранить заявку');
+        }
+        $n = crm_sync_lead_apps_count($pdo, $leadId);
+        $rev = crm_touch_lead($pdo, $leadId);
+        $saved = crm_lead_app_by_id($pdo, $id);
+        ok([
+            'id' => $id,
+            'application' => $saved ? crm_lead_app_to_api($saved) : null,
+            'applicationsCount' => $n,
+            'updatedAt' => $rev,
+        ]);
+    }
+
+    case 'delete_lead_app': {
+        $in = body_json();
+        $id = strv($in['id'] ?? '', 80);
+        $app = $id === '' ? null : crm_lead_app_by_id($pdo, $id);
+        if (!$app) err('Заявка не найдена');
+        $leadId = (string) $app['lead_id'];
+        if (!crm_lead_for_user($pdo, $leadId, $viewUid)) err('Лид не найден');
+        try {
+            $pdo->prepare('DELETE FROM crm_lead_apps WHERE id = ? AND lead_id = ?')->execute([$id, $leadId]);
+        } catch (PDOException $e) {
+            err('Не удалось удалить');
+        }
+        $n = crm_sync_lead_apps_count($pdo, $leadId);
+        $rev = crm_touch_lead($pdo, $leadId);
+        ok(['applicationsCount' => $n, 'updatedAt' => $rev]);
     }
 
     case 'search_leads': {
@@ -609,7 +671,7 @@ switch ($action) {
         $format = strv($in['format'] ?? ($row['format'] ?? ''), 300);
         $payment = strv($in['payment'] ?? ($row['payment'] ?? ''), 300);
         $ati = strv($in['ati'] ?? ($row['ati'] ?? ''), 300);
-        $apps = isset($in['applicationsCount']) ? max(0, (int) $in['applicationsCount']) : (int) ($row['applications_count'] ?? 0);
+        $apps = (int) ($row['applications_count'] ?? 0);
         $stage = strv($in['stage'] ?? ($row['stage'] ?? ($stages[0] ?? 'Новый')), 80);
         if (!in_array($stage, $stages, true)) $stage = $row['stage'] ?? ($stages[0] ?? 'Новый');
 

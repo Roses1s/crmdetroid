@@ -22,6 +22,9 @@ check('нет дубля site/css/app.css', !fs.existsSync(path.join(root, 'site
 
 const index = fs.readFileSync(path.join(root, 'site/index.html'), 'utf8');
 const appjs = fs.readFileSync(path.join(root, 'site/js/app.js'), 'utf8');
+const ui = fs.readFileSync(path.join(root, 'site/ui.html'), 'utf8');
+const api = fs.readFileSync(path.join(root, 'site/api.php'), 'utf8');
+const dbphp = fs.readFileSync(path.join(root, 'site/db.php'), 'utf8');
 const ht = fs.readFileSync(path.join(root, 'site/.htaccess'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
@@ -34,6 +37,10 @@ check('drag не открывает карточку', appjs.includes('dragSuppr
 check('npm start — PHP', String(pkg.scripts.start).includes('php -S'));
 check('нет принудительного HTTPS', !ht.includes('RewriteRule ^ https://') && !ht.includes('Strict-Transport-Security'));
 check('Permissions-Policy в htaccess', ht.includes('Permissions-Policy'));
+check('schema v8 заявки', dbphp.includes('CRM_SCHEMA_VERSION = 8') && dbphp.includes('crm_lead_apps'));
+check('API save_lead_app', api.includes("case 'save_lead_app'") && api.includes("case 'delete_lead_app'"));
+check('карточка: список заявок', ui.includes('data-action="new-lead-app"') && ui.includes('id="modal-lead-app"'));
+check('счётчик заявок не поле ввода', ui.includes('<b id="f-apps">') && !ui.includes('id="f-apps" min'));
 
 console.log('\n=== XSS / email ===');
 check('esc экранирует тег', esc('<img src=x onerror=1>') === '&lt;img src=x onerror=1&gt;');

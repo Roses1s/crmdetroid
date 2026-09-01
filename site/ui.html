@@ -51,11 +51,16 @@
         <div><div class="form-row"><div class="form-label">Имя</div><input class="form-input" id="f-logist-name" placeholder="Имя логиста"></div></div>
         <div><div class="form-row"><div class="form-label">Телефон</div><input class="form-input" id="f-logist-phone"></div></div>
       </div>
+      <div class="section-title-row">
+        <h3 class="section-title">Заявки</h3>
+        <button type="button" class="btn btn-primary btn-sm" data-action="new-lead-app">+ Заявка</button>
+      </div>
+      <div class="lead-apps-list" id="lead-apps-list"></div>
     </div>
     <div class="chatter">
       <div class="chatter-header">
         <div class="tab-title">Лог примечания</div>
-        <div class="apps-counter"><span>Заявки:</span><input type="number" id="f-apps" min="0" value="0"></div>
+        <div class="apps-counter"><span>Заявки:</span><b id="f-apps">0</b></div>
       </div>
       <div class="comment-form">
         <textarea id="comment-input" placeholder="Комментарий... Enter — отправить, Shift+Enter — новая строка"></textarea>
@@ -163,6 +168,28 @@
     <div class="field"><label>Телефон</label><input id="k-phone"></div>
     <div class="field"><label>Компания</label><input id="k-company"></div>
     <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-carrier">Создать</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-lead-app">
+  <div class="modal">
+    <h2 id="lead-app-modal-title">Новая заявка</h2>
+    <input type="hidden" id="la-id">
+    <div class="field"><label>Откуда *</label><input id="la-from" placeholder="Город"></div>
+    <div class="field"><label>Куда *</label><input id="la-to" placeholder="Город"></div>
+    <div class="field"><label>Ставка</label><input id="la-rate" inputmode="numeric" placeholder="Сумма"></div>
+    <div class="field">
+      <label>НДС</label>
+      <div class="vat-row">
+        <label><input type="radio" name="la-vat" value="1"> с НДС</label>
+        <label><input type="radio" name="la-vat" value="0" checked> без НДС</label>
+      </div>
+    </div>
+    <div class="field"><label>Перевозчик — компания</label><input id="la-company" placeholder="Название фирмы"></div>
+    <div class="field"><label>ИНН</label><input id="la-inn" maxlength="12" placeholder="10 или 12 цифр"></div>
+    <div class="field"><label>Имя</label><input id="la-name" placeholder="Имя"></div>
+    <div class="field"><label>Телефон</label><input id="la-phone"></div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-lead-app">Сохранить</button></div>
   </div>
 </div>
 
