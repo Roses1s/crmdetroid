@@ -603,6 +603,8 @@ switch ($action) {
         $email = strv($in['email'] ?? ($row['email'] ?? ''), 120);
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) err('Некорректный email');
         $manager = strv($in['manager'] ?? ($row['manager'] ?? $user['name']), 80);
+        $logistName = strv($in['logistName'] ?? ($row['logist_name'] ?? ''), 80);
+        $logistPhone = strv($in['logistPhone'] ?? ($row['logist_phone'] ?? ''), 40);
         $cargo = strv($in['cargo'] ?? ($row['cargo'] ?? ''), 300);
         $format = strv($in['format'] ?? ($row['format'] ?? ''), 300);
         $payment = strv($in['payment'] ?? ($row['payment'] ?? ''), 300);
@@ -620,12 +622,12 @@ switch ($action) {
         $pdo->beginTransaction();
         try {
             if (!$row) {
-                $ins = $pdo->prepare('INSERT INTO crm_leads (id,user_id,title,inn,phone,email,manager,cargo,format,payment,ati,applications_count,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-                $ins->execute([$id, $uid, $title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $now, $now]);
+                $ins = $pdo->prepare('INSERT INTO crm_leads (id,user_id,title,inn,phone,email,manager,logist_name,logist_phone,cargo,format,payment,ati,applications_count,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+                $ins->execute([$id, $uid, $title, $inn, $phone, $email, $manager, $logistName, $logistPhone, $cargo, $format, $payment, $ati, $apps, $stage, $now, $now]);
                 crm_sys_comment($pdo, $id, 'Лид создан');
             } else {
-                $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=?,updated_at=? WHERE id=? AND user_id=? AND updated_at=?');
-                $upd->execute([$title, $inn, $phone, $email, $manager, $cargo, $format, $payment, $ati, $apps, $stage, $now, $id, $uid, (int) $row['updated_at']]);
+                $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,logist_name=?,logist_phone=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=?,updated_at=? WHERE id=? AND user_id=? AND updated_at=?');
+                $upd->execute([$title, $inn, $phone, $email, $manager, $logistName, $logistPhone, $cargo, $format, $payment, $ati, $apps, $stage, $now, $id, $uid, (int) $row['updated_at']]);
                 if ($upd->rowCount() === 0) {
                     $pdo->rollBack();
                     err('Карточка изменена в другом месте');

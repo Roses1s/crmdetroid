@@ -65,7 +65,7 @@ function crm_pdo(): PDO {
     return $pdo;
 }
 
-const CRM_SCHEMA_VERSION = 6;
+const CRM_SCHEMA_VERSION = 7;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -84,6 +84,7 @@ function crm_boot(PDO $pdo): void {
     crm_migrate_v4($pdo);
     crm_migrate_v5($pdo);
     crm_migrate_v6($pdo);
+    crm_migrate_v7($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -163,6 +164,15 @@ function crm_migrate_v6(PDO $pdo): void {
     }
 }
 
+function crm_migrate_v7(PDO $pdo): void {
+    if (!crm_has_column($pdo, 'crm_leads', 'logist_name')) {
+        $pdo->exec("ALTER TABLE crm_leads ADD COLUMN logist_name VARCHAR(80) NOT NULL DEFAULT '' AFTER manager");
+    }
+    if (!crm_has_column($pdo, 'crm_leads', 'logist_phone')) {
+        $pdo->exec("ALTER TABLE crm_leads ADD COLUMN logist_phone VARCHAR(40) NOT NULL DEFAULT '' AFTER logist_name");
+    }
+}
+
 function crm_board_rev(PDO $pdo, int $userId): string {
     $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(updated_at),0) u, COALESCE(MAX(created_at),0) cr FROM crm_leads WHERE user_id = ?');
     $st->execute([$userId]);
@@ -237,6 +247,8 @@ function crm_migrate(PDO $pdo): void {
       phone VARCHAR(40) NOT NULL DEFAULT '',
       email VARCHAR(120) NOT NULL DEFAULT '',
       manager VARCHAR(80) NOT NULL DEFAULT '',
+      logist_name VARCHAR(80) NOT NULL DEFAULT '',
+      logist_phone VARCHAR(40) NOT NULL DEFAULT '',
       cargo VARCHAR(300) NOT NULL DEFAULT '',
       format VARCHAR(300) NOT NULL DEFAULT '',
       payment VARCHAR(300) NOT NULL DEFAULT '',
@@ -769,6 +781,8 @@ function crm_lead_row_to_api(array $r, bool $full = true): array {
     ];
     if ($full) {
         $out['email'] = $r['email'];
+        $out['logistName'] = $r['logist_name'] ?? '';
+        $out['logistPhone'] = $r['logist_phone'] ?? '';
         $out['cargo'] = $r['cargo'];
         $out['format'] = $r['format'];
         $out['payment'] = $r['payment'];
