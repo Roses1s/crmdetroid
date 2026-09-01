@@ -62,24 +62,33 @@ function closeImageLightbox() {
 }
 
 function formatInnInput(inp) { inp.value = inp.value.replace(/\D/g, '').slice(0, 12); }
+function applyPhoneMask(input, e) {
+  if (!input) return;
+  const raw = input.value.trim();
+  if (raw.startsWith('+') && !raw.startsWith('+7') && !raw.startsWith('+8')) return;
+  let d = raw.replace(/\D/g, '');
+  if (!d) { input.value = ''; input.dataset.phoneLast = ''; return; }
+  if (e && e.inputType === 'deleteContentBackward' && d === (input.dataset.phoneLast || '') && d.length > 0) d = d.slice(0, -1);
+  if (!d || d === '7' || d === '8') { input.value = ''; input.dataset.phoneLast = ''; return; }
+  if (d.startsWith('8')) d = '7' + d.slice(1);
+  else if (d.startsWith('9')) d = '7' + d;
+  else if (!d.startsWith('7')) return;
+  d = d.slice(0, 11);
+  input.dataset.phoneLast = d;
+  let f = '+7';
+  if (d.length > 1) f += ' (' + d.slice(1, 4);
+  if (d.length >= 5) f += ') ' + d.slice(4, 7);
+  if (d.length >= 8) f += '-' + d.slice(7, 9);
+  if (d.length >= 10) f += '-' + d.slice(9, 11);
+  input.value = f;
+}
 function setupPhoneMask(input) {
-  if (!input || input.dataset.maskInit) return;
-  input.dataset.maskInit = '1';
-  let last = '';
-  input.addEventListener('input', e => {
-    const raw = input.value.trim();
-    if (raw.startsWith('+') && !raw.startsWith('+7') && !raw.startsWith('+8')) return;
-    let d = raw.replace(/\D/g, ''); if (!d) { input.value = ''; last = ''; return; }
-    if (e.inputType === 'deleteContentBackward' && d === last && d.length > 0) d = d.slice(0, -1);
-    if (!d || d === '7' || d === '8') { input.value = ''; last = ''; return; }
-    const intl = d.length >= 11 && !d.startsWith('7') && !d.startsWith('8');
-    if (intl) return;
-    if (d.startsWith('8')) d = '7' + d.slice(1); else if (!d.startsWith('7')) d = '7' + d;
-    d = d.slice(0, 11); last = d;
-    let f = '+7'; if (d.length > 1) f += ' (' + d.slice(1, 4); if (d.length >= 5) f += ') ' + d.slice(4, 7);
-    if (d.length >= 8) f += '-' + d.slice(7, 9); if (d.length >= 10) f += '-' + d.slice(9, 11);
-    input.value = f;
-  });
+  if (!input) return;
+  if (!input.dataset.maskInit) {
+    input.dataset.maskInit = '1';
+    input.addEventListener('input', e => applyPhoneMask(input, e));
+  }
+  applyPhoneMask(input, null);
 }
 
 const Toast = {
@@ -94,6 +103,7 @@ const Toast = {
 
 const Modal = {
   open(id) { const el = $('#'+id); if (el) el.classList.add('open'); },
+  close(id) { const el = $('#'+id); if (el) el.classList.remove('open'); },
   closeAll() { $$('.modal-backdrop').forEach(m => m.classList.remove('open')); }
 };
 
@@ -309,7 +319,9 @@ async function viewUserBoard(id, name) {
   Store.viewUserName = name || '';
   Net.hash = null; _lastBoardHash = null;
   updateViewBanner();
-  if (UI.currentView !== 'kanban') goHome(true);
+  navTo(location.hash || '#kanban', true);
+  if (UI.currentView !== 'kanban') await goHome(true);
+  else renderBoard();
   await Store.load(true);
 }
 
@@ -318,7 +330,8 @@ async function exitViewUser() {
   Store.viewUserId = null; Store.viewUserName = '';
   Net.hash = null; _lastBoardHash = null;
   updateViewBanner();
-  if (UI.currentView !== 'kanban') goHome(true);
+  navTo(location.hash || '#kanban', true);
+  if (UI.currentView !== 'kanban') await goHome(true);
   if (had) await Store.load(true); else renderBoard();
 }
 
@@ -424,6 +437,57 @@ function handleLogoutUI(msg) {
 
 function withLock(fn) { return async (...args) => { if (UI.lock) return; UI.lock = true; try { await fn(...args); } finally { UI.lock = false; } }; }
 
+function readAsParam() {
+  return parseInt(new URLSearchParams(location.search).get('as') || '0', 10) || 0;
+}
+function appUrl(hash) {
+  hash = hash || '';
+  if (hash && hash[0] !== '#') hash = '#' + hash;
+  const as = Store.viewUserId;
+  const q = as ? ('?as=' + encodeURIComponent(as)) : '';
+  return location.pathname + q + hash;
+}
+function navTo(hash, push = true) {
+  const url = appUrl(hash);
+  const now = location.pathname + location.search + location.hash;
+  if (now === url) return;
+  if (push) history.pushState(null, '', url);
+  else history.replaceState(null, '', url);
+}
+async function syncViewUserFromUrl() {
+  if (!Store.state.user || Store.state.user.role !== 'admin') {
+    if (Store.viewUserId) {
+      Store.viewUserId = null;
+      Store.viewUserName = '';
+      updateViewBanner();
+    }
+    return false;
+  }
+  const as = readAsParam();
+  const cur = Store.viewUserId ? +Store.viewUserId : 0;
+  if (as === cur) {
+    if (as) {
+      const col = (Store.state.colleagues || []).find(u => +u.id === as);
+      if (col) Store.viewUserName = col.name;
+      updateViewBanner();
+    }
+    return false;
+  }
+  if (as && as !== +Store.state.user.id) {
+    Store.viewUserId = as;
+    const col = (Store.state.colleagues || []).find(u => +u.id === as);
+    Store.viewUserName = col?.name || 'Сотрудник';
+  } else {
+    Store.viewUserId = null;
+    Store.viewUserName = '';
+  }
+  Net.hash = null;
+  _lastBoardHash = null;
+  updateViewBanner();
+  await Store.load(true);
+  return true;
+}
+
 /* === НАВИГАЦИЯ (РОУТЕР) === */
 function handleHashRouting() {
   const hash = window.location.hash;
@@ -443,7 +507,11 @@ function handleHashRouting() {
 }
 
 // При нажатии кнопок Назад/Вперед в браузере
-window.addEventListener('popstate', () => { if (Store.state.user) handleHashRouting(); });
+window.addEventListener('popstate', async () => {
+  if (!Store.state.user) return;
+  await syncViewUserFromUrl();
+  handleHashRouting();
+});
 
 async function switchView(viewId, updateHash = true) {
   if (UI.leadId && UI.formDirty) {
@@ -464,15 +532,15 @@ async function switchView(viewId, updateHash = true) {
 
   if (viewId === 'kanban-view') {
     $('#nav-leads')?.classList.add('active');
-    if (updateHash) history.pushState(null, '', '#kanban');
+    if (updateHash) navTo('#kanban');
     renderBoard();
   } else if (viewId === 'users-view') {
     $('#nav-users')?.classList.add('active');
-    if (updateHash) history.pushState(null, '', '#users');
+    if (updateHash) navTo('#users');
     loadUsers();
   } else if (viewId === 'routes-view') {
     $('#nav-routes')?.classList.add('active');
-    if (updateHash) history.pushState(null, '', '#routes');
+    if (updateHash) navTo('#routes');
     loadRoutes();
   }
 }
@@ -510,6 +578,13 @@ function carrierWord(n) {
   if (n1 >= 2 && n1 <= 4) return 'перевозчика';
   return 'перевозчиков';
 }
+function appsWord(n) {
+  n = Math.abs(n) % 100; const n1 = n % 10;
+  if (n > 10 && n < 20) return 'заявок';
+  if (n1 === 1) return 'заявка';
+  if (n1 >= 2 && n1 <= 4) return 'заявки';
+  return 'заявок';
+}
 
 async function openRoute(id, updateHash = true) {
   if (UI.leadId && UI.formDirty) {
@@ -530,9 +605,7 @@ async function openRoute(id, updateHash = true) {
   $('#nav-routes')?.classList.add('active');
   const d = res.direction;
   $('#route-crumb').textContent = `${d.cityFrom} → ${d.cityTo}`;
-  if (updateHash && window.location.hash !== '#route/' + encodeURIComponent(id)) {
-    history.pushState(null, '', '#route/' + encodeURIComponent(id));
-  }
+  if (updateHash) navTo('#route/' + encodeURIComponent(id));
   renderCarriers(res.carriers || []);
 }
 
@@ -595,9 +668,7 @@ async function openCarrier(id, updateHash = true) {
   $('#carrier-crumb').textContent = c.name || '';
   $('#carrier-dir-crumb').textContent = d ? `${d.cityFrom} → ${d.cityTo}` : 'Направление';
   setupPhoneMask($('#cf-phone'));
-  if (updateHash && window.location.hash !== '#carrier/' + encodeURIComponent(id)) {
-    history.pushState(null, '', '#carrier/' + encodeURIComponent(id));
-  }
+  if (updateHash) navTo('#carrier/' + encodeURIComponent(id));
   renderCarrierLog();
   renderFiles();
   if (!_carriersCache.length || !_carriersCache.some(x => String(x.id).trim() === String(id).trim())) {
@@ -716,9 +787,7 @@ async function openLead(id, updateHash = true) {
   fillLeadForm(still, true);
   renderLeadApps();
 
-  if (updateHash && window.location.hash !== '#lead/' + encodeURIComponent(id)) {
-    history.pushState(null, '', '#lead/' + encodeURIComponent(id));
-  }
+  if (updateHash) navTo('#lead/' + encodeURIComponent(id));
 
   await loadLeadComments(id);
   renderDetailStages(); renderFiles(); renderLog();
@@ -846,6 +915,20 @@ function renderLeadApps() {
   }).join('');
 }
 
+function leadAppSnapshot() {
+  return JSON.stringify({
+    id: $('#la-id')?.value || '',
+    from: $('#la-from')?.value || '',
+    to: $('#la-to')?.value || '',
+    rate: $('#la-rate')?.value || '',
+    vat: $('input[name="la-vat"]:checked')?.value || '0',
+    company: $('#la-company')?.value || '',
+    inn: $('#la-inn')?.value || '',
+    name: $('#la-name')?.value || '',
+    phone: $('#la-phone')?.value || ''
+  });
+}
+let _leadAppSnap = '';
 function openLeadAppModal(app) {
   $('#la-id').value = app?.id || '';
   $('#lead-app-modal-title').textContent = app?.id ? 'Заявка' : 'Новая заявка';
@@ -860,11 +943,26 @@ function openLeadAppModal(app) {
   $('#la-phone').value = app?.carrierPhone || '';
   setupPhoneMask($('#la-phone'));
   Modal.open('modal-lead-app');
+  _leadAppSnap = leadAppSnapshot();
   setTimeout(() => $('#la-from')?.focus(), 50);
+}
+async function closeLeadAppModal(force = false) {
+  const box = $('#modal-lead-app');
+  if (!box || !box.classList.contains('open')) return true;
+  if (!force && leadAppSnapshot() !== _leadAppSnap) {
+    if (!await askConfirm('Закрыть заявку?', 'Изменения не сохранятся')) return false;
+  }
+  box.classList.remove('open');
+  return true;
 }
 
 async function saveLeadAppFromModal() {
   if (!UI.leadId) return;
+  saveLeadDebounced.cancel();
+  if (UI.formDirty) {
+    const saved = await saveLeadForm(true);
+    if (!persistOk(saved)) return;
+  }
   const from = ($('#la-from').value || '').trim();
   const to = ($('#la-to').value || '').trim();
   if (!from || !to) return Toast.error('Укажите откуда и куда');
@@ -885,7 +983,8 @@ async function saveLeadAppFromModal() {
   };
   const res = await Net.req('save_lead_app', payload);
   if (!res?.success) return Toast.error(res?.error || 'Ошибка');
-  Modal.closeAll();
+  _leadAppSnap = leadAppSnapshot();
+  Modal.close('modal-lead-app');
   const lead = Store.getLead(UI.leadId);
   if (lead) {
     if (res.application) {
@@ -903,6 +1002,11 @@ async function saveLeadAppFromModal() {
 async function deleteLeadApp(id) {
   if (!id || !UI.leadId) return;
   if (!await askConfirm('Удалить заявку?')) return;
+  saveLeadDebounced.cancel();
+  if (UI.formDirty) {
+    const saved = await saveLeadForm(true);
+    if (!persistOk(saved)) return;
+  }
   const res = await Net.req('delete_lead_app', { id, leadId: UI.leadId });
   if (!res?.success) return Toast.error(res?.error || 'Ошибка');
   const lead = Store.getLead(UI.leadId);
@@ -919,7 +1023,12 @@ async function saveLeadForm(sync = false, keepalive = false, transfer = false) {
   if (!UI.leadId) return null; const lead = Store.getLead(UI.leadId); if (!lead || !lead._full) return null;
   const run = async () => {
     const cur = Store.getLead(UI.leadId); if (!cur || !cur._full) return null;
-    const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), logistName: ($('#f-logist-name')?.value || '').trim(), logistPhone: ($('#f-logist-phone')?.value || '').trim(), stage: cur.stage, updatedAt: cur._editRev ?? cur.updatedAt };
+    const innDigits = ($('#f-inn').value || '').replace(/\D/g, '');
+    const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: innDigits, phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), logistName: ($('#f-logist-name')?.value || '').trim(), logistPhone: ($('#f-logist-phone')?.value || '').trim(), stage: cur.stage, updatedAt: cur._editRev ?? cur.updatedAt };
+    if (innDigits && innDigits.length !== 10 && innDigits.length !== 12) {
+      Toast.error('ИНН 10 или 12 цифр');
+      return { success: false, error: 'ИНН 10 или 12 цифр' };
+    }
     if (!isValidEmail(patch.email)) {
       Toast.error('Некорректный email');
       return { success: false, error: 'Некорректный email' };
@@ -958,7 +1067,7 @@ const saveLeadDebounced = debounce(() => saveLeadForm(false), 500);
 let _lastBoardHash = null;
 function renderBoard() {
   if (UI.currentView !== 'kanban') return;
-  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.phone, l.manager, l.inn])]);
+  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.phone, l.manager, l.inn, l.applicationsCount])]);
   if (dataHash === _lastBoardHash) return; _lastBoardHash = dataHash;
 
   const board = $('#board'); if (!board) return; board.innerHTML = ''; const frag = document.createDocumentFragment();
@@ -970,7 +1079,9 @@ function renderBoard() {
     leads.forEach(l => {
       const card = document.createElement('div'); card.className = 'card'; card.draggable = true; card.dataset.id = l.id;
       const innLine = l.inn ? `<span>ИНН ${esc(l.inn)}</span>` : '<span></span>';
-      card.innerHTML = `<div class="card-title">${esc(l.title)}</div><div class="card-meta">${innLine}<span>📱 ${esc(l.phone || 'Нет')}</span></div>`;
+      const nApps = Number(l.applicationsCount || 0);
+      const appsLine = nApps ? `<div class="card-apps">${nApps} ${appsWord(nApps)}</div>` : '';
+      card.innerHTML = `<div class="card-title">${esc(l.title)}</div><div class="card-meta">${innLine}<span>📱 ${esc(l.phone || 'Нет')}</span></div>${appsLine}`;
       cont.appendChild(card);
     });
     frag.appendChild(col);
@@ -1145,10 +1256,14 @@ function initAppEvents() {
     }
     if (act === 'confirm-cancel') {
       const r = _confirmResolver; _confirmResolver = null;
-      Modal.closeAll(); if (r) r(false);
+      Modal.close('modal-confirm'); if (r) r(false);
       return;
     }
-    if (act === 'close-modals') { Modal.closeAll(); return; }
+    if (act === 'close-modals') {
+      if ($('#modal-lead-app.open')) { await closeLeadAppModal(); return; }
+      Modal.closeAll();
+      return;
+    }
     if (act === 'close-lightbox') { closeImageLightbox(); return; }
     if (act === 'open-image') {
       e.preventDefault();
@@ -1432,6 +1547,14 @@ function initAppEvents() {
   });
 
   document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && $('#modal-lead-app.open') && !$('#modal-confirm.open') && !$('#modal-prompt.open') && !$('#modal-password.open')) {
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag !== 'TEXTAREA' && document.activeElement && document.activeElement.closest('#modal-lead-app')) {
+        e.preventDefault();
+        saveLeadAppFromModal();
+        return;
+      }
+    }
     if ((UI.currentView === 'lead' || UI.currentView === 'carrier') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       const tag = (document.activeElement && document.activeElement.tagName) || '';
       if (!/^(INPUT|TEXTAREA|SELECT)$/.test(tag) && !e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -1446,6 +1569,11 @@ function initAppEvents() {
       if ($('.inline-editor.active')) { $$('.inline-editor.active').forEach(el=>el.classList.remove('active')); $$('.log-text.hidden').forEach(el=>el.classList.remove('hidden')); UI.editingCommentId = null; }
       else if ($('.modal-backdrop.open')) {
         if ($('#modal-password.open')) return;
+        if ($('#modal-confirm.open')) {
+          const cr = _confirmResolver; _confirmResolver = null;
+          Modal.close('modal-confirm'); if (cr) cr(false); return;
+        }
+        if ($('#modal-lead-app.open')) { closeLeadAppModal(); return; }
         const pr = _promptResolver; _promptResolver = null;
         const cr = _confirmResolver; _confirmResolver = null;
         if (pr) pr(null); if (cr) cr(false); Modal.closeAll();
@@ -1481,7 +1609,7 @@ function initAppEvents() {
   }));
 }
 
-let pollTimer = null, pollDelay = 15000, unchangedStreak = 0;
+let pollTimer = null, pollDelay = 15000, unchangedStreak = 0, authBeat = null;
 function startPolling() {
   stopPolling();
   const tick = async () => {
@@ -1499,8 +1627,15 @@ function startPolling() {
     pollTimer = setTimeout(tick, pollDelay);
   };
   pollTimer = setTimeout(tick, pollDelay);
+  authBeat = setInterval(async () => {
+    if (document.hidden || !Store.state.user) return;
+    await Net.req('check_auth');
+  }, 4 * 60 * 1000);
 }
-function stopPolling() { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } }
+function stopPolling() {
+  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+  if (authBeat) { clearInterval(authBeat); authBeat = null; }
+}
 document.addEventListener('visibilitychange', () => { if (!document.hidden && Store.state.user) Store.load(false); });
 
 async function loadLeadComments(id) {
@@ -1566,14 +1701,19 @@ function showMustChangePassword() {
   setTimeout(() => $('#pw-new')?.focus(), 50);
 }
 
-async function afterLogin(mustChange) {
+async function afterLogin(mustChange, user) {
   if (!await loadAppShell()) { revealLogin(); return; }
   revealApp();
   if (mustChange) {
     showMustChangePassword();
     return;
   }
+  const as = readAsParam();
+  const role = user?.role || Store.state.user?.role;
+  const uid = +(user?.id || Store.state.user?.id || 0);
+  if (role === 'admin' && as && as !== uid) Store.viewUserId = as;
   await Store.load(true);
+  await syncViewUserFromUrl();
   handleHashRouting();
   startPolling();
 }
@@ -1582,7 +1722,7 @@ async function bootApp() {
   const check = await Net.req('check_auth');
   if (check?.success) {
     Net.csrf = check.csrf;
-    await afterLogin(!!check.mustChangePassword);
+    await afterLogin(!!check.mustChangePassword, check.user);
   } else {
     const tok = await Net.req('csrf');
     if (tok && tok.csrf) Net.csrf = tok.csrf;
@@ -1606,7 +1746,7 @@ async function execLogin() {
   if (res && res.success) {
     Net.csrf = res.csrf;
     $('#login-password').value = '';
-    await afterLogin(!!res.mustChangePassword);
+    await afterLogin(!!res.mustChangePassword, res.user);
   } else {
     $('#login-err').textContent = res?.error || 'Ошибка входа';
   }

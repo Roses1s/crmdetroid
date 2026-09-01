@@ -35,8 +35,17 @@ check('зарезервированное имя', appjs.includes('isReservedUse
 check('beforeunload спрашивает', appjs.includes('e.returnValue'));
 check('drag не открывает карточку', appjs.includes('dragSuppressUntil'));
 check('npm start — PHP', String(pkg.scripts.start).includes('php -S'));
-check('редирект HTTP→HTTPS как у SpaceWeb', ht.includes('RewriteCond %{HTTP:HTTPS} !=on') && ht.includes('https://%{SERVER_NAME}%{REQUEST_URI}'));
+check('редирект HTTP→HTTPS', ht.includes('RewriteCond %{HTTPS} !=on') && ht.includes('RewriteCond %{HTTP:X-Forwarded-Proto} !https') && ht.includes('https://%{HTTP_HOST}%{REQUEST_URI}'));
+check('www без www', ht.includes('RewriteCond %{HTTP_HOST} ^www\\.(.+)$') && ht.includes('https://%1%{REQUEST_URI}'));
 check('HSTS не из htaccess', !ht.includes('Strict-Transport-Security'));
+check('idle 8 часов', api.includes('CRM_IDLE_SEC = 8 * 3600'));
+check('ИНН 10 или 12', api.includes("err('ИНН 10 или 12 цифр')") && appjs.includes('ИНН 10 или 12 цифр'));
+check('save_lead не затирает заявки', !api.includes('ati=?,applications_count=?,stage=?'));
+check('доска сотрудника в URL', appjs.includes('function navTo') && appjs.includes("?as="));
+check('heartbeat check_auth', appjs.includes('4 * 60 * 1000') && appjs.includes("Net.req('check_auth')"));
+check('маска телефона не форсит +7', appjs.includes("else if (d.startsWith('9')) d = '7' + d;") && appjs.includes("else if (!d.startsWith('7')) return;"));
+check('confirm-cancel не closeAll', appjs.includes("Modal.close('modal-confirm')"));
+check('кэш fix6', index.includes('app.css?v=fix6') && index.includes('js/app.js?v=fix6'));
 check('Permissions-Policy в htaccess', ht.includes('Permissions-Policy'));
 check('schema v8 заявки', dbphp.includes('CRM_SCHEMA_VERSION = 8') && dbphp.includes('crm_lead_apps'));
 check('API save_lead_app', api.includes("case 'save_lead_app'") && api.includes("case 'delete_lead_app'"));

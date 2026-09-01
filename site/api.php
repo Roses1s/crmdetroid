@@ -37,7 +37,7 @@ if (crm_is_https()) {
 
 if (!is_dir(CRM_UPLOAD_DIR)) mkdir(CRM_UPLOAD_DIR, 0775, true);
 
-const CRM_IDLE_SEC = 30 * 60;
+const CRM_IDLE_SEC = 8 * 3600;
 
 function crm_session_opts(): array {
     return [
@@ -661,6 +661,7 @@ switch ($action) {
 
         $title = strv($in['title'] ?? ($row['title'] ?? ''), 200, 'Без названия');
         $inn = preg_replace('/\D/', '', strv($in['inn'] ?? ($row['inn'] ?? ''), 12)) ?? '';
+        if ($inn !== '' && strlen($inn) !== 10 && strlen($inn) !== 12) err('ИНН 10 или 12 цифр');
         $phone = strv($in['phone'] ?? ($row['phone'] ?? ''), 40);
         $email = strv($in['email'] ?? ($row['email'] ?? ''), 120);
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) err('Некорректный email');
@@ -671,7 +672,7 @@ switch ($action) {
         $format = strv($in['format'] ?? ($row['format'] ?? ''), 300);
         $payment = strv($in['payment'] ?? ($row['payment'] ?? ''), 300);
         $ati = strv($in['ati'] ?? ($row['ati'] ?? ''), 300);
-        $apps = (int) ($row['applications_count'] ?? 0);
+        $apps = 0;
         $stage = strv($in['stage'] ?? ($row['stage'] ?? ($stages[0] ?? 'Новый')), 80);
         if (!in_array($stage, $stages, true)) $stage = $row['stage'] ?? ($stages[0] ?? 'Новый');
 
@@ -688,8 +689,8 @@ switch ($action) {
                 $ins->execute([$id, $uid, $title, $inn, $phone, $email, $manager, $logistName, $logistPhone, $cargo, $format, $payment, $ati, $apps, $stage, $now, $now]);
                 crm_sys_comment($pdo, $id, 'Лид создан');
             } else {
-                $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,logist_name=?,logist_phone=?,cargo=?,format=?,payment=?,ati=?,applications_count=?,stage=?,updated_at=? WHERE id=? AND user_id=? AND updated_at=?');
-                $upd->execute([$title, $inn, $phone, $email, $manager, $logistName, $logistPhone, $cargo, $format, $payment, $ati, $apps, $stage, $now, $id, $uid, (int) $row['updated_at']]);
+                $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,logist_name=?,logist_phone=?,cargo=?,format=?,payment=?,ati=?,stage=?,updated_at=? WHERE id=? AND user_id=? AND updated_at=?');
+                $upd->execute([$title, $inn, $phone, $email, $manager, $logistName, $logistPhone, $cargo, $format, $payment, $ati, $stage, $now, $id, $uid, (int) $row['updated_at']]);
                 if ($upd->rowCount() === 0) {
                     $pdo->rollBack();
                     err('Карточка изменена в другом месте');

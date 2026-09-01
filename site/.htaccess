@@ -15,11 +15,15 @@ ServerSignature Off
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  # SpaceWeb: HTTPS за прокси. Редирект только если сертификат уже установлен.
   SetEnvIf X-Forwarded-Proto https SERVER_PORT=443
   SetEnvIf X-Forwarded-Proto https HTTPS=on
-  RewriteCond %{HTTP:HTTPS} !=on [NC]
-  RewriteRule ^(.*)$ https://%{SERVER_NAME}%{REQUEST_URI} [R=301,L]
+  # www → без www (AlphaSSL на crmdetroid.ru)
+  RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+  RewriteRule ^ https://%1%{REQUEST_URI} [R=301,L]
+  # HTTP → HTTPS (SpaceWeb: не крутить цикл за прокси)
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
   RewriteRule ^api/ - [F]
 </IfModule>
 
