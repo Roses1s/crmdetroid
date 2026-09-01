@@ -32,8 +32,7 @@ check('зарезервированное имя', appjs.includes('isReservedUse
 check('beforeunload спрашивает', appjs.includes('e.returnValue'));
 check('drag не открывает карточку', appjs.includes('dragSuppressUntil'));
 check('npm start — PHP', String(pkg.scripts.start).includes('php -S'));
-check('HTTPS редирект в htaccess', ht.includes('RewriteRule ^ https://'));
-check('HSTS в htaccess', ht.includes('Strict-Transport-Security'));
+check('нет принудительного HTTPS', !ht.includes('RewriteRule ^ https://') && !ht.includes('Strict-Transport-Security'));
 check('Permissions-Policy в htaccess', ht.includes('Permissions-Policy'));
 
 console.log('\n=== XSS / email ===');
