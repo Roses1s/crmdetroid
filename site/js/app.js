@@ -167,7 +167,7 @@ const Store = {
       if (UI.formDirty && UI.leadId && String(l.id).trim() === String(UI.leadId).trim()) {
         l._editRev = o._editRev ?? o.updatedAt;
         l._full = o._full;
-        ['email','cargo','format','payment','ati','logistName','logistPhone','comments'].forEach(k => { if (o[k] !== undefined) l[k] = o[k]; });
+        ['email','logistName','logistPhone','comments'].forEach(k => { if (o[k] !== undefined) l[k] = o[k]; });
       }
       return l;
     });
@@ -786,7 +786,7 @@ function fillLeadForm(lead, fromServer = false) {
   if (!lead || !lead._full) return;
   if (fromServer || lead._editRev == null) lead._editRev = lead.updatedAt;
   $('#f-title').value = lead.title;
-  ['inn','phone','email','manager','cargo','format','payment','ati'].forEach(f => {
+  ['inn','phone','email','manager'].forEach(f => {
     const el = $(`#f-${f}`); if (el && document.activeElement !== el) el.value = lead[f] || '';
   });
   const ln = $('#f-logist-name'); if (ln && document.activeElement !== ln) ln.value = lead.logistName || '';
@@ -800,7 +800,7 @@ async function saveLeadForm(sync = false, keepalive = false, transfer = false) {
   if (!UI.leadId) return null; const lead = Store.getLead(UI.leadId); if (!lead || !lead._full) return null;
   const run = async () => {
     const cur = Store.getLead(UI.leadId); if (!cur || !cur._full) return null;
-    const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), logistName: ($('#f-logist-name')?.value || '').trim(), logistPhone: ($('#f-logist-phone')?.value || '').trim(), cargo: $('#f-cargo').value.trim(), format: $('#f-format').value.trim(), payment: $('#f-payment').value.trim(), ati: $('#f-ati').value.trim(), applicationsCount: parseInt($('#f-apps').value) || 0, stage: cur.stage, updatedAt: cur._editRev ?? cur.updatedAt };
+    const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: $('#f-inn').value.trim(), phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), logistName: ($('#f-logist-name')?.value || '').trim(), logistPhone: ($('#f-logist-phone')?.value || '').trim(), applicationsCount: parseInt($('#f-apps').value) || 0, stage: cur.stage, updatedAt: cur._editRev ?? cur.updatedAt };
     if (!isValidEmail(patch.email)) {
       Toast.error('Некорректный email');
       return { success: false, error: 'Некорректный email' };
