@@ -48,6 +48,7 @@ check('confirm-cancel не closeAll', appjs.includes("Modal.close('modal-confirm
 check('кэш fix7', index.includes('app.css?v=fix7') && index.includes('js/app.js?v=fix7'));
 check('Permissions-Policy в htaccess', ht.includes('Permissions-Policy'));
 check('schema v9 маржа', dbphp.includes('CRM_SCHEMA_VERSION = 9') && dbphp.includes('crm_migrate_v9') && dbphp.includes('function crm_apps_stats'));
+check('db.php целый', (dbphp.match(/function crm_upload_magic_ok/g) || []).length === 1 && dbphp.split('{').length === dbphp.split('}').length);
 check('поле маржи в заявке', ui.includes('id="la-margin"') && ui.includes('id="apps-stat-count"') && appjs.includes("margin: ($('#la-margin')") && api.includes('rate=?, margin=?, vat=?'));
 check('API save_lead_app', api.includes("case 'save_lead_app'") && api.includes("case 'delete_lead_app'"));
 check('карточка: список заявок', ui.includes('data-action="new-lead-app"') && ui.includes('id="modal-lead-app"'));

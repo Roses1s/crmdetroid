@@ -1128,36 +1128,3 @@ function crm_reserved_user_name(string $name): bool {
 function crm_is_sys_comment(array $c): bool {
     return trim((string) ($c['author'] ?? '')) === 'Система';
 }
-FF\xD8\xFF", 3) === 0;
-        case 'gif': return strncmp($head, 'GIF87a', 6) === 0 || strncmp($head, 'GIF89a', 6) === 0;
-        case 'webp': return strlen($head) >= 12 && strncmp($head, 'RIFF', 4) === 0 && substr($head, 8, 4) === 'WEBP';
-        case 'bmp': return strncmp($head, 'BM', 2) === 0;
-        case 'pdf': return strncmp($head, '%PDF', 4) === 0;
-        case 'zip':
-        case 'docx':
-        case 'xlsx':
-        case 'pptx': return strncmp($head, 'PK', 2) === 0;
-        case '7z': return strncmp($head, "7z\xBC\xAF\x27\x1C", 6) === 0;
-        case 'doc':
-        case 'xls':
-        case 'ppt': return strncmp($head, "\xD0\xCF\x11\xE0", 4) === 0;
-        case 'txt':
-        case 'csv': return strpos($head, "\0") === false;
-        default: return false;
-    }
-}
-
-function crm_name_key(string $name): string {
-    $name = trim($name);
-    if (function_exists('mb_strtolower')) return mb_strtolower($name, 'UTF-8');
-    return strtolower($name);
-}
-
-function crm_reserved_user_name(string $name): bool {
-    $n = crm_name_key($name);
-    return $n === 'система' || $n === 'system';
-}
-
-function crm_is_sys_comment(array $c): bool {
-    return trim((string) ($c['author'] ?? '')) === 'Система';
-}
