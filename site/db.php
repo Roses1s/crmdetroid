@@ -490,9 +490,23 @@ function crm_carrier_comment_by_id(PDO $pdo, string $cid): ?array {
     return $row ?: null;
 }
 
+function crm_upload_name(string $dataUrl): ?string {
+    $s = str_replace('\\', '/', trim($dataUrl));
+    if ($s === '') return null;
+    if (str_contains($s, 'action=file') && preg_match('#[?&]f=([^&]+)#', $s, $m)) {
+        $s = 'uploads/' . rawurldecode(str_replace('+', ' ', $m[1]));
+    }
+    if (!preg_match('#(?:^|/)uploads/([^/]+)$#i', $s, $m)) return null;
+    $name = $m[1];
+    if (preg_match('/^[a-f0-9]{16}\.[a-z0-9]{1,8}$/i', $name)) return strtolower($name);
+    if (preg_match('/^[a-f0-9]{16}_[A-Za-z0-9._-]{1,180}$/', $name)) return $name;
+    return null;
+}
+
 function crm_unlink_upload(string $url): void {
-    if (!preg_match('#^uploads/([a-f0-9]+\.[a-z0-9]+)$#i', $url, $m)) return;
-    $path = CRM_UPLOAD_DIR . '/' . $m[1];
+    $name = crm_upload_name($url);
+    if ($name === null) return;
+    $path = CRM_UPLOAD_DIR . '/' . $name;
     if (is_file($path)) @unlink($path);
 }
 
@@ -515,8 +529,9 @@ function crm_att_mime(string $storedType, string $dataUrl, string $origName = ''
 }
 
 function crm_file_url(string $dataUrl): string {
-    if (!preg_match('#^uploads/([a-f0-9]+\.[a-z0-9]+)$#i', $dataUrl, $m)) return '';
-    return 'api.php?action=file&f=' . rawurlencode($m[1]);
+    $name = crm_upload_name($dataUrl);
+    if ($name === null) return '';
+    return 'api.php?action=file&f=' . rawurlencode($name);
 }
 
 function crm_touch_lead(PDO $pdo, string $id): int {
@@ -532,8 +547,8 @@ function crm_touch_carrier(PDO $pdo, string $id): int {
 }
 
 function crm_serve_file(PDO $pdo, string $name, array $user): never {
-    $name = strtolower(basename($name));
-    if (!preg_match('/^[a-f0-9]{16}\.[a-z0-9]{1,8}$/', $name)) {
+    $name = crm_upload_name('uploads/' . basename(str_replace('\\', '/', $name))) ?? '';
+    if ($name === '') {
         http_response_code(404);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Not found';

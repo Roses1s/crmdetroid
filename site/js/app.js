@@ -1298,20 +1298,61 @@ function initAppEvents() {
   bindLogEnter($('#chatter-log'));
   bindLogEnter($('#carrier-chatter-log'));
 
-  const onPickFiles = e => {
-    const allow = new Set(['png','jpg','jpeg','gif','webp','bmp','pdf','txt','csv','doc','docx','xls','xlsx','ppt','pptx','zip','7z']);
-    [...e.target.files].forEach(f => {
-      if (f.size > 5 * 1024 * 1024) return Toast.error(`Файл "${f.name}" > 5МБ`);
-      const ext = (f.name.split('.').pop() || '').toLowerCase();
-      if (!allow.has(ext) || /\.(php|phtml|phar|cgi|exe|js|htm|html|svg|shtml)(\.|$)/i.test(f.name)) {
-        return Toast.error(`Файл "${f.name}" не разрешён`);
+  const allowExt = new Set(['png','jpg','jpeg','gif','webp','bmp','pdf','txt','csv','doc','docx','xls','xlsx','ppt','pptx','zip','7z']);
+  const mimeExt = { 'image/png':'png', 'image/jpeg':'jpg', 'image/jpg':'jpg', 'image/gif':'gif', 'image/webp':'webp', 'image/bmp':'bmp' };
+  function fileExtOf(f) {
+    const fromName = ((f.name || '').split('.').pop() || '').toLowerCase();
+    if (fromName && fromName !== (f.name || '').toLowerCase()) return fromName;
+    return mimeExt[(f.type || '').toLowerCase()] || fromName;
+  }
+  function addPendingFiles(list) {
+    if (UI.pendingFiles.length >= 8) return Toast.error('Максимум 8 файлов');
+    [...list].forEach(f => {
+      if (!f) return;
+      if (UI.pendingFiles.length >= 8) return;
+      if (f.size > 5 * 1024 * 1024) return Toast.error(`Файл "${f.name || 'скриншот'}" > 5МБ`);
+      let ext = fileExtOf(f);
+      let name = f.name || '';
+      if (!name || name === 'image.png' || name === 'image.jpg') {
+        ext = ext || 'png';
+        name = 'screenshot-' + new Date().toISOString().slice(0,19).replace(/[:T]/g, '-') + '.' + ext;
       }
-      UI.pendingFiles.push({ name: f.name, size: f.size, type: f.type, rawFile: f });
+      if (!allowExt.has(ext) || /\.(php|phtml|phar|cgi|exe|js|htm|html|svg|shtml)(\.|$)/i.test(name)) {
+        return Toast.error(`Файл "${name}" не разрешён`);
+      }
+      const file = (name !== f.name) ? new File([f], name, { type: f.type || ('image/' + (ext === 'jpg' ? 'jpeg' : ext)) }) : f;
+      UI.pendingFiles.push({ name: file.name, size: file.size, type: file.type, rawFile: file });
     });
-    e.target.value = ''; renderFiles();
+    renderFiles();
+  }
+  const onPickFiles = e => {
+    addPendingFiles(e.target.files || []);
+    e.target.value = '';
   };
   $('#file-input').addEventListener('change', onPickFiles);
   $('#carrier-file-input').addEventListener('change', onPickFiles);
+  document.addEventListener('paste', e => {
+    if (UI.currentView !== 'lead' && UI.currentView !== 'carrier') return;
+    if ($('.modal-backdrop.open') || $('.inline-editor.active')) return;
+    const tag = ((e.target && e.target.tagName) || '').toUpperCase();
+    if (tag === 'INPUT') return;
+    const dt = e.clipboardData;
+    if (!dt) return;
+    const files = [];
+    if (dt.files && dt.files.length) files.push(...dt.files);
+    else if (dt.items) {
+      [...dt.items].forEach(it => {
+        if (it.kind === 'file') {
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+      });
+    }
+    const imgs = files.filter(f => /^image\//i.test(f.type || '') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name || ''));
+    if (!imgs.length) return;
+    e.preventDefault();
+    addPendingFiles(imgs);
+  });
 
   document.body.addEventListener('click', async e => {
     const actEl = e.target.closest('[data-action]'); if (!actEl) return;
