@@ -40,13 +40,17 @@ function isImageAtt(a) {
   if (t.startsWith('image/')) return true;
   return IMG_EXTS.includes(attExt(a));
 }
-function renderAttHtml(a) {
+function renderAttHtml(a, c) {
   const raw = String(a.dataUrl || '');
   const u = escAttr(raw), n = esc(a.name);
+  const id = a.id != null ? String(a.id) : '';
+  const del = (id && c && canEditComment(c))
+    ? `<button type="button" class="att-del" data-action="del-att" data-id="${esc(id)}" title="Удалить вложение">×</button>`
+    : '';
   if (isImageAtt(a) && raw) {
-    return `<div class="att-image"><a href="${u}" target="_blank" rel="noopener" data-action="open-image" data-src="${u}"><img src="${u}" alt="${n}"></a></div>`;
+    return `<div class="att-image"><a href="${u}" target="_blank" rel="noopener" data-action="open-image" data-src="${u}"><img src="${u}" alt="${n}"></a>${del}</div>`;
   }
-  return `<a class="att-file" href="${u}" target="_blank" rel="noopener">📄 ${n} <span class="att-size">${fmtBytes(a.size)}</span></a>`;
+  return `<span class="att-file-wrap"><a class="att-file" href="${u}" target="_blank" rel="noopener">📄 ${n} <span class="att-size">${fmtBytes(a.size)}</span></a>${del}</span>`;
 }
 function openImageLightbox(src) {
   const box = $('#img-lightbox'), img = $('#img-lightbox-img');
@@ -132,7 +136,7 @@ const Net = {
     try {
       let url = `api.php?action=${encodeURIComponent(action)}`;
       if (action === 'get_data' && this.hash) url += `&hash=${encodeURIComponent(this.hash)}`;
-      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1 };
+      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1 };
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
@@ -745,7 +749,7 @@ function renderCarrierLog() {
   const frag = document.createDocumentFragment();
   [...comments].reverse().forEach(c => {
     const init = authorInitial(c);
-    const atts = (c.attachments || []).map(renderAttHtml).join('');
+    const atts = (c.attachments || []).map(a => renderAttHtml(a, c)).join('');
     const el = document.createElement('div'); el.className = 'log-entry';
     el.innerHTML = `
       <div class="log-avatar">${esc(init)}</div>
@@ -1185,7 +1189,7 @@ function renderLog() {
   [...lead.comments].reverse().forEach(c => {
     const isSys = isSystemComment(c);
     const init = isSys ? '⚙' : authorInitial(c);
-    const atts = (c.attachments || []).map(renderAttHtml).join('');
+    const atts = (c.attachments || []).map(a => renderAttHtml(a, c)).join('');
 
     const el = document.createElement('div'); el.className = 'log-entry';
     el.innerHTML = `
@@ -1617,6 +1621,30 @@ function initAppEvents() {
             await Store.load(true);
           }
         } else Toast.error(resSC?.error || 'Ошибка');
+        break;
+      }
+
+      case 'del-att': {
+        if (!await askConfirm('Удалить вложение?')) return;
+        const attId = String(actEl.dataset.id || '');
+        if (!attId) return;
+        const resDA = await Net.req('delete_attachment', { id: +attId });
+        if (!resDA?.success) { Toast.error(resDA?.error || 'Ошибка'); break; }
+        const dropAtt = list => (list || []).map(c => Object.assign({}, c, {
+          attachments: (c.attachments || []).filter(a => String(a.id) !== attId)
+        }));
+        if (UI.currentView === 'carrier') {
+          if (resDA.updatedAt) UI.carrierRev = resDA.updatedAt;
+          UI.carrierComments = dropAtt(UI.carrierComments);
+          renderCarrierLog();
+        } else {
+          const L = Store.getLead(UI.leadId);
+          if (L) {
+            if (resDA.updatedAt) { L.updatedAt = resDA.updatedAt; L._editRev = resDA.updatedAt; }
+            if (Array.isArray(L.comments)) L.comments = dropAtt(L.comments);
+          }
+          renderLog();
+        }
         break;
       }
 

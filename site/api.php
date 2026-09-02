@@ -847,6 +847,34 @@ switch ($action) {
         ok(['updatedAt' => $rev]);
     }
 
+    case 'delete_attachment': {
+        $in = body_json();
+        $id = (int) ($in['id'] ?? 0);
+        $row = crm_find_attachment($pdo, $id);
+        if (!$row) err('Вложение не найдено');
+        if (!can_edit_comment($user, $row)) err('Нет прав');
+        if (($row['kind'] ?? '') === 'lead') {
+            if (!crm_lead_for_user($pdo, (string) $row['owner_id'], $viewUid)) err('Лид не найден');
+            $table = 'crm_attachments';
+        } else {
+            if (!crm_carrier_by_id($pdo, (string) $row['owner_id'])) err('Контакт не найден');
+            $table = 'crm_carrier_attachments';
+        }
+        try {
+            $pdo->prepare("DELETE FROM {$table} WHERE id = ?")->execute([$id]);
+        } catch (PDOException $e) {
+            err('Не удалось удалить');
+        }
+        if (($row['kind'] ?? '') === 'lead') {
+            $rev = crm_touch_lead($pdo, (string) $row['owner_id']);
+        } else {
+            $rev = crm_touch_carrier($pdo, (string) $row['owner_id']);
+            crm_meta_bump($pdo, 'routes');
+        }
+        crm_unlink_upload((string) ($row['data_url'] ?? ''));
+        ok(['updatedAt' => $rev]);
+    }
+
     case 'save_stages': {
         $in = body_json();
         $ns = $in['stages'] ?? null;

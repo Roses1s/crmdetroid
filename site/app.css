@@ -210,8 +210,13 @@
   .att-file { display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: var(--radius); padding: 5px 10px; font-size: 12px; color: #334155; text-decoration: none; transition: background .2s;}
   .att-file:hover { background: #e2e8f0; }
   .att-size { color: #94a3b8; font-size: 10px; flex-shrink: 0; }
+  .att-image { position: relative; display: inline-block; }
   .att-image a { display: inline-block; cursor: zoom-in; }
   .att-image img { max-width: 250px; max-height: 150px; border-radius: var(--radius); border: 1px solid #cbd5e1; display: block; object-fit: cover; }
+  .att-file-wrap { position: relative; display: inline-flex; }
+  .att-del { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(15,23,42,.72); color: #fff; cursor: pointer; font-size: 16px; line-height: 22px; padding: 0; z-index: 2; }
+  .att-del:hover { background: #b91c1c; }
+  .att-file-wrap .att-del { top: -8px; right: -8px; }
   .img-lightbox {
     display: none; position: fixed; inset: 0; z-index: 9500;
     background: rgba(0,0,0,.85); align-items: center; justify-content: center;
@@ -377,6 +382,7 @@
   html[data-theme="dark"] .att-file { background: var(--chip); border-color: #555; color: var(--text); }
   html[data-theme="dark"] .att-file:hover { background: var(--hover); }
   html[data-theme="dark"] .att-image img { border-color: #555; }
+  html[data-theme="dark"] .att-del { background: rgba(0,0,0,.75); }
   html[data-theme="dark"] .users-table th { background: var(--surface-2); color: var(--text-2); }
   html[data-theme="dark"] .users-table th,
   html[data-theme="dark"] .users-table td { border-bottom-color: var(--border); color: var(--text); }

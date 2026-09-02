@@ -473,6 +473,7 @@ function crm_carrier_comments(PDO $pdo, string $carrierId): array {
         foreach ($att as $a) {
             if (!isset($comments[$a['comment_id']])) continue;
             $comments[$a['comment_id']]['attachments'][] = [
+                'id' => (int) $a['id'],
                 'name' => $a['name'],
                 'size' => (int) $a['size'],
                 'type' => crm_att_mime((string) $a['type'], (string) $a['data_url'], (string) $a['name']),
@@ -608,6 +609,20 @@ function crm_serve_file(PDO $pdo, string $name, array $user): never {
     }
     readfile($path);
     exit;
+}
+
+function crm_find_attachment(PDO $pdo, int $id): ?array {
+    if ($id <= 0) return null;
+    $st = $pdo->prepare('SELECT a.id, a.comment_id, a.name, a.data_url, c.lead_id AS owner_id, c.author, c.user_id, \'lead\' AS kind
+        FROM crm_attachments a INNER JOIN crm_comments c ON c.id = a.comment_id WHERE a.id = ?');
+    $st->execute([$id]);
+    $row = $st->fetch();
+    if ($row) return $row;
+    $st = $pdo->prepare('SELECT a.id, a.comment_id, a.name, a.data_url, c.carrier_id AS owner_id, c.author, c.user_id, \'carrier\' AS kind
+        FROM crm_carrier_attachments a INNER JOIN crm_carrier_comments c ON c.id = a.comment_id WHERE a.id = ?');
+    $st->execute([$id]);
+    $row = $st->fetch();
+    return $row ?: null;
 }
 
 function crm_att_urls(PDO $pdo, string $table, array $commentIds): array {
@@ -977,6 +992,7 @@ function crm_comments_payload(PDO $pdo, array $rows): array {
         foreach ($st as $a) {
             if (!isset($byComment[$a['comment_id']])) continue;
             $byComment[$a['comment_id']]['attachments'][] = [
+                'id' => (int) $a['id'],
                 'name' => $a['name'],
                 'size' => (int) $a['size'],
                 'type' => crm_att_mime((string) $a['type'], (string) $a['data_url'], (string) $a['name']),
