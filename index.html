@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
+<script src="js/theme.js"></script>
+<title>CRM — Детроид</title>
+<link rel="icon" href="icon.jpg" type="image/jpeg">
+<link rel="apple-touch-icon" href="icon.jpg">
+<link rel="stylesheet" href="app.css?v=fix12">
+
+</head>
+<body class="booting">
+<noscript><link rel="stylesheet" href="noscript.css"></noscript>
+
+<div id="login-overlay">
+  <div class="login-card">
+    <h2>Вход в CRM</h2>
+    <div class="field"><label>E-mail</label><input type="email" id="login-email" autocomplete="username"></div>
+    <div class="field"><label>Пароль</label><input type="password" id="login-password" autocomplete="current-password"></div>
+    <button class="btn btn-primary btn-block" id="btn-login">Войти</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
+
+<header>
+  <div class="header-left">
+    <span class="brand" data-action="go-home">CRM Детроид</span>
+    <div class="nav-menu" id="main-nav">
+      <span class="nav-item active" data-action="go-home" id="nav-leads">Лиды</span>
+      <span class="nav-item" data-action="go-routes" id="nav-routes">Направления</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <button type="button" class="theme-toggle" id="theme-toggle" data-action="toggle-theme" title="Тёмная тема" aria-label="Тёмная тема" aria-pressed="false">
+      <span class="theme-toggle-track">
+        <span class="theme-toggle-icon sun" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        </span>
+        <span class="theme-toggle-icon moon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 14.3A8.5 8.5 0 1 1 9.7 3 7 7 0 0 0 21 14.3z"/></svg>
+        </span>
+        <span class="theme-toggle-knob"></span>
+      </span>
+    </button>
+    <div class="user-info">
+      <span class="conn-dot" id="conn-dot" title="Связь с сервером"></span>
+      <span id="user-display-name">...</span>
+      <span class="logout-btn" data-action="logout">Выйти</span>
+    </div>
+  </div>
+</header>
+
+<div id="app-root"></div>
+
+<div class="img-lightbox" id="img-lightbox" data-action="close-lightbox">
+  <img id="img-lightbox-img" alt="">
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script src="js/app.js?v=fix12" defer></script>
+</body>
+</html>
