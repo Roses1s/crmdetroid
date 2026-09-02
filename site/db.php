@@ -844,9 +844,21 @@ function crm_lead_app_by_id(PDO $pdo, string $id): ?array {
     return $row ?: null;
 }
 
+function crm_parse_money($v): ?string {
+    $s = trim(str_replace(["\xC2\xA0", ' ', "\t"], '', (string) $v));
+    if ($s === '') return '';
+    $s = rtrim(str_replace(',', '.', $s), '.');
+    if (!preg_match('/^\d{1,12}(\.\d{1,2})?$/', $s)) return null;
+    if (str_contains($s, '.')) {
+        [$a, $b] = explode('.', $s, 2);
+        $s = $a . '.' . str_pad($b, 2, '0');
+    }
+    return $s;
+}
+
 function crm_apps_stats(PDO $pdo, int $userId, string $leadId, string $inn = ''): array {
     $zero = ['count' => 0, 'margin' => 0, 'clientCount' => 0, 'clientMargin' => 0];
-    $sumSql = "COUNT(*) AS c, COALESCE(SUM(CAST(NULLIF(margin, '') AS UNSIGNED)), 0) AS m";
+    $sumSql = "COUNT(*) AS c, COALESCE(SUM(CAST(REPLACE(REPLACE(NULLIF(margin, ''), ',', '.'), ' ', '') AS DECIMAL(15,2))), 0) AS m";
     try {
         $st = $pdo->prepare("SELECT $sumSql FROM crm_lead_apps WHERE lead_id = ?");
         $st->execute([$leadId]);
@@ -855,7 +867,7 @@ function crm_apps_stats(PDO $pdo, int $userId, string $leadId, string $inn = '')
         return $zero;
     }
     $count = (int) $row['c'];
-    $margin = (int) $row['m'];
+    $margin = round((float) $row['m'], 2);
     $clientCount = $count;
     $clientMargin = $margin;
     $inn = preg_replace('/\D/', '', $inn) ?? '';
@@ -865,7 +877,7 @@ function crm_apps_stats(PDO $pdo, int $userId, string $leadId, string $inn = '')
             $st->execute([$userId, $inn]);
             $all = $st->fetch() ?: ['c' => 0, 'm' => 0];
             $clientCount = (int) $all['c'];
-            $clientMargin = (int) $all['m'];
+            $clientMargin = round((float) $all['m'], 2);
         } catch (PDOException $e) { /* keep lead totals */ }
     }
     return ['count' => $count, 'margin' => $margin, 'clientCount' => $clientCount, 'clientMargin' => $clientMargin];

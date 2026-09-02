@@ -45,11 +45,12 @@ check('доска сотрудника в URL', appjs.includes('function navTo')
 check('heartbeat check_auth', appjs.includes('4 * 60 * 1000') && appjs.includes("Net.req('check_auth')"));
 check('маска телефона не форсит +7', appjs.includes("else if (d.startsWith('9')) d = '7' + d;") && appjs.includes("else if (!d.startsWith('7')) return;"));
 check('confirm-cancel не closeAll', appjs.includes("Modal.close('modal-confirm')"));
-check('кэш fix7', index.includes('app.css?v=fix7') && index.includes('js/app.js?v=fix7'));
+check('кэш fix8', index.includes('app.css?v=fix8') && index.includes('js/app.js?v=fix8'));
 check('Permissions-Policy в htaccess', ht.includes('Permissions-Policy'));
 check('schema v9 маржа', dbphp.includes('CRM_SCHEMA_VERSION = 9') && dbphp.includes('crm_migrate_v9') && dbphp.includes('function crm_apps_stats'));
 check('db.php целый', (dbphp.match(/function crm_upload_magic_ok/g) || []).length === 1 && dbphp.split('{').length === dbphp.split('}').length);
 check('поле маржи в заявке', ui.includes('id="la-margin"') && ui.includes('id="apps-stat-count"') && appjs.includes("margin: ($('#la-margin')") && api.includes('rate=?, margin=?, vat=?'));
+check('маржа с копейками', dbphp.includes('function crm_parse_money') && appjs.includes('function fmtMoney') && appjs.includes('formatMarginInput') && ui.includes('inputmode="decimal"'));
 check('API save_lead_app', api.includes("case 'save_lead_app'") && api.includes("case 'delete_lead_app'"));
 check('карточка: список заявок', ui.includes('data-action="new-lead-app"') && ui.includes('id="modal-lead-app"'));
 check('счётчик заявок не поле ввода', ui.includes('<b id="f-apps">') && !ui.includes('id="f-apps" min'));

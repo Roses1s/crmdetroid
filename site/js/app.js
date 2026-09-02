@@ -882,8 +882,41 @@ function updateAppsCount(n) {
 }
 
 function moneyNum(s) {
-  const d = String(s || '').replace(/\D/g, '');
-  return d ? parseInt(d, 10) : 0;
+  const t = String(s ?? '').replace(/\s/g, '').replace(',', '.');
+  if (!t) return 0;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : 0;
+}
+function fmtMoney(s) {
+  const raw = String(s ?? '').replace(/\s/g, '');
+  if (!raw) return '';
+  const n = moneyNum(raw);
+  const parts = Math.round(n * 100);
+  const neg = parts < 0;
+  const abs = Math.abs(parts);
+  const int = Math.floor(abs / 100);
+  const frac = abs % 100;
+  let out = String(int).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  if (frac) out += ',' + String(frac).padStart(2, '0');
+  return (neg ? '-' : '') + out;
+}
+function moneyToInput(s) {
+  const t = String(s ?? '').trim().replace(/\s/g, '');
+  if (!t) return '';
+  return t.replace('.', ',');
+}
+function formatMarginInput(inp) {
+  if (!inp) return;
+  let v = inp.value.replace(/[^\d.,]/g, '').replace(/\./g, ',');
+  const i = v.indexOf(',');
+  if (i >= 0) {
+    const a = v.slice(0, i).replace(/,/g, '').slice(0, 12);
+    const b = v.slice(i + 1).replace(/,/g, '').slice(0, 2);
+    v = a + ',' + b;
+  } else {
+    v = v.slice(0, 12);
+  }
+  inp.value = v;
 }
 function applyAppsStats(lead, stats) {
   if (lead && stats) lead.appsStats = stats;
@@ -899,7 +932,7 @@ function renderAppsStats() {
   const countEl = $('#apps-stat-count');
   const marginEl = $('#apps-stat-margin');
   if (countEl) countEl.textContent = String(count || 0);
-  if (marginEl) marginEl.textContent = (fmtRate(String(margin || 0)) || '0') + ' ₽';
+  if (marginEl) marginEl.textContent = (fmtMoney(margin) || '0') + ' ₽';
   const note = $('#lead-apps-stats-note');
   if (note) {
     const extra = count > localCount || margin > localMargin;
@@ -924,7 +957,7 @@ function renderLeadApps() {
     const rate = fmtRate(a.rate);
     const vat = Number(a.vat) ? 'с НДС' : 'без НДС';
     const rateLine = rate ? `${esc(rate)} ₽ · ${vat}` : vat;
-    const mar = fmtRate(a.margin);
+    const mar = fmtMoney(a.margin);
     const marLine = mar ? `маржа ${esc(mar)} ₽` : '';
     const who = [a.carrierCompany, a.carrierName].filter(Boolean).join(' · ');
     const inn = a.carrierInn ? 'ИНН ' + a.carrierInn : '';
@@ -965,7 +998,7 @@ function openLeadAppModal(app) {
   $('#la-from').value = app?.cityFrom || '';
   $('#la-to').value = app?.cityTo || '';
   $('#la-rate').value = String(app?.rate || '').replace(/\D/g, '');
-  if ($('#la-margin')) $('#la-margin').value = String(app?.margin || '').replace(/\D/g, '');
+  if ($('#la-margin')) $('#la-margin').value = moneyToInput(app?.margin || '');
   const vat = Number(app?.vat) ? '1' : '0';
   $$('input[name="la-vat"]').forEach(r => { r.checked = r.value === vat; });
   $('#la-company').value = app?.carrierCompany || '';
@@ -1006,7 +1039,7 @@ async function saveLeadAppFromModal() {
     cityFrom: from,
     cityTo: to,
     rate: ($('#la-rate').value || '').replace(/\D/g, ''),
-    margin: ($('#la-margin')?.value || '').replace(/\D/g, ''),
+    margin: ($('#la-margin')?.value || '').trim(),
     vat: vatEl && vatEl.value === '1' ? 1 : 0,
     carrierCompany: ($('#la-company').value || '').trim(),
     carrierInn: inn,
@@ -1230,7 +1263,7 @@ function initAppEvents() {
   $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; saveLeadDebounced(); } });
   $('#la-inn')?.addEventListener('input', e => formatInnInput(e.target));
   $('#la-rate')?.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 15); });
-  $('#la-margin')?.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 15); });
+  $('#la-margin')?.addEventListener('input', e => formatMarginInput(e.target));
   $('#f-manager').addEventListener('blur', async () => {
     if (!UI.leadId) return;
     saveLeadDebounced.cancel();

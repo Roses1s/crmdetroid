@@ -357,7 +357,8 @@ switch ($action) {
         $to = crm_norm_city(strv($in['cityTo'] ?? '', 80));
         if ($from === '' || $to === '') err('Укажите откуда и куда');
         $rate = preg_replace('/\D/', '', strv($in['rate'] ?? '', 40)) ?? '';
-        $margin = preg_replace('/\D/', '', strv($in['margin'] ?? '', 40)) ?? '';
+        $margin = crm_parse_money(strv($in['margin'] ?? '', 40));
+        if ($margin === null) err('Маржа: число, копейки через запятую');
         $vat = !empty($in['vat']) ? 1 : 0;
         $company = strv($in['carrierCompany'] ?? '', 200);
         $inn = preg_replace('/\D/', '', strv($in['carrierInn'] ?? '', 12)) ?? '';
