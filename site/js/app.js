@@ -762,7 +762,7 @@ function renderCarrierLog() {
         <div class="inline-editor" data-edt="${esc(c.id)}">
           <textarea data-inp="${esc(c.id)}">${esc(c.text)}</textarea>
           <div class="files-preview edit-files-preview"></div>
-          <div class="inline-edit-btns"><label class="file-label">📎 Прикрепить<input type="file" class="edit-file-input" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label><button class="btn btn-secondary btn-sm" data-action="toggle-edit" data-cid="${esc(c.id)}">Отмена</button><button class="btn btn-primary btn-sm" data-action="save-comment" data-cid="${esc(c.id)}">Сохранить</button></div>
+          <div class="inline-edit-btns"><label class="file-label">📎 Прикрепить<input type="file" class="edit-file-input" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label><button class="btn btn-secondary btn-sm" data-action="toggle-edit" data-cid="${esc(c.id)}">Отмена</button><button class="btn btn-primary btn-sm" data-action="save-comment" data-cid="${esc(c.id)}">Сохранить</button></div>
         </div>
         ${atts ? `<div class="attachments">${atts}</div>` : ''}
       </div>`;
@@ -1216,7 +1216,7 @@ function renderLog() {
         <div class="inline-editor" data-edt="${esc(c.id)}">
           <textarea data-inp="${esc(c.id)}">${esc(c.text)}</textarea>
           <div class="files-preview edit-files-preview"></div>
-          <div class="inline-edit-btns"><label class="file-label">📎 Прикрепить<input type="file" class="edit-file-input" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label><button class="btn btn-secondary btn-sm" data-action="toggle-edit" data-cid="${esc(c.id)}">Отмена</button><button class="btn btn-primary btn-sm" data-action="save-comment" data-cid="${esc(c.id)}">Сохранить</button></div>
+          <div class="inline-edit-btns"><label class="file-label">📎 Прикрепить<input type="file" class="edit-file-input" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label><button class="btn btn-secondary btn-sm" data-action="toggle-edit" data-cid="${esc(c.id)}">Отмена</button><button class="btn btn-primary btn-sm" data-action="save-comment" data-cid="${esc(c.id)}">Сохранить</button></div>
         </div>
         ${atts ? `<div class="attachments">${atts}</div>` : ''}
       </div>`;
@@ -1352,6 +1352,9 @@ function initAppEvents() {
   };
   $('#file-input').addEventListener('change', onPickFiles);
   $('#carrier-file-input').addEventListener('change', onPickFiles);
+  document.addEventListener('change', e => {
+    if (e.target && e.target.classList && e.target.classList.contains('edit-file-input')) onPickFiles(e);
+  });
   document.addEventListener('paste', e => {
     if (UI.currentView !== 'lead' && UI.currentView !== 'carrier') return;
     if ($('.modal-backdrop.open')) return;

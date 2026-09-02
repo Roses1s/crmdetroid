@@ -45,13 +45,13 @@ check('доска сотрудника в URL', appjs.includes('function navTo')
 check('heartbeat check_auth', appjs.includes('4 * 60 * 1000') && appjs.includes("Net.req('check_auth')"));
 check('маска телефона не форсит +7', appjs.includes("else if (d.startsWith('9')) d = '7' + d;") && appjs.includes("else if (!d.startsWith('7')) return;"));
 check('confirm-cancel не closeAll', appjs.includes("Modal.close('modal-confirm')"));
-check('кэш fix11', index.includes('app.css?v=fix11') && index.includes('js/app.js?v=fix11'));
+check('кэш fix12', index.includes('app.css?v=fix12') && index.includes('js/app.js?v=fix12'));
 check('Permissions-Policy в htaccess', ht.includes('Permissions-Policy'));
 check('schema v9 маржа', dbphp.includes('CRM_SCHEMA_VERSION = 9') && dbphp.includes('crm_migrate_v9') && dbphp.includes('function crm_apps_stats'));
 check('db.php целый', (dbphp.match(/function crm_upload_magic_ok/g) || []).length === 1 && dbphp.split('{').length === dbphp.split('}').length);
 check('поле маржи в заявке', ui.includes('id="la-margin"') && ui.includes('id="apps-stat-count"') && appjs.includes("margin: ($('#la-margin')") && api.includes('rate=?, margin=?, vat=?'));
 check('старые вложения hex_имя', dbphp.includes('function crm_upload_name') && dbphp.includes('[A-Za-z0-9._-]{1,180}'));
-check('правка комментария с файлами', api.includes('function crm_take_uploads') && appjs.includes('edit-files-preview') && appjs.includes("fd.append('id'"));
+check('правка комментария с файлами', api.includes('function crm_take_uploads') && appjs.includes('edit-files-preview') && appjs.includes("fd.append('id'") && appjs.includes("classList.contains('edit-file-input')"));
 check('удаление вложения из лога', api.includes("case 'delete_attachment'") && appjs.includes('del-att') && dbphp.includes('function crm_find_attachment'));
 check('вставка скрина Ctrl+V', appjs.includes('clipboardData') && appjs.includes('addPendingFiles'));
 check('маржа с копейками', dbphp.includes('function crm_parse_money') && appjs.includes('function fmtMoney') && appjs.includes('formatMarginInput') && ui.includes('inputmode="decimal"'));
