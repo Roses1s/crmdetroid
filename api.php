@@ -5,8 +5,16 @@
  */
 declare(strict_types=1);
 
+if (!is_file(__DIR__ . '/config.php')) {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['success' => false, 'error' => 'Нет config.php. Скопируйте config.example.php в config.php и впишите доступы к MySQL.'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 require __DIR__ . '/config.php';
 require __DIR__ . '/db.php';
+
+// Старые config.php без новых констант
+if (!defined('CRM_TRUSTED_PROXIES')) define('CRM_TRUSTED_PROXIES', getenv('CRM_TRUSTED_PROXIES') ?: '');
 
 @header_remove('X-Powered-By');
 header('Cache-Control: no-store');
@@ -16,9 +24,17 @@ header("Content-Security-Policy: frame-ancestors 'self'");
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()');
 
+/**
+ * Верить ли X-Forwarded-Proto от этого адреса.
+ * Явный список CRM_TRUSTED_PROXIES — приоритет; без него — loopback и приватные сети
+ * (типичная схема shared-хостинга: nginx на том же сервере перед Apache/PHP).
+ * Подделка X-Forwarded-Proto здесь влияет лишь на флаг Secure у cookie и HSTS — не на доступ.
+ */
 function crm_ip_is_trusted_proxy(string $ip): bool {
-    if ($ip === '127.0.0.1' || $ip === '::1') return true;
     if (!filter_var($ip, FILTER_VALIDATE_IP)) return false;
+    $list = crm_trusted_proxies();
+    if ($list) return crm_ip_in_list($ip, $list);
+    if ($ip === '127.0.0.1' || $ip === '::1') return true;
     return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
 }
 
@@ -172,17 +188,23 @@ function require_user(PDO $pdo, bool $touch = true): array {
 function require_admin(array $u): void {
     if (($u['role'] ?? '') !== 'admin') err('Нет прав');
 }
-function crm_session_throttled(int $max = 90, int $window = 60): bool {
+/**
+ * Лимит запросов на сессию. Отдельная корзина ($bucket) на API и на отдачу файлов:
+ * страница с сотней картинок в логе не должна «съедать» лимит основного API.
+ */
+function crm_session_throttled(int $max = 90, int $window = 60, string $bucket = 'api'): bool {
+    $kT = '_rl_' . $bucket . '_t';
+    $kN = '_rl_' . $bucket . '_n';
     $now = time();
-    $win = (int) ($_SESSION['_rl_t'] ?? 0);
-    $n = (int) ($_SESSION['_rl_n'] ?? 0);
+    $win = (int) ($_SESSION[$kT] ?? 0);
+    $n = (int) ($_SESSION[$kN] ?? 0);
     if ($win === 0 || ($now - $win) >= $window) {
-        $_SESSION['_rl_t'] = $now;
-        $_SESSION['_rl_n'] = 1;
+        $_SESSION[$kT] = $now;
+        $_SESSION[$kN] = 1;
         return false;
     }
-    $_SESSION['_rl_n'] = $n + 1;
-    return $_SESSION['_rl_n'] > $max;
+    $_SESSION[$kN] = $n + 1;
+    return $_SESSION[$kN] > $max;
 }
 function crm_anon_throttled(PDO $pdo, string $ip, string $key, int $max, int $windowMs): bool {
     if ($ip === '') $ip = '0.0.0.0';
@@ -257,7 +279,9 @@ if ($hasSess) crm_session_boot();
 $pdo = crm_pdo();
 
 if ($action === 'csrf') {
-    if (crm_anon_throttled($pdo, crm_client_ip(), '#csrf', 40, 15 * 60 * 1000)) {
+    // Один токен = одна попытка входа. Лимит с запасом на офисный NAT (несколько человек за одним IP);
+    // сам вход защищён отдельно: 8 попыток на (email, IP) и 80 на IP за 15 минут.
+    if (crm_anon_throttled($pdo, crm_client_ip(), '#csrf', 120, 15 * 60 * 1000)) {
         err('Слишком много запросов. Подождите минуту');
     }
     ok(['csrf' => crm_login_csrf_issue($pdo)]);
@@ -272,7 +296,7 @@ if ($action === 'file') {
         exit;
     }
     crm_session_touch();
-    if (crm_session_throttled(180, 60)) {
+    if (crm_session_throttled(600, 60, 'file')) {
         http_response_code(429);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Too many requests';
@@ -349,10 +373,33 @@ if (!empty($_SESSION['must_change']) && $action !== 'change_password' && $action
     out(['success' => false, 'error' => 'Смените временный пароль', 'must_change_password' => true]);
 }
 if (crm_session_throttled()) err('Слишком много запросов. Подождите минуту');
-if ($method === 'POST') require_csrf();
+
+// Только чтение — разрешён GET. Всё остальное меняет данные: строго POST + CSRF-токен.
+// (Раньше мутация проходила и по GET без CSRF — например, GET save_lead создавал пустой лид.)
+$readActions = ['ui', 'whoami', 'get_data', 'get_lead', 'get_comments', 'search_leads', 'get_directions', 'get_carriers', 'get_carrier', 'get_users'];
+if (!in_array($action, $readActions, true)) {
+    if ($method !== 'POST') err('Метод не поддерживается: нужен POST');
+    require_csrf();
+} elseif ($method !== 'GET' && $method !== 'HEAD') {
+    require_csrf();
+}
 $viewUid = crm_view_uid($pdo, $user);
 
 switch ($action) {
+    case 'whoami': {
+        // Диагностика для админа: какой IP видит сервер (нужно для настройки CRM_TRUSTED_PROXIES).
+        require_admin($user);
+        ok([
+            'ip' => crm_client_ip(),
+            'remoteAddr' => (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+            'xForwardedFor' => (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''),
+            'xRealIp' => (string) ($_SERVER['HTTP_X_REAL_IP'] ?? ''),
+            'trustedProxies' => crm_trusted_proxies(),
+            'behindTrustedProxy' => crm_behind_trusted_proxy(),
+            'https' => crm_is_https(),
+        ]);
+    }
+
     case 'ui': {
         $path = __DIR__ . '/ui.html';
         if (!is_readable($path)) err('Нет интерфейса');

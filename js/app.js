@@ -436,7 +436,9 @@ function handleLogoutUI(msg) {
   document.body.classList.add('guest');
   $('#login-overlay').classList.add('show');
   if (msg && msg !== 'Сессия истекла') Toast.error(msg);
-  Net.req('csrf').then(tok => { if (tok && tok.csrf) Net.csrf = tok.csrf; });
+  // Токен для входа не запрашиваем заранее: он одноразовый и живёт 15 минут,
+  // поэтому его берёт сам execLogin() непосредственно перед отправкой формы.
+  Net.csrf = null;
 }
 
 function withLock(fn) { return async (...args) => { if (UI.lock) return; UI.lock = true; try { await fn(...args); } finally { UI.lock = false; } }; }
@@ -1890,11 +1892,17 @@ async function bootApp() {
     Net.csrf = check.csrf;
     await afterLogin(!!check.mustChangePassword, check.user);
   } else {
-    const tok = await Net.req('csrf');
-    if (tok && tok.csrf) Net.csrf = tok.csrf;
+    // Ответ с need_login уже показал форму входа через handleLogoutUI; токен для входа
+    // берём лениво в execLogin() — один запрос csrf на одну попытку, а не два на загрузку.
     revealLogin();
     setTimeout(() => $('#login-email')?.focus(), 50);
   }
+}
+
+async function fetchLoginCsrf() {
+  const tok = await Net.req('csrf');
+  if (tok && tok.csrf) { Net.csrf = tok.csrf; return null; }
+  return (tok && tok.error) || 'Сервер недоступен, попробуйте ещё раз';
 }
 
 async function execLogin() {
@@ -1902,10 +1910,10 @@ async function execLogin() {
   $('#login-err').textContent = '';
   if (!email || !password) { $('#login-err').textContent = 'Заполните поля'; return; }
   $('#btn-login').disabled = true;
-  let res = await Net.req('login', { email, password });
-  if (res?.error === 'CSRF') {
-    const tok = await Net.req('csrf');
-    if (tok && tok.csrf) Net.csrf = tok.csrf;
+  // Одноразовый login-токен: свежий на каждую попытку входа.
+  const tokErr = await fetchLoginCsrf();
+  let res = tokErr ? { success: false, error: tokErr } : await Net.req('login', { email, password });
+  if (res?.error === 'CSRF' && !(await fetchLoginCsrf())) {
     res = await Net.req('login', { email, password });
   }
   $('#btn-login').disabled = false;

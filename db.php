@@ -141,9 +141,81 @@ function crm_meta_bump(PDO $pdo, string $k): void {
     } catch (PDOException $e) { /* ok */ }
 }
 
+/** Список доверенных прокси из CRM_TRUSTED_PROXIES (IP или CIDR через запятую). */
+function crm_trusted_proxies(): array {
+    static $list = null;
+    if ($list !== null) return $list;
+    $raw = defined('CRM_TRUSTED_PROXIES') ? (string) CRM_TRUSTED_PROXIES : '';
+    $list = [];
+    foreach (preg_split('/[\s,;]+/', $raw) ?: [] as $p) {
+        $p = trim($p);
+        if ($p !== '') $list[] = $p;
+    }
+    return $list;
+}
+
+/** IP входит в список (точный IP или CIDR, IPv4/IPv6). */
+function crm_ip_in_list(string $ip, array $list): bool {
+    $bin = @inet_pton($ip);
+    if ($bin === false) return false;
+    foreach ($list as $entry) {
+        $entry = strtolower(trim($entry));
+        if ($entry === '') continue;
+        if ($entry === 'loopback') {
+            if ($ip === '127.0.0.1' || $ip === '::1' || str_starts_with($ip, '127.')) return true;
+            continue;
+        }
+        $mask = null;
+        if (str_contains($entry, '/')) [$entry, $mask] = explode('/', $entry, 2);
+        $nb = @inet_pton($entry);
+        if ($nb === false || strlen($nb) !== strlen($bin)) continue;
+        $bits = strlen($bin) * 8;
+        $m = $mask === null ? $bits : (int) $mask;
+        if ($m < 0 || $m > $bits) continue;
+        $full = intdiv($m, 8);
+        $rest = $m % 8;
+        if ($full > 0 && substr($bin, 0, $full) !== substr($nb, 0, $full)) continue;
+        if ($rest > 0) {
+            $shift = 8 - $rest;
+            if ((ord($bin[$full]) >> $shift) !== (ord($nb[$full]) >> $shift)) continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+/** Обращение идёт напрямую с прокси из CRM_TRUSTED_PROXIES. */
+function crm_behind_trusted_proxy(): bool {
+    $remote = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+    if ($remote === '') return false;
+    $list = crm_trusted_proxies();
+    return $list ? crm_ip_in_list($remote, $list) : false;
+}
+
+/**
+ * IP клиента для лимитов на вход/CSRF.
+ * По умолчанию — только REMOTE_ADDR: заголовкам X-Forwarded-For любой может написать что угодно.
+ * Если REMOTE_ADDR — доверенный прокси (CRM_TRUSTED_PROXIES), берём последний адрес из
+ * X-Forwarded-For, который прокси добавил сам (он же в X-Real-IP у nginx), — подделать его нельзя.
+ */
 function crm_client_ip(): string {
-    $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
-    return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '';
+    $remote = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+    if (!filter_var($remote, FILTER_VALIDATE_IP)) return '';
+    if (!crm_behind_trusted_proxy()) return $remote;
+    $trusted = crm_trusted_proxies();
+    $xff = (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '');
+    if ($xff !== '') {
+        $chain = array_map('trim', explode(',', $xff));
+        // Идём с конца, пропуская адреса других доверенных прокси; первый «чужой» — клиент.
+        for ($i = count($chain) - 1; $i >= 0; $i--) {
+            $c = $chain[$i];
+            if (!filter_var($c, FILTER_VALIDATE_IP)) break;
+            if (!crm_ip_in_list($c, $trusted)) return $c;
+        }
+    }
+    $real = trim((string) ($_SERVER['HTTP_X_REAL_IP'] ?? ''));
+    if ($real !== '' && filter_var($real, FILTER_VALIDATE_IP)) return $real;
+    return $remote;
 }
 
 function crm_migrate_v5(PDO $pdo): void {

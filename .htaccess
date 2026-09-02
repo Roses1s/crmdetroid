@@ -8,7 +8,7 @@ ServerSignature Off
 </IfModule>
 
 <IfModule mod_authz_core.c>
-  <FilesMatch "^(config\.php|db\.php|schema\.sql|check-mysql\.php|ui\.html|README\.md|server\.js|preview-server\.js)$">
+  <FilesMatch "^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|\.gitignore)$">
     Require all denied
   </FilesMatch>
 </IfModule>
@@ -24,7 +24,8 @@ ServerSignature Off
   RewriteCond %{HTTPS} !=on
   RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
-  RewriteRule ^api/ - [F]
+  # Служебные каталоги наружу не отдаём (свои .htaccess внутри — вторая линия)
+  RewriteRule ^(data|uploads|\.git)(/|$) - [F]
 </IfModule>
 
 <IfModule mod_headers.c>
