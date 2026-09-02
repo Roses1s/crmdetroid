@@ -177,7 +177,7 @@ const Store = {
       if (UI.formDirty && UI.leadId && String(l.id).trim() === String(UI.leadId).trim()) {
         l._editRev = o._editRev ?? o.updatedAt;
         l._full = o._full;
-        ['email','logistName','logistPhone','comments','applications'].forEach(k => { if (o[k] !== undefined) l[k] = o[k]; });
+        ['email','logistName','logistPhone','comments','applications','appsStats'].forEach(k => { if (o[k] !== undefined) l[k] = o[k]; });
       }
       return l;
     });
@@ -881,12 +881,39 @@ function updateAppsCount(n) {
   if (el) el.textContent = String(n || 0);
 }
 
+function moneyNum(s) {
+  const d = String(s || '').replace(/\D/g, '');
+  return d ? parseInt(d, 10) : 0;
+}
+function applyAppsStats(lead, stats) {
+  if (lead && stats) lead.appsStats = stats;
+}
+function renderAppsStats() {
+  const lead = Store.getLead(UI.leadId);
+  const apps = leadAppsOf(lead);
+  const localCount = Array.isArray(lead?.applications) ? apps.length : Number(lead?.applicationsCount || 0);
+  const localMargin = apps.reduce((s, a) => s + moneyNum(a.margin), 0);
+  const st = lead?.appsStats || {};
+  const count = Number(st.clientCount != null ? st.clientCount : (st.count != null ? st.count : localCount));
+  const margin = Number(st.clientMargin != null ? st.clientMargin : (st.margin != null ? st.margin : localMargin));
+  const countEl = $('#apps-stat-count');
+  const marginEl = $('#apps-stat-margin');
+  if (countEl) countEl.textContent = String(count || 0);
+  if (marginEl) marginEl.textContent = (fmtRate(String(margin || 0)) || '0') + ' ₽';
+  const note = $('#lead-apps-stats-note');
+  if (note) {
+    const extra = count > localCount || margin > localMargin;
+    note.hidden = !extra;
+  }
+}
+
 function renderLeadApps() {
   const box = $('#lead-apps-list');
   const lead = Store.getLead(UI.leadId);
   const apps = leadAppsOf(lead);
   const n = apps.length || Number(lead?.applicationsCount || 0);
   updateAppsCount(Array.isArray(lead?.applications) ? apps.length : n);
+  renderAppsStats();
   if (!box) return;
   if (!apps.length) {
     box.innerHTML = '<div class="lead-apps-empty">Пока нет заявок</div>';
@@ -897,6 +924,8 @@ function renderLeadApps() {
     const rate = fmtRate(a.rate);
     const vat = Number(a.vat) ? 'с НДС' : 'без НДС';
     const rateLine = rate ? `${esc(rate)} ₽ · ${vat}` : vat;
+    const mar = fmtRate(a.margin);
+    const marLine = mar ? `маржа ${esc(mar)} ₽` : '';
     const who = [a.carrierCompany, a.carrierName].filter(Boolean).join(' · ');
     const inn = a.carrierInn ? 'ИНН ' + a.carrierInn : '';
     const phone = a.carrierPhone || '';
@@ -904,7 +933,7 @@ function renderLeadApps() {
     return `<div class="lead-app-card">
       <div class="lead-app-main">
         <div class="lead-app-route">${esc(route)}</div>
-        <div class="lead-app-rate">${rateLine}</div>
+        <div class="lead-app-rate">${rateLine}${marLine ? ' · ' + marLine : ''}</div>
         ${meta ? `<div class="lead-app-meta">${esc(meta)}</div>` : ''}
       </div>
       <div class="lead-app-actions">
@@ -921,6 +950,7 @@ function leadAppSnapshot() {
     from: $('#la-from')?.value || '',
     to: $('#la-to')?.value || '',
     rate: $('#la-rate')?.value || '',
+    margin: $('#la-margin')?.value || '',
     vat: $('input[name="la-vat"]:checked')?.value || '0',
     company: $('#la-company')?.value || '',
     inn: $('#la-inn')?.value || '',
@@ -935,6 +965,7 @@ function openLeadAppModal(app) {
   $('#la-from').value = app?.cityFrom || '';
   $('#la-to').value = app?.cityTo || '';
   $('#la-rate').value = String(app?.rate || '').replace(/\D/g, '');
+  if ($('#la-margin')) $('#la-margin').value = String(app?.margin || '').replace(/\D/g, '');
   const vat = Number(app?.vat) ? '1' : '0';
   $$('input[name="la-vat"]').forEach(r => { r.checked = r.value === vat; });
   $('#la-company').value = app?.carrierCompany || '';
@@ -975,6 +1006,7 @@ async function saveLeadAppFromModal() {
     cityFrom: from,
     cityTo: to,
     rate: ($('#la-rate').value || '').replace(/\D/g, ''),
+    margin: ($('#la-margin')?.value || '').replace(/\D/g, ''),
     vat: vatEl && vatEl.value === '1' ? 1 : 0,
     carrierCompany: ($('#la-company').value || '').trim(),
     carrierInn: inn,
@@ -994,6 +1026,7 @@ async function saveLeadAppFromModal() {
       lead.applications = apps;
     }
     if (res.applicationsCount != null) lead.applicationsCount = res.applicationsCount;
+    applyAppsStats(lead, res.appsStats);
     if (res.updatedAt) { lead.updatedAt = res.updatedAt; lead._editRev = res.updatedAt; }
   }
   renderLeadApps();
@@ -1013,6 +1046,7 @@ async function deleteLeadApp(id) {
   if (lead) {
     lead.applications = leadAppsOf(lead).filter(a => String(a.id) !== String(id));
     if (res.applicationsCount != null) lead.applicationsCount = res.applicationsCount;
+    applyAppsStats(lead, res.appsStats);
     if (res.updatedAt) { lead.updatedAt = res.updatedAt; lead._editRev = res.updatedAt; }
   }
   renderLeadApps();
@@ -1196,6 +1230,7 @@ function initAppEvents() {
   $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; saveLeadDebounced(); } });
   $('#la-inn')?.addEventListener('input', e => formatInnInput(e.target));
   $('#la-rate')?.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 15); });
+  $('#la-margin')?.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 15); });
   $('#f-manager').addEventListener('blur', async () => {
     if (!UI.leadId) return;
     saveLeadDebounced.cancel();

@@ -55,6 +55,11 @@
         <h3 class="section-title">Заявки</h3>
         <button type="button" class="btn btn-primary btn-sm" data-action="new-lead-app">+ Заявка</button>
       </div>
+      <div class="lead-apps-stats" id="lead-apps-stats">
+        <div class="lead-apps-stat"><span>Подписано заявок</span><b id="apps-stat-count">0</b></div>
+        <div class="lead-apps-stat"><span>Маржа с клиента</span><b id="apps-stat-margin">0 ₽</b></div>
+      </div>
+      <div class="lead-apps-stats-note" id="lead-apps-stats-note" hidden>За всё время по этому ИНН, включая другие лиды</div>
       <div class="lead-apps-list" id="lead-apps-list"></div>
     </div>
     <div class="chatter">
@@ -178,6 +183,7 @@
     <div class="field"><label>Откуда *</label><input id="la-from" placeholder="Город"></div>
     <div class="field"><label>Куда *</label><input id="la-to" placeholder="Город"></div>
     <div class="field"><label>Ставка</label><input id="la-rate" inputmode="numeric" placeholder="Сумма"></div>
+    <div class="field"><label>Маржа с поездки</label><input id="la-margin" inputmode="numeric" placeholder="Сумма"></div>
     <div class="field">
       <label>НДС</label>
       <div class="vat-row">

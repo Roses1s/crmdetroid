@@ -344,6 +344,7 @@ switch ($action) {
         $lead = crm_lead_row_to_api($row, true);
         $lead['applications'] = crm_lead_apps($pdo, $id);
         $lead['applicationsCount'] = count($lead['applications']);
+        $lead['appsStats'] = crm_apps_stats($pdo, $viewUid, $id, (string) ($row['inn'] ?? ''));
         ok(['lead' => $lead]);
     }
 
@@ -356,6 +357,7 @@ switch ($action) {
         $to = crm_norm_city(strv($in['cityTo'] ?? '', 80));
         if ($from === '' || $to === '') err('Укажите откуда и куда');
         $rate = preg_replace('/\D/', '', strv($in['rate'] ?? '', 40)) ?? '';
+        $margin = preg_replace('/\D/', '', strv($in['margin'] ?? '', 40)) ?? '';
         $vat = !empty($in['vat']) ? 1 : 0;
         $company = strv($in['carrierCompany'] ?? '', 200);
         $inn = preg_replace('/\D/', '', strv($in['carrierInn'] ?? '', 12)) ?? '';
@@ -369,11 +371,11 @@ switch ($action) {
         if ($id === '') $id = 'a_' . bin2hex(random_bytes(6));
         try {
             if (!$existing) {
-                $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, city_from, city_to, rate, vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-                    ->execute([$id, $leadId, $from, $to, $rate, $vat, $company, $inn, $name, $phone, $now, $now]);
+                $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, city_from, city_to, rate, margin, vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                    ->execute([$id, $leadId, $from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $now]);
             } else {
-                $pdo->prepare('UPDATE crm_lead_apps SET city_from=?, city_to=?, rate=?, vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=?')
-                    ->execute([$from, $to, $rate, $vat, $company, $inn, $name, $phone, $now, $id, $leadId]);
+                $pdo->prepare('UPDATE crm_lead_apps SET city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=?')
+                    ->execute([$from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $id, $leadId]);
             }
         } catch (PDOException $e) {
             err('Не удалось сохранить заявку');
@@ -385,6 +387,7 @@ switch ($action) {
             'id' => $id,
             'application' => $saved ? crm_lead_app_to_api($saved) : null,
             'applicationsCount' => $n,
+            'appsStats' => crm_apps_stats($pdo, $viewUid, $leadId, (string) ($row['inn'] ?? '')),
             'updatedAt' => $rev,
         ]);
     }
@@ -403,7 +406,12 @@ switch ($action) {
         }
         $n = crm_sync_lead_apps_count($pdo, $leadId);
         $rev = crm_touch_lead($pdo, $leadId);
-        ok(['applicationsCount' => $n, 'updatedAt' => $rev]);
+        $leadRow = crm_lead_for_user($pdo, $leadId, $viewUid);
+        ok([
+            'applicationsCount' => $n,
+            'appsStats' => crm_apps_stats($pdo, $viewUid, $leadId, (string) ($leadRow['inn'] ?? '')),
+            'updatedAt' => $rev,
+        ]);
     }
 
     case 'search_leads': {

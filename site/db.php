@@ -65,7 +65,7 @@ function crm_pdo(): PDO {
     return $pdo;
 }
 
-const CRM_SCHEMA_VERSION = 8;
+const CRM_SCHEMA_VERSION = 9;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -86,6 +86,7 @@ function crm_boot(PDO $pdo): void {
     crm_migrate_v6($pdo);
     crm_migrate_v7($pdo);
     crm_migrate_v8($pdo);
+    crm_migrate_v9($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -174,6 +175,14 @@ function crm_migrate_v7(PDO $pdo): void {
     }
 }
 
+function crm_migrate_v9(PDO $pdo): void {
+    if (!crm_has_column($pdo, 'crm_lead_apps', 'margin')) {
+        try {
+            $pdo->exec("ALTER TABLE crm_lead_apps ADD COLUMN margin VARCHAR(40) NOT NULL DEFAULT '' AFTER rate");
+        } catch (PDOException $e) { /* ok */ }
+    }
+}
+
 function crm_migrate_v8(PDO $pdo): void {
     $pdo->exec("CREATE TABLE IF NOT EXISTS crm_lead_apps (
       id VARCHAR(80) NOT NULL,
@@ -181,6 +190,7 @@ function crm_migrate_v8(PDO $pdo): void {
       city_from VARCHAR(80) NOT NULL DEFAULT '',
       city_to VARCHAR(80) NOT NULL DEFAULT '',
       rate VARCHAR(40) NOT NULL DEFAULT '',
+      margin VARCHAR(40) NOT NULL DEFAULT '',
       vat TINYINT NOT NULL DEFAULT 0,
       carrier_company VARCHAR(200) NOT NULL DEFAULT '',
       carrier_inn VARCHAR(12) NOT NULL DEFAULT '',
@@ -800,6 +810,7 @@ function crm_lead_app_to_api(array $r): array {
         'cityFrom' => $r['city_from'],
         'cityTo' => $r['city_to'],
         'rate' => $r['rate'],
+        'margin' => $r['margin'] ?? '',
         'vat' => ((int) $r['vat']) ? 1 : 0,
         'carrierCompany' => $r['carrier_company'],
         'carrierInn' => $r['carrier_inn'],
@@ -831,6 +842,33 @@ function crm_lead_app_by_id(PDO $pdo, string $id): ?array {
     }
     $row = $st->fetch();
     return $row ?: null;
+}
+
+function crm_apps_stats(PDO $pdo, int $userId, string $leadId, string $inn = ''): array {
+    $zero = ['count' => 0, 'margin' => 0, 'clientCount' => 0, 'clientMargin' => 0];
+    $sumSql = "COUNT(*) AS c, COALESCE(SUM(CAST(NULLIF(margin, '') AS UNSIGNED)), 0) AS m";
+    try {
+        $st = $pdo->prepare("SELECT $sumSql FROM crm_lead_apps WHERE lead_id = ?");
+        $st->execute([$leadId]);
+        $row = $st->fetch() ?: ['c' => 0, 'm' => 0];
+    } catch (PDOException $e) {
+        return $zero;
+    }
+    $count = (int) $row['c'];
+    $margin = (int) $row['m'];
+    $clientCount = $count;
+    $clientMargin = $margin;
+    $inn = preg_replace('/\D/', '', $inn) ?? '';
+    if (strlen($inn) === 10 || strlen($inn) === 12) {
+        try {
+            $st = $pdo->prepare("SELECT $sumSql FROM crm_lead_apps a INNER JOIN crm_leads l ON l.id = a.lead_id WHERE l.user_id = ? AND l.inn = ?");
+            $st->execute([$userId, $inn]);
+            $all = $st->fetch() ?: ['c' => 0, 'm' => 0];
+            $clientCount = (int) $all['c'];
+            $clientMargin = (int) $all['m'];
+        } catch (PDOException $e) { /* keep lead totals */ }
+    }
+    return ['count' => $count, 'margin' => $margin, 'clientCount' => $clientCount, 'clientMargin' => $clientMargin];
 }
 
 function crm_sync_lead_apps_count(PDO $pdo, string $leadId): int {
@@ -1058,6 +1096,39 @@ function crm_upload_magic_ok(string $tmp, string $ext): bool {
         case 'png': return strncmp($head, "\x89PNG\r\n\x1a\n", 8) === 0;
         case 'jpg':
         case 'jpeg': return strncmp($head, "\xFF\xD8\xFF", 3) === 0;
+        case 'gif': return strncmp($head, 'GIF87a', 6) === 0 || strncmp($head, 'GIF89a', 6) === 0;
+        case 'webp': return strlen($head) >= 12 && strncmp($head, 'RIFF', 4) === 0 && substr($head, 8, 4) === 'WEBP';
+        case 'bmp': return strncmp($head, 'BM', 2) === 0;
+        case 'pdf': return strncmp($head, '%PDF', 4) === 0;
+        case 'zip':
+        case 'docx':
+        case 'xlsx':
+        case 'pptx': return strncmp($head, 'PK', 2) === 0;
+        case '7z': return strncmp($head, "7z\xBC\xAF\x27\x1C", 6) === 0;
+        case 'doc':
+        case 'xls':
+        case 'ppt': return strncmp($head, "\xD0\xCF\x11\xE0", 4) === 0;
+        case 'txt':
+        case 'csv': return strpos($head, "\0") === false;
+        default: return false;
+    }
+}
+
+function crm_name_key(string $name): string {
+    $name = trim($name);
+    if (function_exists('mb_strtolower')) return mb_strtolower($name, 'UTF-8');
+    return strtolower($name);
+}
+
+function crm_reserved_user_name(string $name): bool {
+    $n = crm_name_key($name);
+    return $n === 'система' || $n === 'system';
+}
+
+function crm_is_sys_comment(array $c): bool {
+    return trim((string) ($c['author'] ?? '')) === 'Система';
+}
+FF\xD8\xFF", 3) === 0;
         case 'gif': return strncmp($head, 'GIF87a', 6) === 0 || strncmp($head, 'GIF89a', 6) === 0;
         case 'webp': return strlen($head) >= 12 && strncmp($head, 'RIFF', 4) === 0 && substr($head, 8, 4) === 'WEBP';
         case 'bmp': return strncmp($head, 'BM', 2) === 0;
