@@ -623,6 +623,10 @@ switch ($action) {
         if (!$app) err('Заявка не найдена');
         $leadId = (string) $app['lead_id'];
         if (!crm_lead_for_user($pdo, $leadId, $viewUid)) err('Лид не найден');
+        // Оптимистическая блокировка: если заявку изменили в другой вкладке — предупредить.
+        if (array_key_exists('updatedAt', $in) && (int) $app['updated_at'] !== intv($in['updatedAt'])) {
+            err('Заявка изменена в другом месте');
+        }
         try {
             $pdo->prepare('DELETE FROM crm_lead_apps WHERE id = ? AND lead_id = ?')->execute([$id, $leadId]);
         } catch (PDOException $e) {
@@ -995,10 +999,24 @@ switch ($action) {
         $now = now_ms();
         if ($row['stage'] !== $stage) {
             $from = (string) $row['stage'];
-            $stU = $pdo->prepare('UPDATE crm_leads SET stage = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
-            $stU->execute([$stage, $now, $id, $uid, (int) $row['updated_at']]);
-            if ($stU->rowCount() === 0) err('Карточка изменена в другом месте');
-            crm_sys_comment($pdo, $id, "Статус изменен: {$from} ➔ {$stage}");
+            // Транзакция: UPDATE и системный комментарий атомарны. Раньше комментарий шёл
+            // отдельно — при сбое БД лид перемещался, но запись в логе не появлялась.
+            $pdo->beginTransaction();
+            try {
+                $stU = $pdo->prepare('UPDATE crm_leads SET stage = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
+                $stU->execute([$stage, $now, $id, $uid, (int) $row['updated_at']]);
+                if ($stU->rowCount() === 0) {
+                    $pdo->rollBack();
+                    err('Карточка изменена в другом месте');
+                }
+                crm_sys_comment($pdo, $id, "Статус изменен: {$from} ➔ {$stage}");
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                if (!$e instanceof PDOException) throw $e;
+                crm_log_fail('move_lead', $e);
+                err('Не удалось переместить');
+            }
         }
         ok(['updatedAt' => $row['stage'] === $stage ? (int) $row['updated_at'] : $now]);
     }
@@ -1279,7 +1297,10 @@ switch ($action) {
         if (empty($_SESSION['must_change'])) {
             if ($old === '' || !password_verify($old, (string) ($user['password'] ?? ''))) err('Неверный пароль');
         }
-        $pdo->prepare('UPDATE crm_users SET password = ? WHERE id = ?')->execute([password_hash($new, PASSWORD_DEFAULT), (int) $user['id']]);
+        // token_version инкрементируется для консистентности с update_user: явная инвалидация
+        // сессий не зависит от состава crm_pw_fingerprint (хэш пароля может из него уйти).
+        $pdo->prepare('UPDATE crm_users SET password = ?, token_version = token_version + 1 WHERE id = ?')
+            ->execute([password_hash($new, PASSWORD_DEFAULT), (int) $user['id']]);
         unset($_SESSION['must_change']);
         // Своя сессия остаётся; все остальные сессии этого пользователя отвалятся на следующем запросе
         // (id сессии не меняем: параллельный запрос вкладки — опрос доски — со старым id вылетел бы на вход)

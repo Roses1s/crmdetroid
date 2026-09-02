@@ -471,20 +471,26 @@ function crm_migrate_v8(PDO $pdo): void {
  * Счётчик справочника (routes) сюда не входит: доска маршруты не показывает, а раньше любой
  * комментарий к перевозчику заставлял все клиенты перекачивать доски целиком.
  *
- * Хэш id считается через SHA2 (а не CRC32, как раньше): CRC32 — 32 бита, коллизии реальны
- * при сотнях лидов, и клиент «залипал» на устаревших данных.
+ * Хэш id считается в PHP (а не через GROUP_CONCAT в SQL): это устраняет зависимость от
+ * group_concat_max_len (по умолчанию 1024 байт) без SET SESSION и без ограничений на число лидов.
+ * Один запрос вместо двух: id, updated_at, created_at выбираются вместе.
  */
 function crm_board_rev(PDO $pdo, int $userId): string {
-    // GROUP_CONCAT может быть обрезан group_concat_max_len (по умолчанию 1024 байт ≈ 68 id).
-    // Увеличиваем до 1М на эту сессию — хватит на ~65 000 лидов.
-    try { $pdo->exec('SET SESSION group_concat_max_len = 1000000'); } catch (PDOException $e) { /* ok */ }
-    $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(updated_at),0) u, COALESCE(MAX(created_at),0) cr,
-        COALESCE(SUBSTR(SHA2(GROUP_CONCAT(id ORDER BY id SEPARATOR \'\'), 256), 1, 16), \'0\') h
-        FROM crm_leads WHERE user_id = ?');
+    $st = $pdo->prepare('SELECT id, updated_at, created_at FROM crm_leads WHERE user_id = ? ORDER BY id');
     $st->execute([$userId]);
-    $L = $st->fetch() ?: ['c' => 0, 'u' => 0, 'cr' => 0, 'h' => '0'];
+    $rows = $st->fetchAll();
+    $c = count($rows);
+    $u = 0;
+    $cr = 0;
+    $ids = '';
+    foreach ($rows as $r) {
+        $u = max($u, (int) $r['updated_at']);
+        $cr = max($cr, (int) $r['created_at']);
+        $ids .= (string) $r['id'];
+    }
+    $h = $c > 0 ? substr(hash('sha256', $ids), 0, 16) : '0';
     $stages = implode("\n", crm_stages($pdo, $userId));
-    return $userId . '|' . $L['c'] . '|' . $L['u'] . '|' . $L['cr'] . '|' . $L['h']
+    return $userId . '|' . $c . '|' . $u . '|' . $cr . '|' . $h
         . '|' . crm_meta_get($pdo, 'users') . '|' . $stages;
 }
 

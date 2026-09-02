@@ -1197,8 +1197,20 @@ async function deleteLeadApp(id) {
     const saved = await saveLeadForm(true);
     if (!persistOk(saved)) return;
   }
-  const res = await Net.req('delete_lead_app', { id, leadId: UI.leadId });
-  if (!res?.success) return Toast.error(res?.error || 'Ошибка');
+  // Передаём updatedAt для оптимистической блокировки: если заявку изменили
+  // в другой вкладке, сервер ответит «Заявка изменена в другом месте».
+  const appToDelete = leadAppsOf(Store.getLead(UI.leadId)).find(a => String(a.id) === String(id));
+  const payload = { id, leadId: UI.leadId };
+  if (appToDelete) payload.updatedAt = appToDelete.updatedAt;
+  const res = await Net.req('delete_lead_app', payload);
+  if (!res?.success) {
+    if (res?.error === 'Заявка изменена в другом месте') {
+      Toast.error('Заявку изменили в другой вкладке — обновляю');
+      if (UI.leadId) await ensureLeadFull(UI.leadId);
+      renderLeadApps();
+    } else Toast.error(res?.error || 'Ошибка');
+    return;
+  }
   const lead = Store.getLead(UI.leadId);
   if (lead) {
     lead.applications = leadAppsOf(lead).filter(a => String(a.id) !== String(id));
