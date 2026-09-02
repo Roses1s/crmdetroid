@@ -365,6 +365,8 @@ $hasSess = isset($_COOKIE[CRM_SESSION_NAME]) && (string) $_COOKIE[CRM_SESSION_NA
 // а не в тело ответа. Раньше «Array to string conversion» отдавал HTML вместо JSON.
 set_error_handler(static function (int $no, string $str, string $file, int $line): bool {
     if (!(error_reporting() & $no)) return false; // подавлено через @
+    // Deprecated (например, после обновления PHP на хостинге) — не повод ронять запрос: в лог штатно
+    if ($no & (E_DEPRECATED | E_USER_DEPRECATED)) return false;
     throw new ErrorException($str, 0, $no, $file, $line);
 });
 
