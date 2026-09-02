@@ -354,12 +354,6 @@ function crm_legacy_money(string $v): ?string {
  * Раньше суммы считались через CAST(REPLACE(...)), а любой мусор в строке молча превращался в 0.
  * Исходные строки сохраняются в rate_raw / margin_raw (ничего не теряется, можно свериться и
  * поправить руками), в DECIMAL попадают только однозначно распознанные суммы (crm_legacy_money).
- */
-/**
- * v10: ставка и маржа заявки — DECIMAL(15,2) NULL вместо VARCHAR.
- * Раньше суммы считались через CAST(REPLACE(...)), а любой мусор в строке молча превращался в 0.
- * Исходные строки сохраняются в rate_raw / margin_raw (ничего не теряется, можно свериться и
- * поправить руками), в DECIMAL попадают только однозначно распознанные суммы (crm_legacy_money).
  *
  * Безопасность: DDL (ALTER TABLE MODIFY) в MySQL 8 не транзакционный. Если ALTER упадёт после
  * нормализации но до финального MODIFY — колонка останется VARCHAR с частично нормализованными
@@ -476,18 +470,14 @@ function crm_migrate_v8(PDO $pdo): void {
  * агрегатов по crm_leads (без прохода по всем комментариям пользователя, как было раньше).
  * Счётчик справочника (routes) сюда не входит: доска маршруты не показывает, а раньше любой
  * комментарий к перевозчику заставлял все клиенты перекачивать доски целиком.
- */
-/**
- * Ревизия доски для get_data (клиент сравнивает хэш и не качает данные, если ничего не менялось).
- * Любое изменение лида или его лога проходит через crm_touch_lead → updated_at, поэтому достаточно
- * агрегатов по crm_leads (без прохода по всем комментариям пользователя, как было раньше).
- * Счётчик справочника (routes) сюда не входит: доска маршруты не показывает, а раньше любой
- * комментарий к перевозчику заставлял все клиенты перекачивать доски целиком.
  *
  * Хэш id считается через SHA2 (а не CRC32, как раньше): CRC32 — 32 бита, коллизии реальны
  * при сотнях лидов, и клиент «залипал» на устаревших данных.
  */
 function crm_board_rev(PDO $pdo, int $userId): string {
+    // GROUP_CONCAT может быть обрезан group_concat_max_len (по умолчанию 1024 байт ≈ 68 id).
+    // Увеличиваем до 1М на эту сессию — хватит на ~65 000 лидов.
+    try { $pdo->exec('SET SESSION group_concat_max_len = 1000000'); } catch (PDOException $e) { /* ok */ }
     $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(updated_at),0) u, COALESCE(MAX(created_at),0) cr,
         COALESCE(SUBSTR(SHA2(GROUP_CONCAT(id ORDER BY id SEPARATOR \'\'), 256), 1, 16), \'0\') h
         FROM crm_leads WHERE user_id = ?');
@@ -738,12 +728,14 @@ function crm_carrier_comments(PDO $pdo, string $carrierId): array {
     $comments = [];
     $ids = [];
     foreach ($st as $c) {
+        $isSys = crm_is_sys_comment($c);
         $item = [
             'id' => $c['id'],
             'text' => $c['text'],
             'author' => (trim((string) ($c['live_name'] ?? '')) !== '' ? $c['live_name'] : $c['author']),
             'userId' => (int) ($c['user_id'] ?? 0),
             'time' => (int) $c['time'],
+            'isSystem' => $isSys,
             'attachments' => [],
         ];
         if ($c['edited_at'] !== null) $item['editedAt'] = (int) $c['edited_at'];
@@ -1308,12 +1300,14 @@ function crm_comments_payload(PDO $pdo, array $rows): array {
     $byComment = [];
     $order = [];
     foreach ($rows as $c) {
+        $isSys = crm_is_sys_comment($c);
         $item = [
             'id' => $c['id'],
             'text' => $c['text'],
             'author' => (trim((string) ($c['live_name'] ?? '')) !== '' ? $c['live_name'] : $c['author']),
             'userId' => (int) ($c['user_id'] ?? 0),
             'time' => (int) $c['time'],
+            'isSystem' => $isSys,
             'attachments' => [],
         ];
         if ($c['edited_at'] !== null) $item['editedAt'] = (int) $c['edited_at'];
@@ -1372,6 +1366,9 @@ function crm_login_attempts_gc(PDO $pdo): void {
 }
 
 function crm_login_fail(PDO $pdo, string $email, string $ip = ''): void {
+    // Нормализация IP: crm_login_throttled считает по '0.0.0.0' при пустом IP,
+    // поэтому записываем с тем же значением — иначе подсчёт не найдёт эти строки.
+    if ($ip === '') $ip = '0.0.0.0';
     $pdo->prepare('INSERT INTO crm_login_attempts (email, ip, attempted_at) VALUES (?,?,?)')->execute([$email, $ip, now_ms()]);
     crm_login_attempts_gc($pdo);
 }
@@ -1381,11 +1378,10 @@ function crm_login_fail(PDO $pdo, string $email, string $ip = ''): void {
  * со всех адресов — каждый вход жертвы обнулял лимит подбирающему пароль с другого IP.
  */
 function crm_login_ok(PDO $pdo, string $email, string $ip = ''): void {
-    if ($ip !== '') {
-        $pdo->prepare('DELETE FROM crm_login_attempts WHERE email = ? AND ip = ?')->execute([$email, $ip]);
-    } else {
-        $pdo->prepare('DELETE FROM crm_login_attempts WHERE email = ?')->execute([$email]);
-    }
+    // Нормализация IP: crm_login_fail сохраняет с '0.0.0.0' при пустом IP,
+    // поэтому удаляем с тем же значением.
+    if ($ip === '') $ip = '0.0.0.0';
+    $pdo->prepare('DELETE FROM crm_login_attempts WHERE email = ? AND ip = ?')->execute([$email, $ip]);
 }
 
 /**
@@ -1515,10 +1511,12 @@ function crm_reserved_user_name(string $name): bool {
 }
 
 /**
- * Системный комментарий определяется по user_id = 0 (а не по строке author).
- * Раньше проверялось совпадение author === 'Система' — это хрупко: ручная правка БД
- * или совпадение имени могло сломать защиту системных записей.
+ * Системный комментарий определяется по пересечению двух условий: user_id = 0 И author = 'Система'.
+ * Только user_id = 0 — недостаточно: миграция v4 могла оставить user_id = 0 у старых пользовательских
+ * комментариев, чей автор не нашёлся в crm_users. Только author — хрупко (ручная правка БД).
+ * Пересечение исключает оба ложных срабатывания.
  */
 function crm_is_sys_comment(array $c): bool {
-    return (int) ($c['user_id'] ?? -1) === 0;
+    return (int) ($c['user_id'] ?? -1) === 0
+        && trim((string) ($c['author'] ?? '')) === 'Система';
 }

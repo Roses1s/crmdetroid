@@ -1237,7 +1237,11 @@ switch ($action) {
             $pdo->prepare('UPDATE crm_leads SET manager = ? WHERE user_id = ? AND manager = ?')->execute([$name, $id, (string) $target['name']]);
         }
         if ($pass !== '') {
-            $pdo->prepare('UPDATE crm_users SET password = ? WHERE id = ?')->execute([password_hash($pass, PASSWORD_DEFAULT), $id]);
+            // Инкрементируем token_version при смене пароля: все существующие сессии этого
+            // пользователя инвалидируются. Раньше это работало неявно (хэш пароля входит в
+            // crm_pw_fingerprint), но явная инвалидация надёжнее — не зависит от состава fingerprint.
+            $pdo->prepare('UPDATE crm_users SET password = ?, token_version = token_version + 1 WHERE id = ?')
+                ->execute([password_hash($pass, PASSWORD_DEFAULT), $id]);
             if ($id === (int) $user['id']) {
                 $fresh = crm_user_by_id($pdo, $id);
                 if ($fresh) $_SESSION['pw'] = crm_pw_fingerprint($fresh);

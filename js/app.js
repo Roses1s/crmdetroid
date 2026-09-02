@@ -284,8 +284,11 @@ async function ensureLeadFull(id) {
   return lead;
 }
 
+// Системность определяется сервером (crm_is_sys_comment) и передаётся в поле isSystem.
+// Раньше клиент проверял author === 'Система' — это рассинхронизировалось с сервером,
+// который проверял user_id = 0. Теперь один источник правды — сервер.
 function isSystemComment(c) {
-  return String(c?.author || '').trim() === 'Система';
+  return !!c?.isSystem;
 }
 function isReservedUserName(name) {
   const n = String(name || '').trim().toLowerCase();
