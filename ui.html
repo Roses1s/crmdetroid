@@ -25,12 +25,12 @@
   <div class="toolbar toolbar-sub">
     <button class="btn btn-secondary btn-sm" data-action="go-home">← Назад к лидам</button>
     <div class="lead-nav" id="lead-nav">
-      <button type="button" class="btn btn-secondary btn-sm" id="btn-prev-lead" data-action="prev-lead" title="Предыдущий лид">←</button>
-      <span class="lead-nav-pos" id="lead-nav-pos"></span>
-      <button type="button" class="btn btn-secondary btn-sm" id="btn-next-lead" data-action="next-lead" title="Следующий лид">→</button>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-prev-lead" data-action="prev-lead" title="Предыдущий лид" aria-label="Предыдущий лид">←</button>
+      <span class="lead-nav-pos" id="lead-nav-pos" aria-live="polite"></span>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-next-lead" data-action="next-lead" title="Следующий лид" aria-label="Следующий лид">→</button>
     </div>
     <div class="stages-row ml-15" id="stages-row"></div>
-    <button class="btn btn-danger btn-sm ml-auto" data-action="delete-lead">🗑️ Удалить</button>
+    <button class="btn btn-danger btn-sm ml-auto" data-action="delete-lead" aria-label="Удалить лид">🗑️ Удалить</button>
   </div>
   <div class="detail-body">
     <div class="form-panel">
@@ -104,7 +104,7 @@
   <div class="toolbar toolbar-sub">
     <button class="btn btn-secondary btn-sm" data-action="go-routes">← К направлениям</button>
     <button class="btn btn-primary btn-sm ml-10" data-action="new-carrier">+ Перевозчик</button>
-    <button class="btn btn-danger btn-sm ml-auto" data-action="delete-direction">🗑️ Удалить направление</button>
+    <button class="btn btn-danger btn-sm ml-auto" data-action="delete-direction" aria-label="Удалить направление">🗑️ Удалить направление</button>
   </div>
   <div class="carriers-wrap">
     <table class="users-table">
@@ -123,7 +123,7 @@
       <span class="lead-nav-pos" id="carrier-nav-pos"></span>
       <button type="button" class="btn btn-secondary btn-sm" id="btn-next-carrier" data-action="next-carrier" title="Следующий перевозчик">→</button>
     </div>
-    <button class="btn btn-danger btn-sm ml-auto" data-action="delete-carrier">🗑️ Удалить</button>
+    <button class="btn btn-danger btn-sm ml-auto" data-action="delete-carrier" aria-label="Удалить перевозчика">🗑️ Удалить</button>
   </div>
   <div class="detail-body">
     <div class="form-panel">

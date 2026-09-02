@@ -6,6 +6,19 @@ declare(strict_types=1);
  * Подключается из api.php после config.php. Ниже — общие примитивы ответа и времени,
  * которыми пользуются и этот файл, и api.php (раньше они жили в api.php, и db.php
  * зависел от подключающего файла).
+ *
+ * TODO(архитектура #18): при следующем крупном рефакторинге разделить на файлы:
+ *   http.php     — out/ok/err/body_json (HTTP-ответы, не уровень данных)
+ *   security.php — crm_client_ip, crm_ip_in_list, crm_upload_magic_ok, crm_allowed_upload,
+ *                  crm_csrf_secret, crm_login_csrf_issue/ok, crm_pass_ok, crm_pw_fingerprint
+ *   files.php    — crm_serve_file, crm_sweep_uploads, crm_unlink_upload, crm_short_filename
+ *   migrations.php — crm_migrate, crm_migrate_v4..v13, crm_boot, crm_run_migrations
+ *   db.php       — только crm_pdo, SQL-хелперы (crm_*_by_id, crm_*_list, crm_touch_*)
+ * Это уменьшит каждый файл до 200–400 строк и позволит использовать db.php в CLI (cron).
+ *
+ * TODO(архитектура #20): out/ok/err вызывают header() и exit — это HTTP-уровень.
+ * crm_pdo() должен бросать RuntimeException при ошибке подключения, а api.php — ловить
+ * и отдавать JSON-ответ. Это позволит использовать db.php без HTTP-контекста.
  */
 
 /** Отправить JSON и завершить запрос. */
@@ -110,7 +123,7 @@ function crm_pdo(): PDO {
     return $pdo;
 }
 
-const CRM_SCHEMA_VERSION = 12;
+const CRM_SCHEMA_VERSION = 13;
 /** Минимальная длина запроса (символов названия или цифр ИНН), при которой ищем пересечения с чужими лидами. */
 const CRM_SEARCH_MIN_CHARS = 4;
 
@@ -155,6 +168,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v10($pdo);
     crm_migrate_v11($pdo);
     crm_migrate_v12($pdo);
+    crm_migrate_v13($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -426,6 +440,71 @@ function crm_migrate_v12(PDO $pdo): void {
     }
 }
 
+/**
+ * v13: составные индексы под ORDER BY в реальных запросах.
+ * - crm_comments(lead_id, time): выборка комментариев лида с сортировкой по времени;
+ * - crm_carrier_comments(carrier_id, time): аналогично для перевозчиков;
+ * - crm_lead_apps(lead_id, created_at): заявки лида с сортировкой по дате создания.
+ * Без этих индексов MySQL делал filesort после фильтрации по первому столбцу.
+ */
+function crm_migrate_v13(PDO $pdo): void {
+    if (!crm_has_index($pdo, 'crm_comments', 'idx_lead_time')) {
+        try { $pdo->exec('ALTER TABLE crm_comments ADD KEY idx_lead_time (lead_id, time)'); } catch (PDOException $e) { /* ok */ }
+    }
+    if (!crm_has_index($pdo, 'crm_carrier_comments', 'idx_carrier_time')) {
+        try { $pdo->exec('ALTER TABLE crm_carrier_comments ADD KEY idx_carrier_time (carrier_id, time)'); } catch (PDOException $e) { /* ok */ }
+    }
+    if (!crm_has_index($pdo, 'crm_lead_apps', 'idx_lead_created')) {
+        try { $pdo->exec('ALTER TABLE crm_lead_apps ADD KEY idx_lead_created (lead_id, created_at)'); } catch (PDOException $e) { /* ok */ }
+    }
+}
+
+/**
+ * Проверка ссылочной целостности (замена FOREIGN KEY, которых нет в схеме).
+ * Возвращает список найденных orphan-записей: [таблица, id, описание].
+ * Вызывается из ?action=integrity_check (только для админа) или из cron-скрипта.
+ */
+function crm_integrity_check(PDO $pdo): array {
+    $issues = [];
+    // Комментарии без лида
+    $st = $pdo->query('SELECT c.id FROM crm_comments c LEFT JOIN crm_leads l ON l.id = c.lead_id WHERE l.id IS NULL LIMIT 100');
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $issues[] = ['crm_comments', $id, 'комментарий без лида'];
+    }
+    // Комментарии перевозчиков без перевозчика
+    $st = $pdo->query('SELECT c.id FROM crm_carrier_comments c LEFT JOIN crm_carriers k ON k.id = c.carrier_id WHERE k.id IS NULL LIMIT 100');
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $issues[] = ['crm_carrier_comments', $id, 'комментарий без перевозчика'];
+    }
+    // Вложения без комментария
+    $st = $pdo->query('SELECT a.id FROM crm_attachments a LEFT JOIN crm_comments c ON c.id = a.comment_id WHERE c.id IS NULL LIMIT 100');
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $issues[] = ['crm_attachments', $id, 'вложение без комментария'];
+    }
+    $st = $pdo->query('SELECT a.id FROM crm_carrier_attachments a LEFT JOIN crm_carrier_comments c ON c.id = a.comment_id WHERE c.id IS NULL LIMIT 100');
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $issues[] = ['crm_carrier_attachments', $id, 'вложение без комментария перевозчика'];
+    }
+    // Заявки без лида
+    try {
+        $st = $pdo->query('SELECT a.id FROM crm_lead_apps a LEFT JOIN crm_leads l ON l.id = a.lead_id WHERE l.id IS NULL LIMIT 100');
+        foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            $issues[] = ['crm_lead_apps', $id, 'заявка без лида'];
+        }
+    } catch (PDOException $e) { /* v8 table may not exist */ }
+    // Перевозчики без направления
+    $st = $pdo->query('SELECT c.id FROM crm_carriers c LEFT JOIN crm_directions d ON d.id = c.direction_id WHERE d.id IS NULL LIMIT 100');
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $issues[] = ['crm_carriers', $id, 'перевозчик без направления'];
+    }
+    // Лиды без владельца (user_id не в crm_users)
+    $st = $pdo->query('SELECT l.id FROM crm_leads l LEFT JOIN crm_users u ON u.id = l.user_id WHERE u.id IS NULL LIMIT 100');
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $issues[] = ['crm_leads', $id, 'лид без владельца'];
+    }
+    return $issues;
+}
+
 /** DECIMAL из БД → строка для API: '45000' / '1234.50' / '' (как вводил пользователь, без хвоста .00). */
 function crm_money_out($v): string {
     if ($v === null || $v === '') return '';
@@ -460,7 +539,8 @@ function crm_migrate_v8(PDO $pdo): void {
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL DEFAULT 0,
       PRIMARY KEY (id),
-      KEY idx_lead (lead_id)
+      KEY idx_lead (lead_id),
+      KEY idx_lead_created (lead_id, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
@@ -582,6 +662,7 @@ function crm_migrate(PDO $pdo): void {
       edited_at BIGINT NULL,
       PRIMARY KEY (id),
       KEY idx_lead (lead_id),
+      KEY idx_lead_time (lead_id, time),
       KEY idx_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
@@ -643,6 +724,7 @@ function crm_migrate_routes(PDO $pdo): void {
       edited_at BIGINT NULL,
       PRIMARY KEY (id),
       KEY idx_carrier (carrier_id),
+      KEY idx_carrier_time (carrier_id, time),
       KEY idx_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
@@ -1010,6 +1092,27 @@ function crm_purge_lead(PDO $pdo, string $id, bool $ownTxn = true): array {
 }
 
 /**
+ * Передать один лид от $fromUid к $toId (внутри уже открытой транзакции).
+ * Этап сохраняется, если такой есть у получателя, иначе — первый этап получателя.
+ * $viaName — кто фактически передал (админ через ?as=), пусто если сам владелец.
+ * Возвращает имя получателя или null при ошибке.
+ */
+function crm_transfer_lead(PDO $pdo, string $leadId, int $fromUid, int $toId, string $fromName, string $stage, string $viaName = '', int $updatedAt = 0): ?string {
+    $to = crm_user_by_id($pdo, $toId);
+    if (!$to) return null;
+    $toName = (string) $to['name'];
+    $toStages = crm_stages($pdo, $toId);
+    $newStage = in_array($stage, $toStages, true) ? $stage : ($toStages[0] ?? $stage);
+    $now = now_ms();
+    $tr = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
+    $tr->execute([$toId, $newStage, $toName, $now, $leadId, $fromUid, $updatedAt]);
+    if ($tr->rowCount() === 0) return null;
+    $via = $viaName !== '' ? ' (передал ' . $viaName . ')' : '';
+    crm_sys_comment($pdo, $leadId, 'Лид передан: ' . $fromName . ' → ' . $toName . $via);
+    return $toName;
+}
+
+/**
  * Передать все лиды сотрудника $from сотруднику $to (внутри уже открытой транзакции).
  * Этап сохраняется, если такой есть у получателя, иначе — первый этап получателя.
  * Возвращает число переданных лидов.
@@ -1348,6 +1451,25 @@ function crm_lead_comments(PDO $pdo, string $leadId): array {
 function crm_sys_comment(PDO $pdo, string $leadId, string $text): void {
     $st = $pdo->prepare('INSERT INTO crm_comments (id, lead_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,0,?,NULL)');
     $st->execute(['c_' . bin2hex(random_bytes(6)), $leadId, $text, 'Система', now_ms()]);
+}
+
+/**
+ * Обобщённая вставка комментария (#19): одна функция для лидов и перевозчиков.
+ * $commentTable: 'crm_comments' | 'crm_carrier_comments'
+ * $attTable: 'crm_attachments' | 'crm_carrier_attachments'
+ * $fkColumn: 'lead_id' | 'carrier_id'
+ * $prefix: 'c_' | 'cc_' — префикс id комментария
+ * Возвращает id созданного комментария.
+ */
+function crm_insert_comment(PDO $pdo, string $commentTable, string $attTable, string $fkColumn, string $fkId, string $text, array $user, array $atts, string $prefix = 'c_'): string {
+    $cid = $prefix . bin2hex(random_bytes(6));
+    $pdo->prepare("INSERT INTO {$commentTable} (id, {$fkColumn}, text, author, user_id, time, edited_at) VALUES (?,?,?,?,?,?,NULL)")
+        ->execute([$cid, $fkId, $text, $user['name'], (int) $user['id'], now_ms()]);
+    if ($atts) {
+        $insA = $pdo->prepare("INSERT INTO {$attTable} (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)");
+        foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
+    }
+    return $cid;
 }
 
 function crm_login_throttled(PDO $pdo, string $email, string $ip = ''): bool {

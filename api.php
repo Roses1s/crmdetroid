@@ -3,9 +3,22 @@
  * CRM «Детроид» — API на MySQL.
  * Контракт: api.php?action=...
  *
- * TODO(архитектура): при следующем крупном изменении вынести actions в отдельные файлы
- * (actions/lead.php, actions/comment.php, actions/user.php, actions/routes.php и т.д.),
- * а в api.php оставить только роутинг, middleware (auth/csrf/throttle) и ответ.
+ * TODO(архитектура #15): вынести actions в отдельные файлы.
+ * План разделения (32 case → ~8 файлов):
+ *   actions/lead.php    — save_lead, move_lead, delete_lead, get_lead, get_data, save_lead_app, delete_lead_app
+ *   actions/comment.php — add_comment, edit_comment, delete_comment, delete_attachment, get_comments
+ *   actions/user.php    — register_user, update_user, delete_user, get_users, change_password, check_auth
+ *   actions/routes.php  — save_direction, delete_direction, get_directions, save_carrier, delete_carrier,
+ *                         get_carriers, get_carrier, add_carrier_comment, edit_carrier_comment, delete_carrier_comment
+ *   actions/search.php  — search_leads
+ *   actions/admin.php   — whoami, sweep_uploads, integrity_check
+ *   actions/auth.php    — login, logout, csrf
+ *   actions/stages.php  — save_stages
+ * Каждый action-файл экспортирует функцию crm_action_xxx(PDO $pdo, array $user, int $viewUid): never.
+ * В api.php остаётся: require actions/*.php, middleware (auth/csrf/throttle), роутинг switch.
+ *
+ * TODO(архитектура #20): вынести out/ok/err в http.php — функции HTTP-ответа не принадлежат
+ * слою данных (db.php). При этом crm_pdo() должен бросать исключения, а не вызывать err().
  */
 declare(strict_types=1);
 
@@ -487,7 +500,7 @@ if (crm_session_throttled()) err('Слишком много запросов. П
 
 // Только чтение — разрешён GET. Всё остальное меняет данные: строго POST + CSRF-токен.
 // (Раньше мутация проходила и по GET без CSRF — например, GET save_lead создавал пустой лид.)
-$readActions = ['ui', 'whoami', 'get_data', 'get_lead', 'get_comments', 'search_leads', 'get_directions', 'get_carriers', 'get_carrier', 'get_users'];
+$readActions = ['ui', 'whoami', 'get_data', 'get_lead', 'get_comments', 'search_leads', 'get_directions', 'get_carriers', 'get_carrier', 'get_users', 'integrity_check'];
 if (!in_array($action, $readActions, true)) {
     if ($method !== 'POST') err('Метод не поддерживается: нужен POST');
     require_csrf();
@@ -526,6 +539,14 @@ switch ($action) {
         require_admin($user);
         [$checked, $removed] = crm_sweep_uploads($pdo);
         ok(['checked' => $checked, 'removed' => $removed]);
+    }
+
+    case 'integrity_check': {
+        // Диагностика ссылочной целостности (замена FOREIGN KEY, которых нет в схеме).
+        // Находит orphan-записи: комментарии без лида, вложения без комментария и т.д.
+        require_admin($user);
+        $issues = crm_integrity_check($pdo);
+        ok(['issues' => $issues, 'count' => count($issues)]);
     }
 
     case 'ui': {
@@ -804,13 +825,9 @@ switch ($action) {
         if (!crm_carrier_by_id($pdo, $carrierId)) err('Контакт не найден');
         $atts = crm_take_uploads(8);
         if ($text === '' && !$atts) err('Пусто');
-        $cid = 'cc_' . bin2hex(random_bytes(6));
         try {
             $pdo->beginTransaction();
-            $pdo->prepare('INSERT INTO crm_carrier_comments (id, carrier_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,?,?,NULL)')
-                ->execute([$cid, $carrierId, $text, $user['name'], (int) $user['id'], now_ms()]);
-            $insA = $pdo->prepare('INSERT INTO crm_carrier_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
-            foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
+            crm_insert_comment($pdo, 'crm_carrier_comments', 'crm_carrier_attachments', 'carrier_id', $carrierId, $text, $user, $atts, 'cc_');
             $pdo->commit();
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
@@ -951,27 +968,14 @@ switch ($action) {
             // «Продавец», и совпадение по имени могло отдать лид не тому человеку.
             $toId = intv($in['transferTo'] ?? 0);
             if ($toId > 0 && $toId !== $uid) {
-                $to = crm_user_by_id($pdo, $toId);
-                if (!$to) {
+                $via = $uid === (int) $user['id'] ? '' : (string) $user['name'];
+                $toName = crm_transfer_lead($pdo, $id, $uid, $toId, $ownerName, $stage, $via, (int) $row['updated_at'] ?? $now);
+                if ($toName === null) {
                     $pdo->rollBack();
-                    err('Сотрудник не найден');
+                    err($row ? 'Карточка изменена в другом месте' : 'Сотрудник не найден');
                 }
-                $toName = (string) $to['name'];
-                $toStages = crm_stages($pdo, $toId);
-                $newStage = in_array($stage, $toStages, true) ? $stage : ($toStages[0] ?? $stage);
-                $now2 = now_ms();
-                $tr = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
-                $tr->execute([$toId, $newStage, $toName, $now2, $id, $uid, $now]);
-                if ($tr->rowCount() === 0) {
-                    $pdo->rollBack();
-                    err('Карточка изменена в другом месте');
-                }
-                // Отправитель — владелец доски, а не тот, кто нажал (админ может работать с чужой доски через ?as=).
-                // Запись системная: удалить её может только админ (can_delete_comment).
-                $via = $uid === (int) $user['id'] ? '' : ' (передал ' . $user['name'] . ')';
-                crm_sys_comment($pdo, $id, 'Лид передан: ' . $ownerName . ' → ' . $toName . $via);
                 $transferredTo = $toName;
-                $now = $now2;
+                $now = now_ms();
             }
             $pdo->commit();
         } catch (Throwable $e) {
@@ -1045,13 +1049,9 @@ switch ($action) {
         if (!crm_lead_for_user($pdo, $leadId, $viewUid)) err('Лид не найден');
         $atts = crm_take_uploads(8);
         if ($text === '' && !$atts) err('Пусто');
-        $cid = 'c_' . bin2hex(random_bytes(6));
         try {
             $pdo->beginTransaction();
-            $pdo->prepare('INSERT INTO crm_comments (id, lead_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,?,?,NULL)')
-                ->execute([$cid, $leadId, $text, $user['name'], (int) $user['id'], now_ms()]);
-            $insA = $pdo->prepare('INSERT INTO crm_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
-            foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
+            crm_insert_comment($pdo, 'crm_comments', 'crm_attachments', 'lead_id', $leadId, $text, $user, $atts, 'c_');
             $pdo->commit();
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();

@@ -123,10 +123,71 @@ const Toast = {
   error(m) { this.show(m, 'error', 4000); }
 };
 
+// Loading overlay: показывается при первичной загрузке и долгих операциях (#2).
+// Анти-дрожжание: показываем не сразу, а через 300ms — быстрые запросы не мерцают.
+const Loading = {
+  _timer: null, _count: 0,
+  show() {
+    this._count++;
+    if (this._timer) return;
+    this._timer = setTimeout(() => {
+      const el = $('#loading-overlay');
+      if (el) { el.classList.add('show'); el.setAttribute('aria-hidden', 'false'); }
+    }, 300);
+  },
+  hide() {
+    this._count = Math.max(0, this._count - 1);
+    if (this._count > 0) return;
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    const el = $('#loading-overlay');
+    if (el) { el.classList.remove('show'); el.setAttribute('aria-hidden', 'true'); }
+  }
+};
+
+// Focus-trap для модалок (#4): Tab/Shift+Tab循环 внутри открытой модалки.
+function trapFocus(modalEl) {
+  const focusable = modalEl.querySelectorAll('input, select, textarea, button, [tabindex]:not([tabindex="-1"])');
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  first.focus();
+  modalEl._trapHandler = (e) => {
+    if (e.key !== 'Tab') return;
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+  modalEl.addEventListener('keydown', modalEl._trapHandler);
+}
+function releaseFocusTrap(modalEl) {
+  if (modalEl && modalEl._trapHandler) {
+    modalEl.removeEventListener('keydown', modalEl._trapHandler);
+    delete modalEl._trapHandler;
+  }
+}
+
 const Modal = {
-  open(id) { const el = $('#'+id); if (el) el.classList.add('open'); },
-  close(id) { const el = $('#'+id); if (el) el.classList.remove('open'); },
-  closeAll() { $$('.modal-backdrop').forEach(m => m.classList.remove('open')); }
+  open(id) {
+    const el = $('#'+id);
+    if (!el) return;
+    el.classList.add('open');
+    // A11y (#4): role="dialog", aria-modal, focus-trap
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    const title = el.querySelector('h2');
+    if (title && !el.hasAttribute('aria-labelledby')) {
+      if (!title.id) title.id = id + '-title';
+      el.setAttribute('aria-labelledby', title.id);
+    }
+    setTimeout(() => trapFocus(el), 50);
+  },
+  close(id) {
+    const el = $('#'+id);
+    if (!el) return;
+    el.classList.remove('open');
+    releaseFocusTrap(el);
+  },
+  closeAll() {
+    $$('.modal-backdrop').forEach(m => { m.classList.remove('open'); releaseFocusTrap(m); });
+  }
 };
 
 let _promptResolver = null, _confirmResolver = null;
@@ -190,13 +251,12 @@ const Store = {
   viewUserId: null, viewUserName: '',
   state: { stages: [], leads: [], user: null, colleagues: [] },
   async load(force = false) {
+    if (force) Loading.show();
+    try {
     const res = await Net.req('get_data');
     if (!res || !res.success) return;
     if (res.unchanged) {
       if (!force) return;
-      // Принудительная загрузка при совпавшем хэше (например, повторный вход в той же вкладке
-      // после истечения сессии): у сервера нет данных в ответе, а состояние уже сброшено —
-      // запрашиваем без хэша, иначе доска останется пустой.
       Net.hash = null;
       return this.load(true);
     }
@@ -245,6 +305,7 @@ const Store = {
     if (UI.currentView === 'routes') loadRoutes();
     if (UI.currentView === 'route' && UI.routeId) openRoute(UI.routeId, false);
     if (UI.currentView === 'carrier' && UI.carrierId && !UI.pendingFiles.length) openCarrier(UI.carrierId, false);
+    } finally { if (force) Loading.hide(); }
   },
   getLead(id) {
     if (!id) return null;
@@ -888,6 +949,13 @@ async function loadUsers() {
   _usersCache = res.users || [];
   const tbody = $('#users-tbody'); tbody.innerHTML = '';
   const currId = Store.state.user.id;
+  // Empty state (#3): если в системе только текущий пользователь — показываем подсказку
+  if (_usersCache.length <= 1) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7" class="cell-muted">Добавьте сотрудников, чтобы распределять лиды и вести совместную работу.</td>';
+    tbody.appendChild(tr);
+    if (_usersCache.length === 0) return;
+  }
   _usersCache.forEach(u => {
     const tr = document.createElement('tr');
     const role = u.role === 'admin' ? 'admin' : 'user';
@@ -1834,6 +1902,13 @@ function initAppEvents() {
     const card = e.target.closest('.card'); if (card) openLead(card.dataset.id, true);
   });
 
+  initKeyboardShortcuts();
+
+  initDragDrop();
+}
+
+/** Глобальные клавиатурные сокращения (#16: вынесено из initAppEvents). */
+function initKeyboardShortcuts() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Enter' && $('#modal-lead-app.open') && !$('#modal-confirm.open') && !$('#modal-prompt.open') && !$('#modal-password.open')) {
       const tag = (document.activeElement && document.activeElement.tagName) || '';
@@ -1868,7 +1943,10 @@ function initAppEvents() {
       }
     }
   });
+}
 
+/** Drag-n-drop для карточек и колонок канбан-доски (#16: вынесено из initAppEvents). */
+function initDragDrop() {
   const b = $('#board');
   b.addEventListener('dragstart', e => {
     const card = e.target.closest('.card'), col = e.target.closest('.column');
