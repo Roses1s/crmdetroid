@@ -28,7 +28,7 @@ function crm_log_fail(string $where, Throwable $e): void {
 }
 
 /** @return list<array{0:string,1:int}> */
-function crm_mysql_targets(string $host, int $port): array {
+function crm_mysql_targets(string $host, int $port, bool $allowFallback = false): array {
     $host = trim($host);
     if (preg_match('/^([^:;]+)[:;](?:port=)?(\d+)$/', $host, $m)) {
         $host = $m[1];
@@ -43,9 +43,12 @@ function crm_mysql_targets(string $host, int $port): array {
         $out[] = [$h, $p];
     };
     $add($host, $port);
-    // SpaceWeb MySQL 8 слушает 127.0.0.1:3308, не стандартный 3306.
-    $add('127.0.0.1', 3308);
-    $add('localhost', 3308);
+    // Фолбэк на SpaceWeb MySQL 8 (127.0.0.1:3308) — только при явном включении.
+    // Без этого флага молчаливое подключение к другому MySQL на том же сервере — риск утечки данных.
+    if ($allowFallback) {
+        $add('127.0.0.1', 3308);
+        $add('localhost', 3308);
+    }
     return $out;
 }
 
@@ -77,12 +80,18 @@ function crm_pdo(): PDO {
         PDO::MYSQL_ATTR_FOUND_ROWS => true,
     ];
     $port = defined('CRM_DB_PORT') ? (int) CRM_DB_PORT : 0;
-    $targets = crm_mysql_targets(CRM_DB_HOST, $port);
+    // Фолбэк на 127.0.0.1:3308 / localhost:3308 — только если явно включён в config.php
+    // (CRM_DB_FALLBACK=1). Без этого флага подключение идёт строго к сконфигурированному хосту:
+    // раньше молчаливый фолбэк мог увести подключение в чужой MySQL на том же сервере.
+    $allowFallback = defined('CRM_DB_FALLBACK') && CRM_DB_FALLBACK;
+    $targets = crm_mysql_targets(CRM_DB_HOST, $port, $allowFallback);
     $last = null;
+    $connectedTo = null;
     foreach ($targets as [$host, $p]) {
         try {
             $dsn = 'mysql:host=' . $host . ($p ? ';port=' . $p : '') . ';dbname=' . CRM_DB_NAME . ';charset=' . CRM_DB_CHARSET;
             $pdo = new PDO($dsn, CRM_DB_USER, CRM_DB_PASS, $opts);
+            $connectedTo = $host . ':' . $p;
             break;
         } catch (PDOException $e) {
             $last = $e;
@@ -92,11 +101,16 @@ function crm_pdo(): PDO {
     if (!$pdo instanceof PDO) {
         err(crm_mysql_connect_hint($last ?? new PDOException('unknown')));
     }
+    // Если подключились не к сконфигурированному хосту — логируем (помогает найти проблемы конфигурации)
+    $configured = trim(CRM_DB_HOST) . ':' . ($port ?: 3306);
+    if ($connectedTo !== null && $connectedTo !== $configured) {
+        error_log('CRM: подключились к ' . $connectedTo . ' вместо сконфигурированного ' . $configured);
+    }
     crm_boot($pdo);
     return $pdo;
 }
 
-const CRM_SCHEMA_VERSION = 11;
+const CRM_SCHEMA_VERSION = 12;
 /** Минимальная длина запроса (символов названия или цифр ИНН), при которой ищем пересечения с чужими лидами. */
 const CRM_SEARCH_MIN_CHARS = 4;
 
@@ -140,6 +154,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v9($pdo);
     crm_migrate_v10($pdo);
     crm_migrate_v11($pdo);
+    crm_migrate_v12($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -340,6 +355,17 @@ function crm_legacy_money(string $v): ?string {
  * Исходные строки сохраняются в rate_raw / margin_raw (ничего не теряется, можно свериться и
  * поправить руками), в DECIMAL попадают только однозначно распознанные суммы (crm_legacy_money).
  */
+/**
+ * v10: ставка и маржа заявки — DECIMAL(15,2) NULL вместо VARCHAR.
+ * Раньше суммы считались через CAST(REPLACE(...)), а любой мусор в строке молча превращался в 0.
+ * Исходные строки сохраняются в rate_raw / margin_raw (ничего не теряется, можно свериться и
+ * поправить руками), в DECIMAL попадают только однозначно распознанные суммы (crm_legacy_money).
+ *
+ * Безопасность: DDL (ALTER TABLE MODIFY) в MySQL 8 не транзакционный. Если ALTER упадёт после
+ * нормализации но до финального MODIFY — колонка останется VARCHAR с частично нормализованными
+ * значениями. Исходник всегда доступен в *_raw; восстановление: UPDATE ... SET col = raw WHERE raw IS NOT NULL.
+ * Поэтому перед обновлением — дамп БД (см. README).
+ */
 function crm_migrate_v10(PDO $pdo): void {
     foreach (['rate', 'margin'] as $col) {
         if (!crm_has_column($pdo, 'crm_lead_apps', $col)) continue;
@@ -393,6 +419,19 @@ function crm_migrate_v11(PDO $pdo): void {
     }
 }
 
+/**
+ * v12: token_version в crm_users — счётчик инвалидации сессий.
+ * Инкрементируется при смене роли (admin → user / user → admin): все существующие сессии
+ * этого пользователя перестают действовать на следующем запросе (crm_pw_fingerprint
+ * включает token_version, и отпечаток в сессии больше не совпадает).
+ * Раньше снятый админ продолжал иметь полные права до истечения сессии (до 8 часов).
+ */
+function crm_migrate_v12(PDO $pdo): void {
+    if (!crm_has_column($pdo, 'crm_users', 'token_version')) {
+        $pdo->exec("ALTER TABLE crm_users ADD COLUMN token_version INT UNSIGNED NOT NULL DEFAULT 0 AFTER role");
+    }
+}
+
 /** DECIMAL из БД → строка для API: '45000' / '1234.50' / '' (как вводил пользователь, без хвоста .00). */
 function crm_money_out($v): string {
     if ($v === null || $v === '') return '';
@@ -438,10 +477,22 @@ function crm_migrate_v8(PDO $pdo): void {
  * Счётчик справочника (routes) сюда не входит: доска маршруты не показывает, а раньше любой
  * комментарий к перевозчику заставлял все клиенты перекачивать доски целиком.
  */
+/**
+ * Ревизия доски для get_data (клиент сравнивает хэш и не качает данные, если ничего не менялось).
+ * Любое изменение лида или его лога проходит через crm_touch_lead → updated_at, поэтому достаточно
+ * агрегатов по crm_leads (без прохода по всем комментариям пользователя, как было раньше).
+ * Счётчик справочника (routes) сюда не входит: доска маршруты не показывает, а раньше любой
+ * комментарий к перевозчику заставлял все клиенты перекачивать доски целиком.
+ *
+ * Хэш id считается через SHA2 (а не CRC32, как раньше): CRC32 — 32 бита, коллизии реальны
+ * при сотнях лидов, и клиент «залипал» на устаревших данных.
+ */
 function crm_board_rev(PDO $pdo, int $userId): string {
-    $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(updated_at),0) u, COALESCE(MAX(created_at),0) cr, COALESCE(SUM(CRC32(id)),0) h FROM crm_leads WHERE user_id = ?');
+    $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(updated_at),0) u, COALESCE(MAX(created_at),0) cr,
+        COALESCE(SUBSTR(SHA2(GROUP_CONCAT(id ORDER BY id SEPARATOR \'\'), 256), 1, 16), \'0\') h
+        FROM crm_leads WHERE user_id = ?');
     $st->execute([$userId]);
-    $L = $st->fetch() ?: ['c' => 0, 'u' => 0, 'cr' => 0, 'h' => 0];
+    $L = $st->fetch() ?: ['c' => 0, 'u' => 0, 'cr' => 0, 'h' => '0'];
     $stages = implode("\n", crm_stages($pdo, $userId));
     return $userId . '|' . $L['c'] . '|' . $L['u'] . '|' . $L['cr'] . '|' . $L['h']
         . '|' . crm_meta_get($pdo, 'users') . '|' . $stages;
@@ -836,6 +887,7 @@ function crm_serve_file(PDO $pdo, string $name, array $user): never {
     $url = 'uploads/' . $name;
     $uid = (int) ($user['id'] ?? 0);
     $admin = (($user['role'] ?? '') === 'admin');
+    // Файлы лидов: доступ только владельцу доски (или админу).
     $st = $pdo->prepare('SELECT a.name, l.user_id FROM crm_attachments a
         INNER JOIN crm_comments c ON c.id = a.comment_id
         INNER JOIN crm_leads l ON l.id = c.lead_id
@@ -845,6 +897,8 @@ function crm_serve_file(PDO $pdo, string $name, array $user): never {
     if ($row && !$admin && (int) $row['user_id'] !== $uid) {
         $row = null;
     }
+    // Файлы перевозчиков: доступны всем авторизованным (справочник направлений/перевозчиков — общий,
+    // см. README «Права и правила»: добавлять и вести лог могут все сотрудники).
     if (!$row) {
         $st = $pdo->prepare('SELECT name FROM crm_carrier_attachments WHERE data_url = ? LIMIT 1');
         $st->execute([$url]);
@@ -1297,17 +1351,16 @@ function crm_sys_comment(PDO $pdo, string $leadId, string $text): void {
 }
 
 function crm_login_throttled(PDO $pdo, string $email, string $ip = ''): bool {
+    // Пустой IP (crm_client_ip вернул '' при невалидном REMOTE_ADDR) — используем '0.0.0.0',
+    // чтобы IP-лимит всё равно считался. Раньше при пустом IP лимит 80/IP пропускался,
+    // и злоумышленник с невалидным адресом обходил защиту.
+    if ($ip === '') $ip = '0.0.0.0';
     $since = now_ms() - 15 * 60 * 1000;
-    if ($ip !== '') {
-        $st = $pdo->prepare("SELECT COUNT(*) FROM crm_login_attempts WHERE ip = ? AND email NOT LIKE '#%' AND attempted_at > ?");
-        $st->execute([$ip, $since]);
-        if ((int) $st->fetchColumn() >= 80) return true;
-        $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE email = ? AND ip = ? AND attempted_at > ?');
-        $st->execute([$email, $ip, $since]);
-        return (int) $st->fetchColumn() >= 8;
-    }
-    $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE email = ? AND attempted_at > ?');
-    $st->execute([$email, $since]);
+    $st = $pdo->prepare("SELECT COUNT(*) FROM crm_login_attempts WHERE ip = ? AND email NOT LIKE '#%' AND attempted_at > ?");
+    $st->execute([$ip, $since]);
+    if ((int) $st->fetchColumn() >= 80) return true;
+    $st = $pdo->prepare('SELECT COUNT(*) FROM crm_login_attempts WHERE email = ? AND ip = ? AND attempted_at > ?');
+    $st->execute([$email, $ip, $since]);
     return (int) $st->fetchColumn() >= 8;
 }
 
@@ -1335,23 +1388,19 @@ function crm_login_ok(PDO $pdo, string $email, string $ip = ''): void {
     }
 }
 
-/** Переименования стадий: не трогать лиды при обычной перестановке колонок. */
+/**
+ * Переименования стадий: не трогать лиды при обычной перестановке колонок.
+ * Переименование определяется только если ровно один старый этап исчез и ровно один новый появился
+ * (остальные — те же, возможно в другом порядке). Во всех остальных случаях (добавление, удаление,
+ * массовая замена) — пустой список: лиды с неизвестным этапом ниже ловит UPDATE ... NOT IN.
+ */
 function crm_stage_renames(array $old, array $ns): array {
-    $oldSorted = $old;
-    $newSorted = $ns;
-    sort($oldSorted, SORT_STRING);
-    sort($newSorted, SORT_STRING);
-    if ($oldSorted === $newSorted) return [];
-    $renames = [];
-    if (count($old) !== count($ns)) return $renames;
-    foreach ($old as $i => $name) {
-        $to = $ns[$i] ?? '';
-        if ($to === '' || $to === $name) continue;
-        if (!in_array($to, $old, true) && !in_array($name, $ns, true)) {
-            $renames[] = [$name, $to];
-        }
+    $removed = array_diff($old, $ns);
+    $added = array_diff($ns, $old);
+    if (count($removed) === 1 && count($added) === 1) {
+        return [[array_values($removed)[0], array_values($added)[0]]];
     }
-    return $renames;
+    return [];
 }
 
 function crm_like_pat(string $s): string {
@@ -1366,7 +1415,9 @@ function crm_search_leads(PDO $pdo, int $userId, string $q): array {
     $titlePat = crm_like_pat($q);
     $ownSql = 'SELECT id, title, inn, stage, phone FROM crm_leads WHERE user_id = ? AND (title LIKE ?';
     $ownParams = [$userId, $titlePat];
-    if (strlen($digits) >= 2) {
+    // Свой поиск по ИНН — тоже от 4 цифр (раньше было 2): по двузначным фрагментам
+    // перебирались все лиды с похожим ИНН, что при большом объёме замедляло поиск.
+    if (strlen($digits) >= CRM_SEARCH_MIN_CHARS) {
         $ownSql .= ' OR inn LIKE ?';
         $ownParams[] = crm_like_pat($digits);
     }
@@ -1463,6 +1514,11 @@ function crm_reserved_user_name(string $name): bool {
     return $n === 'система' || $n === 'system';
 }
 
+/**
+ * Системный комментарий определяется по user_id = 0 (а не по строке author).
+ * Раньше проверялось совпадение author === 'Система' — это хрупко: ручная правка БД
+ * или совпадение имени могло сломать защиту системных записей.
+ */
 function crm_is_sys_comment(array $c): bool {
-    return trim((string) ($c['author'] ?? '')) === 'Система';
+    return (int) ($c['user_id'] ?? -1) === 0;
 }

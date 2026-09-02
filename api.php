@@ -2,6 +2,10 @@
 /**
  * CRM «Детроид» — API на MySQL.
  * Контракт: api.php?action=...
+ *
+ * TODO(архитектура): при следующем крупном изменении вынести actions в отдельные файлы
+ * (actions/lead.php, actions/comment.php, actions/user.php, actions/routes.php и т.д.),
+ * а в api.php оставить только роутинг, middleware (auth/csrf/throttle) и ответ.
  */
 declare(strict_types=1);
 
@@ -130,12 +134,15 @@ function crm_session_touch(bool $touch = true): void {
     if ($touch) $_SESSION['last'] = time();
 }
 /**
- * Отпечаток пароля в сессии: после смены пароля (своей или админом) все остальные сессии этого
- * пользователя перестают действовать — забытая на чужом компьютере или украденная сессия
- * раньше жила ещё до 8 часов простоя.
+ * Отпечаток пароля + token_version в сессии: после смены пароля (своей или админом)
+ * все остальные сессии этого пользователя перестают действовать — забытая на чужом
+ * компьютере или украденная сессия раньше жила ещё до 8 часов простоя.
+ * token_version инкрементируется при смене роли — снятый админ теряет привилегии мгновенно,
+ * а не через 8 часов (когда сессия истечёт сама).
  */
 function crm_pw_fingerprint(array $u): string {
-    return substr(hash('sha256', (string) ($u['password'] ?? '')), 0, 16);
+    $tv = (int) ($u['token_version'] ?? 0);
+    return substr(hash('sha256', (string) ($u['password'] ?? '') . '|' . $tv), 0, 16);
 }
 /**
  * Ключ HMAC для одноразовых токенов формы входа. Хранится в data/.csrf_secret (0600).
@@ -459,6 +466,9 @@ if ($action === 'logout') {
     $sent = (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     $have = (string) ($_SESSION['csrf'] ?? '');
     if ($have !== '' && ($sent === '' || strlen($sent) !== strlen($have) || !hash_equals($have, $sent))) err('CSRF');
+    // Regenerate ID перед уничтожением: старый session ID больше не действителен,
+    // и даже если файл сессии ещё не удалён сборщиком мусора — предъявить его нельзя.
+    session_regenerate_id(true);
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $p = session_get_cookie_params();
@@ -575,13 +585,20 @@ switch ($action) {
             $id = 'a_' . bin2hex(random_bytes(6));
             if (crm_sync_lead_apps_count($pdo, $leadId) >= CRM_MAX_APPS_PER_LEAD) err('Слишком много заявок в одном лиде');
         }
+        // Оптимистическая блокировка: если заявку изменили в другой вкладке — не перезаписывать молча.
+        // Раньше updatedAt в заявках не проверялся, и параллельные сохранения затирали друг друга.
+        if ($existing && array_key_exists('updatedAt', $in) && (int) $existing['updated_at'] !== intv($in['updatedAt'])) {
+            err('Заявка изменена в другом месте');
+        }
         try {
             if (!$existing) {
                 $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, city_from, city_to, rate, margin, vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
                     ->execute([$id, $leadId, $from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $now]);
             } else {
-                $pdo->prepare('UPDATE crm_lead_apps SET city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=?')
-                    ->execute([$from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $id, $leadId]);
+                $rev = (int) $existing['updated_at'];
+                $updApp = $pdo->prepare('UPDATE crm_lead_apps SET city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
+                $updApp->execute([$from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $id, $leadId, $rev]);
+                if ($updApp->rowCount() === 0) err('Заявка изменена в другом месте');
             }
         } catch (PDOException $e) {
             crm_log_fail('save_lead_app', $e);
@@ -990,12 +1007,21 @@ switch ($action) {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
         $uid = $viewUid;
-        if (!crm_lead_for_user($pdo, $id, $uid)) err('Лид не найден');
+        $row = crm_lead_for_user($pdo, $id, $uid);
+        if (!$row) err('Лид не найден');
+        // Оптимистическая блокировка: если лид изменили в другой вкладке — предупредить, а не удалять молча.
+        if (array_key_exists('updatedAt', $in) && (int) $row['updated_at'] !== intv($in['updatedAt'])) {
+            err('Карточка изменена в другом месте');
+        }
         crm_purge_lead($pdo, $id);
         ok();
     }
 
     case 'add_comment': {
+        // TODO(архитектура): add_comment принимает FormData ($_POST), а edit_comment — и JSON и FormData
+        // (через crm_edit_comment_input). add_carrier_comment — только FormData. Непоследовательность
+        // усложняет поддержку. При рефакторинге — унифицировать: либо все через multipart (т.к. файлы),
+        // либо загружать файлы отдельным action'ом, а комментарии — всегда JSON.
         $leadId = strv($_POST['lead_id'] ?? '', 80);
         $text = strv($_POST['text'] ?? '', 20000);
         if (!crm_lead_for_user($pdo, $leadId, $viewUid)) err('Лид не найден');
@@ -1193,7 +1219,17 @@ switch ($action) {
         if ($id === (int) $user['id'] && ($target['role'] ?? '') === 'admin' && $role !== 'admin') {
             err('Нельзя снять роль с себя');
         }
-        $pdo->prepare('UPDATE crm_users SET name = ?, email = ?, role = ? WHERE id = ?')->execute([$name, $email, $role, $id]);
+        // При смене роли инкрементируем token_version: все существующие сессии этого пользователя
+        // отвалятся на следующем запросе (crm_pw_fingerprint включает token_version).
+        // Раньше снятый админ сохранял привилегии до истечения сессии (до 8 часов).
+        $roleChanged = ($target['role'] ?? '') !== $role;
+        if ($roleChanged) {
+            $pdo->prepare('UPDATE crm_users SET name = ?, email = ?, role = ?, token_version = token_version + 1 WHERE id = ?')
+                ->execute([$name, $email, $role, $id]);
+        } else {
+            $pdo->prepare('UPDATE crm_users SET name = ?, email = ?, role = ? WHERE id = ?')
+                ->execute([$name, $email, $role, $id]);
+        }
         if ($name !== (string) $target['name']) {
             $pdo->prepare('UPDATE crm_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
             $pdo->prepare('UPDATE crm_carrier_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);

@@ -22,7 +22,9 @@ const Theme = {
 const $  = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const escAttr = s => encodeURI(String(s ?? '')).replace(/"/g, '%22');
+// Полноценное экранирование HTML-атрибутов (раньше использовался encodeURI, который не кодирует '&',
+// что позволяло инъекцию через HTML-entities). Та же функция, что esc — для двойных кавычек достаточно.
+const escAttr = s => esc(s);
 const debounce = (fn, ms) => { let t; const d = (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; d.cancel = () => clearTimeout(t); return d; };
 const fmtTime = ts => new Date(ts).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 const fmtBytes = b => { if (!b) return '0 B'; const k=1024, s=['B','KB','MB']; const i=Math.min(2, Math.floor(Math.log(b)/Math.log(k))); return `${(b/Math.pow(k,i)).toFixed(1)} ${s[i]}`; };
@@ -46,9 +48,19 @@ function isImageAtt(a) {
   if (t.startsWith('image/')) return true;
   return IMG_EXTS.includes(attExt(a));
 }
+/**
+ * Проверка URL вложения: принимаем только URL, которые генерирует сервер (api.php?action=file).
+ * Defense-in-depth: даже если серверный формат сломается, javascript:/data: URL не попадут в DOM.
+ */
+function safeAttUrl(raw) {
+  const s = String(raw || '');
+  if (s.startsWith('api.php?action=file&f=') || s.startsWith('api.php?action=file&amp;f=')) return escAttr(s);
+  return '';
+}
 function renderAttHtml(a, c) {
   const raw = String(a.dataUrl || '');
-  const u = escAttr(raw), n = esc(a.name);
+  const u = safeAttUrl(raw), n = esc(a.name);
+  if (!u) return `<span class="att-file-wrap"><span class="att-file">📄 ${n} <span class="att-size">${fmtBytes(a.size)}</span></span></span>`;
   const id = a.id != null ? String(a.id) : '';
   const del = (id && c && canEditComment(c))
     ? `<button type="button" class="att-del" data-action="del-att" data-id="${esc(id)}" title="Удалить вложение">×</button>`
@@ -157,8 +169,16 @@ const Net = {
       if (extra.keepalive) opts.keepalive = true;
       if (this.csrf) opts.headers['X-CSRF-Token'] = this.csrf;
       if (isFormData) opts.body = data; else if (data) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(data); }
-      const res = await fetch(url, opts); const json = await res.json();
+      const res = await fetch(url, opts);
       this.setOnline(true);
+      // Если сервер вернул не-JSON (например, 502 от прокси или HTML ошибку) — не бросаем
+      // непонятное исключение, а показываем осмысленное сообщение.
+      const ctype = (res.headers.get('content-type') || '');
+      if (!ctype.includes('application/json')) {
+        if (res.status === 401) { handleLogoutUI('Сессия истекла'); return null; }
+        return { success: false, error: res.ok ? 'Некорректный ответ сервера' : `Ошибка сервера (${res.status})` };
+      }
+      const json = await res.json();
       if (json.need_login) { handleLogoutUI(json.error); return null; }
       if (json.must_change_password) { showMustChangePassword(); return json; }
       return json;
@@ -358,7 +378,7 @@ function localSearchLeads(q) {
   return Store.state.leads.filter(l => {
     const title = String(l.title || '').toLowerCase();
     const inn = String(l.inn || '').replace(/\D/g, '');
-    return title.includes(query) || (digits.length >= 2 && inn.includes(digits));
+    return title.includes(query) || (digits.length >= 4 && inn.includes(digits));
   }).slice(0, 40).map(l => ({ id: l.id, title: l.title, inn: l.inn, stage: l.stage, phone: l.phone }));
 }
 
@@ -949,7 +969,7 @@ function fillLeadForm(lead, fromServer = false) {
   if (!lead || !lead._full) return;
   if (fromServer || lead._editRev == null) lead._editRev = lead.updatedAt;
   $('#f-title').value = lead.title;
-  ['inn','phone','email','manager'].forEach(f => {
+  ['inn','phone','email','manager','cargo','format','payment','ati'].forEach(f => {
     const el = $(`#f-${f}`); if (el && document.activeElement !== el) el.value = lead[f] || '';
   });
   const ln = $('#f-logist-name'); if (ln && document.activeElement !== ln) ln.value = lead.logistName || '';
@@ -1121,6 +1141,11 @@ async function saveLeadAppFromModal() {
   const inn = ($('#la-inn').value || '').replace(/\D/g, '');
   if (inn && inn.length !== 10 && inn.length !== 12) return Toast.error('ИНН 10 или 12 цифр');
   const vatEl = $('input[name="la-vat"]:checked');
+  // updatedAt для оптимистической блокировки: если заявку изменили в другой вкладке,
+  // сервер ответит «Заявка изменена в другом месте» вместо молчаливой перезаписи.
+  const editApp = ($('#la-id').value || '').trim()
+    ? leadAppsOf(Store.getLead(UI.leadId)).find(a => String(a.id) === String($('#la-id').value || ''))
+    : null;
   const payload = {
     id: ($('#la-id').value || '').trim(),
     leadId: UI.leadId,
@@ -1134,8 +1159,16 @@ async function saveLeadAppFromModal() {
     carrierName: ($('#la-name').value || '').trim(),
     carrierPhone: ($('#la-phone').value || '').trim()
   };
+  if (editApp) payload.updatedAt = editApp.updatedAt;
   const res = await Net.req('save_lead_app', payload);
-  if (!res?.success) return Toast.error(res?.error || 'Ошибка');
+  if (!res?.success) {
+    if (res?.error === 'Заявка изменена в другом месте') {
+      Toast.error('Заявку изменили в другой вкладке — обновляю');
+      if (UI.leadId) await ensureLeadFull(UI.leadId);
+      renderLeadApps();
+    } else Toast.error(res?.error || 'Ошибка');
+    return;
+  }
   _leadAppSnap = leadAppSnapshot();
   Modal.close('modal-lead-app');
   const lead = Store.getLead(UI.leadId);
@@ -1180,7 +1213,22 @@ async function saveLeadForm(_sync = false, keepalive = false, transferTo = 0) {
   const run = async () => {
     const cur = Store.getLead(UI.leadId); if (!cur || !cur._full) return null;
     const innDigits = ($('#f-inn').value || '').replace(/\D/g, '');
-    const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: innDigits, phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), logistName: ($('#f-logist-name')?.value || '').trim(), logistPhone: ($('#f-logist-phone')?.value || '').trim(), stage: cur.stage, updatedAt: cur._editRev ?? cur.updatedAt };
+    const patch = {
+      id: UI.leadId,
+      title: $('#f-title').value.trim() || 'Без названия',
+      inn: innDigits,
+      phone: $('#f-phone').value.trim(),
+      email: $('#f-email').value.trim(),
+      manager: $('#f-manager').value.trim(),
+      logistName: ($('#f-logist-name')?.value || '').trim(),
+      logistPhone: ($('#f-logist-phone')?.value || '').trim(),
+      cargo: ($('#f-cargo')?.value || '').trim(),
+      format: ($('#f-format')?.value || '').trim(),
+      payment: ($('#f-payment')?.value || '').trim(),
+      ati: ($('#f-ati')?.value || '').trim(),
+      stage: cur.stage,
+      updatedAt: cur._editRev ?? cur.updatedAt
+    };
     if (innDigits && innDigits.length !== 10 && innDigits.length !== 12) {
       Toast.error('ИНН 10 или 12 цифр');
       return { success: false, error: 'ИНН 10 или 12 цифр' };
@@ -1641,11 +1689,16 @@ function initAppEvents() {
         if (resESt?.success) await Store.load(true); else Toast.error(resESt?.error || 'Ошибка');
         break;
 
-      case 'delete-lead':
+      case 'delete-lead': {
         if (!await askConfirm('Удалить лид?', 'Навсегда')) return;
-        const resDL = await Net.req('delete_lead', { id: UI.leadId });
-        if (resDL?.success) { goHome(true); await Store.load(true); } else Toast.error(resDL?.error || 'Ошибка');
+        const delLead = Store.getLead(UI.leadId);
+        const delRev = delLead ? (delLead._editRev ?? delLead.updatedAt) : 0;
+        const resDL = await Net.req('delete_lead', { id: UI.leadId, updatedAt: delRev });
+        if (resDL?.success) { goHome(true); await Store.load(true); }
+        else if (resDL?.error === 'Карточка изменена в другом месте') { Toast.error('Карточку изменили в другой вкладке — обновляю'); await Store.load(true); }
+        else Toast.error(resDL?.error || 'Ошибка');
         break;
+      }
 
       case 'set-stage':
         const lead = Store.getLead(UI.leadId); if (!lead) return;
@@ -1880,6 +1933,13 @@ async function loadAppShell() {
       return false;
     }
     const html = await res.text();
+    // Defense-in-depth: ui.html не должен содержать inline-скриптов (CSP и так их блокирует,
+    // но если заголовок потеряется — это второй слой). При обнаружении — отказываемся грузить shell.
+    if (/<script\b/i.test(html)) {
+      console.error('CRM: ui.html содержит <script> — shell не загружен');
+      handleLogoutUI('Ошибка загрузки интерфейса');
+      return false;
+    }
     const root = $('#app-root');
     if (!root) return false;
     root.innerHTML = html;

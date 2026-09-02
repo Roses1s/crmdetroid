@@ -1,6 +1,6 @@
 -- CRM «Детроид» — схема MySQL (utf8mb4 / InnoDB)
 -- На SpaceWeb таблицы создаются сами при первом запросе к api.php.
--- Этот файл совпадает с миграциями в db.php (schema version 11).
+-- Этот файл совпадает с миграциями в db.php (schema version 12).
 -- Импорт вручную не обязателен.
 
 SET NAMES utf8mb4;
@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS crm_users (
   email VARCHAR(120) NOT NULL,
   password VARCHAR(255) NOT NULL,
   role VARCHAR(16) NOT NULL DEFAULT 'user',
+  token_version INT UNSIGNED NOT NULL DEFAULT 0,
   created_at BIGINT NOT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_email (email)
@@ -167,5 +168,12 @@ CREATE TABLE IF NOT EXISTS crm_lead_apps (
   PRIMARY KEY (id),
   KEY idx_lead (lead_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- TODO(целостность): добавить внешние ключи после стабилизации схемы.
+-- Сейчас каскадные удаления делаются в коде (crm_purge_lead, crm_purge_user, crm_purge_carrier).
+-- Без FK при баге в коде возможны осиротевшие записи (crm_comments без crm_leads и т.п.).
+-- Минимальный набор FK: crm_leads→crm_users, crm_comments→crm_leads, crm_attachments→crm_comments,
+-- crm_carriers→crm_directions, crm_carrier_comments→crm_carriers, crm_carrier_attachments→crm_carrier_comments,
+-- crm_lead_apps→crm_leads.
 
 SET FOREIGN_KEY_CHECKS = 1;
