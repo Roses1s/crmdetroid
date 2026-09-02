@@ -1,0 +1,44 @@
+Options -Indexes
+DirectoryIndex index.html index.php
+ServerSignature Off
+
+<IfModule mod_mime.c>
+  AddType text/css .css
+  AddType application/javascript .js
+</IfModule>
+
+<IfModule mod_authz_core.c>
+  <FilesMatch "^(config\.php|db\.php|schema\.sql|check-mysql\.php|ui\.html|README\.md|server\.js|preview-server\.js)$">
+    Require all denied
+  </FilesMatch>
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  SetEnvIf X-Forwarded-Proto https SERVER_PORT=443
+  SetEnvIf X-Forwarded-Proto https HTTPS=on
+  # www → без www (AlphaSSL на crmdetroid.ru)
+  RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+  RewriteRule ^ https://%1%{REQUEST_URI} [R=301,L]
+  # HTTP → HTTPS (SpaceWeb: не крутить цикл за прокси)
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+  RewriteRule ^api/ - [F]
+</IfModule>
+
+<IfModule mod_headers.c>
+  <FilesMatch "\.css$">
+    Header set Content-Type "text/css; charset=utf-8"
+  </FilesMatch>
+  Header unset Server
+  Header always unset Server
+  Header unset X-Powered-By
+  Header always unset X-Powered-By
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
+</IfModule>
+
