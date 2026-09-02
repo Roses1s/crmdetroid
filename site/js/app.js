@@ -219,7 +219,7 @@ const Store = {
   }
 };
 
-const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierComments: [], pendingFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
+const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
 
 function syncAdminNav(user) {
   const nav = $('#main-nav');
@@ -761,7 +761,8 @@ function renderCarrierLog() {
         <div class="log-text" data-txt="${esc(c.id)}">${esc(c.text)}</div>
         <div class="inline-editor" data-edt="${esc(c.id)}">
           <textarea data-inp="${esc(c.id)}">${esc(c.text)}</textarea>
-          <div class="inline-edit-btns"><button class="btn btn-secondary btn-sm" data-action="toggle-edit" data-cid="${esc(c.id)}">Отмена</button><button class="btn btn-primary btn-sm" data-action="save-comment" data-cid="${esc(c.id)}">Сохранить</button></div>
+          <div class="files-preview edit-files-preview"></div>
+          <div class="inline-edit-btns"><label class="file-label">📎 Прикрепить<input type="file" class="edit-file-input" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label><button class="btn btn-secondary btn-sm" data-action="toggle-edit" data-cid="${esc(c.id)}">Отмена</button><button class="btn btn-primary btn-sm" data-action="save-comment" data-cid="${esc(c.id)}">Сохранить</button></div>
         </div>
         ${atts ? `<div class="attachments">${atts}</div>` : ''}
       </div>`;
@@ -770,7 +771,7 @@ function renderCarrierLog() {
   log.appendChild(frag);
   if (UI.editingCommentId) {
     const edt = $(`[data-edt="${UI.editingCommentId}"]`), txt = $(`[data-txt="${UI.editingCommentId}"]`);
-    if (edt && txt) { edt.classList.add('active'); txt.classList.add('hidden'); }
+    if (edt && txt) { edt.classList.add('active'); txt.classList.add('hidden'); renderFiles(); }
   }
 }
 
@@ -1169,10 +1170,22 @@ function renderDetailStages() {
   });
 }
 
+function editingCommentAttCount() {
+  if (!UI.editingCommentId) return 0;
+  let c = null;
+  if (UI.currentView === 'carrier') c = (UI.carrierComments || []).find(x => String(x.id) === String(UI.editingCommentId));
+  else {
+    const L = Store.getLead(UI.leadId);
+    c = L && Array.isArray(L.comments) ? L.comments.find(x => String(x.id) === String(UI.editingCommentId)) : null;
+  }
+  return (c && c.attachments) ? c.attachments.length : 0;
+}
 function renderFiles() {
-  const box = UI.currentView === 'carrier' ? $('#carrier-files-preview') : $('#files-preview');
+  const editBox = $('.inline-editor.active .edit-files-preview');
+  const box = editBox || (UI.currentView === 'carrier' ? $('#carrier-files-preview') : $('#files-preview'));
+  const list = editBox ? (UI.editFiles || []) : UI.pendingFiles;
   if (!box) return; box.innerHTML = '';
-  UI.pendingFiles.forEach((f, i) => {
+  list.forEach((f, i) => {
     const el = document.createElement('div'); el.className = 'file-chip';
     el.innerHTML = `<span>📎 ${esc(f.name)}</span> <span class="chip-remove" data-action="rm-file" data-idx="${i}">×</span>`;
     box.appendChild(el);
@@ -1202,7 +1215,8 @@ function renderLog() {
         <div class="log-text" data-txt="${esc(c.id)}">${esc(c.text)}</div>
         <div class="inline-editor" data-edt="${esc(c.id)}">
           <textarea data-inp="${esc(c.id)}">${esc(c.text)}</textarea>
-          <div class="inline-edit-btns"><button class="btn btn-secondary btn-sm" data-action="toggle-edit" data-cid="${esc(c.id)}">Отмена</button><button class="btn btn-primary btn-sm" data-action="save-comment" data-cid="${esc(c.id)}">Сохранить</button></div>
+          <div class="files-preview edit-files-preview"></div>
+          <div class="inline-edit-btns"><label class="file-label">📎 Прикрепить<input type="file" class="edit-file-input" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label><button class="btn btn-secondary btn-sm" data-action="toggle-edit" data-cid="${esc(c.id)}">Отмена</button><button class="btn btn-primary btn-sm" data-action="save-comment" data-cid="${esc(c.id)}">Сохранить</button></div>
         </div>
         ${atts ? `<div class="attachments">${atts}</div>` : ''}
       </div>`;
@@ -1212,7 +1226,7 @@ function renderLog() {
 
   if (UI.editingCommentId) {
     const edt = $(`[data-edt="${UI.editingCommentId}"]`), txt = $(`[data-txt="${UI.editingCommentId}"]`);
-    if (edt && txt) { edt.classList.add('active'); txt.classList.add('hidden'); }
+    if (edt && txt) { edt.classList.add('active'); txt.classList.add('hidden'); renderFiles(); }
   }
 }
 
@@ -1310,10 +1324,13 @@ function initAppEvents() {
     return mimeExt[(f.type || '').toLowerCase()] || fromName;
   }
   function addPendingFiles(list) {
-    if (UI.pendingFiles.length >= 8) return Toast.error('Максимум 8 файлов');
+    const editing = !!UI.editingCommentId;
+    const bucket = editing ? (UI.editFiles || (UI.editFiles = [])) : UI.pendingFiles;
+    const used = (editing ? editingCommentAttCount() : 0) + bucket.length;
+    if (used >= 8) return Toast.error('Максимум 8 файлов');
     [...list].forEach(f => {
       if (!f) return;
-      if (UI.pendingFiles.length >= 8) return;
+      if ((editing ? editingCommentAttCount() : 0) + bucket.length >= 8) return;
       if (f.size > 5 * 1024 * 1024) return Toast.error(`Файл "${f.name || 'скриншот'}" > 5МБ`);
       let ext = fileExtOf(f);
       let name = f.name || '';
@@ -1325,7 +1342,7 @@ function initAppEvents() {
         return Toast.error(`Файл "${name}" не разрешён`);
       }
       const file = (name !== f.name) ? new File([f], name, { type: f.type || ('image/' + (ext === 'jpg' ? 'jpeg' : ext)) }) : f;
-      UI.pendingFiles.push({ name: file.name, size: file.size, type: file.type, rawFile: file });
+      bucket.push({ name: file.name, size: file.size, type: file.type, rawFile: file });
     });
     renderFiles();
   }
@@ -1337,7 +1354,7 @@ function initAppEvents() {
   $('#carrier-file-input').addEventListener('change', onPickFiles);
   document.addEventListener('paste', e => {
     if (UI.currentView !== 'lead' && UI.currentView !== 'carrier') return;
-    if ($('.modal-backdrop.open') || $('.inline-editor.active')) return;
+    if ($('.modal-backdrop.open')) return;
     const tag = ((e.target && e.target.tagName) || '').toUpperCase();
     if (tag === 'INPUT') return;
     const dt = e.clipboardData;
@@ -1595,23 +1612,31 @@ function initAppEvents() {
         } else Toast.error(resPC?.error || 'Ошибка');
         break;
 
-      case 'rm-file': UI.pendingFiles.splice(+actEl.dataset.idx, 1); renderFiles(); break;
+      case 'rm-file': (UI.editingCommentId ? UI.editFiles : UI.pendingFiles).splice(+actEl.dataset.idx, 1); renderFiles(); break;
 
       case 'toggle-edit':
         const cid = actEl.dataset.cid;
         const edt = $(`[data-edt="${cid}"]`), txtEl = $(`[data-txt="${cid}"]`), inp = $(`[data-inp="${cid}"]`);
         if (!edt) return; const active = edt.classList.contains('active');
         $$('.inline-editor.active').forEach(e => e.classList.remove('active')); $$('.log-text.hidden').forEach(e => e.classList.remove('hidden'));
-        if (!active) { txtEl.classList.add('hidden'); edt.classList.add('active'); UI.editingCommentId = cid; inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
-        else { UI.editingCommentId = null; }
+        UI.editFiles = [];
+        if (!active) { txtEl.classList.add('hidden'); edt.classList.add('active'); UI.editingCommentId = cid; inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); renderFiles(); }
+        else { UI.editingCommentId = null; renderFiles(); }
         break;
 
       case 'save-comment': {
-        const v = $(`[data-inp="${actEl.dataset.cid}"]`).value.trim(); if (!v) return Toast.error('Пусто');
+        const v = $(`[data-inp="${actEl.dataset.cid}"]`).value.trim();
+        const extra = UI.editFiles || [];
+        if (!v && !extra.length && !editingCommentAttCount()) return Toast.error('Пусто');
         const isCarrier = UI.currentView === 'carrier';
-        const resSC = await Net.req(isCarrier ? 'edit_carrier_comment' : 'edit_comment', { id: actEl.dataset.cid, text: v });
+        const fd = new FormData();
+        fd.append('id', actEl.dataset.cid);
+        fd.append('text', v);
+        extra.forEach(f => fd.append('files[]', f.rawFile));
+        const resSC = await Net.req(isCarrier ? 'edit_carrier_comment' : 'edit_comment', fd, true);
         if (resSC?.success) {
           UI.editingCommentId = null;
+          UI.editFiles = [];
           if (isCarrier) {
             if (resSC.updatedAt) UI.carrierRev = resSC.updatedAt;
             await openCarrier(UI.carrierId, false);
@@ -1619,6 +1644,7 @@ function initAppEvents() {
             const L = Store.getLead(UI.leadId);
             if (L && resSC.updatedAt) { L.updatedAt = resSC.updatedAt; L._editRev = resSC.updatedAt; }
             await Store.load(true);
+            if (UI.leadId) { await loadLeadComments(UI.leadId); renderLog(); }
           }
         } else Toast.error(resSC?.error || 'Ошибка');
         break;
@@ -1703,7 +1729,7 @@ function initAppEvents() {
     }
     if (e.key === 'Escape') {
       if ($('#img-lightbox.open')) { closeImageLightbox(); return; }
-      if ($('.inline-editor.active')) { $$('.inline-editor.active').forEach(el=>el.classList.remove('active')); $$('.log-text.hidden').forEach(el=>el.classList.remove('hidden')); UI.editingCommentId = null; }
+      if ($('.inline-editor.active')) { $$('.inline-editor.active').forEach(el=>el.classList.remove('active')); $$('.log-text.hidden').forEach(el=>el.classList.remove('hidden')); UI.editingCommentId = null; UI.editFiles = []; renderFiles(); }
       else if ($('.modal-backdrop.open')) {
         if ($('#modal-password.open')) return;
         if ($('#modal-confirm.open')) {

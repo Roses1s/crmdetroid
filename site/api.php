@@ -213,6 +213,38 @@ function crm_discard_uploads(array $atts): void {
         if (!empty($a['dataUrl'])) crm_unlink_upload((string) $a['dataUrl']);
     }
 }
+function crm_take_uploads(int $max): array {
+    $atts = [];
+    if ($max <= 0) return $atts;
+    $files = $_FILES['files'] ?? null;
+    if (!is_array($files) || empty($files['name'])) return $atts;
+    $names = is_array($files['name']) ? $files['name'] : [$files['name']];
+    $tmps  = is_array($files['tmp_name']) ? $files['tmp_name'] : [$files['tmp_name']];
+    $sizes = is_array($files['size']) ? $files['size'] : [$files['size']];
+    $types = is_array($files['type']) ? $files['type'] : [$files['type']];
+    $errs  = is_array($files['error']) ? $files['error'] : [$files['error']];
+    foreach ($names as $i => $name) {
+        if (count($atts) >= $max) break;
+        if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
+        $size = (int) ($sizes[$i] ?? 0);
+        if ($size > CRM_MAX_UPLOAD) { crm_discard_uploads($atts); err('Файл больше 5 МБ'); }
+        $ext = crm_allowed_upload((string) $name);
+        if ($ext === null) { crm_discard_uploads($atts); err('Этот тип файла не разрешён'); }
+        if (!crm_upload_magic_ok((string) ($tmps[$i] ?? ''), $ext)) { crm_discard_uploads($atts); err('Файл не соответствует типу'); }
+        $fname = bin2hex(random_bytes(8)) . '.' . $ext;
+        if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) { crm_discard_uploads($atts); err('Не удалось сохранить файл'); }
+        $mime = crm_image_mime($ext) ?? (string) ($types[$i] ?? '');
+        $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => $mime, 'dataUrl' => 'uploads/' . $fname];
+    }
+    return $atts;
+}
+function crm_edit_comment_input(): array {
+    if (crm_want_json()) {
+        $in = body_json();
+        return [strv($in['id'] ?? '', 80), strv($in['text'] ?? '', 20000)];
+    }
+    return [strv($_POST['id'] ?? '', 80), strv($_POST['text'] ?? '', 20000)];
+}
 
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -608,14 +640,31 @@ switch ($action) {
     }
 
     case 'edit_carrier_comment': {
-        $in = body_json();
-        $cid = strv($in['id'] ?? '', 80);
-        $text = strv($in['text'] ?? '', 20000);
-        if ($text === '') err('Пусто');
+        [$cid, $text] = crm_edit_comment_input();
         $c = crm_carrier_comment_by_id($pdo, $cid);
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
-        $pdo->prepare('UPDATE crm_carrier_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
+        $have = 0;
+        try {
+            $stN = $pdo->prepare('SELECT COUNT(*) FROM crm_carrier_attachments WHERE comment_id = ?');
+            $stN->execute([$cid]);
+            $have = (int) $stN->fetchColumn();
+        } catch (PDOException $e) { $have = 0; }
+        $atts = crm_take_uploads(max(0, 8 - $have));
+        if ($text === '' && $have === 0 && !$atts) { crm_discard_uploads($atts); err('Пусто'); }
+        try {
+            $pdo->beginTransaction();
+            $pdo->prepare('UPDATE crm_carrier_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
+            if ($atts) {
+                $insA = $pdo->prepare('INSERT INTO crm_carrier_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
+                foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            crm_discard_uploads($atts);
+            err('Не удалось сохранить');
+        }
         $rev = crm_touch_carrier($pdo, (string) $c['carrier_id']);
         crm_meta_bump($pdo, 'routes');
         ok(['updatedAt' => $rev]);
@@ -814,14 +863,31 @@ switch ($action) {
     }
 
     case 'edit_comment': {
-        $in = body_json();
-        $cid = strv($in['id'] ?? '', 80);
-        $text = strv($in['text'] ?? '', 20000);
-        if ($text === '') err('Пусто');
+        [$cid, $text] = crm_edit_comment_input();
         $c = crm_comment_for_user($pdo, $cid, $viewUid);
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
-        $pdo->prepare('UPDATE crm_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
+        $have = 0;
+        try {
+            $stN = $pdo->prepare('SELECT COUNT(*) FROM crm_attachments WHERE comment_id = ?');
+            $stN->execute([$cid]);
+            $have = (int) $stN->fetchColumn();
+        } catch (PDOException $e) { $have = 0; }
+        $atts = crm_take_uploads(max(0, 8 - $have));
+        if ($text === '' && $have === 0 && !$atts) { crm_discard_uploads($atts); err('Пусто'); }
+        try {
+            $pdo->beginTransaction();
+            $pdo->prepare('UPDATE crm_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
+            if ($atts) {
+                $insA = $pdo->prepare('INSERT INTO crm_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
+                foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            crm_discard_uploads($atts);
+            err('Не удалось сохранить');
+        }
         $rev = crm_touch_lead($pdo, (string) $c['lead_id']);
         ok(['updatedAt' => $rev]);
     }

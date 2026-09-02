@@ -229,7 +229,8 @@
   .inline-editor.active { display: block; }
   .log-text.hidden { display: none; }
   .inline-editor textarea { width: 100%; min-height: 70px; padding: 10px; border: 1px solid var(--primary); border-radius: var(--radius); font-size: 13px; resize: vertical; margin-bottom: 8px; }
-  .inline-edit-btns { display: flex; gap: 8px; justify-content: flex-end; }
+  .inline-edit-btns { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+  .inline-edit-btns .file-label { margin-right: auto; }
 
   .users-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); margin-top: 15px; }
   .users-table th, .users-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
