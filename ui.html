@@ -149,7 +149,7 @@
       <button class="btn btn-primary" data-action="open-add-user">+ Добавить сотрудника</button>
     </div>
     <table class="users-table">
-      <thead><tr><th class="th-id">ID</th><th>Имя</th><th>E-mail</th><th>Роль</th><th>Новый пароль</th><th class="th-actions">Действия</th></tr></thead>
+      <thead><tr><th class="th-id">ID</th><th>Имя</th><th>E-mail</th><th>Роль</th><th class="th-leads">Лидов</th><th>Новый пароль</th><th class="th-actions">Действия</th></tr></thead>
       <tbody id="users-tbody"></tbody>
     </table>
   </div>
@@ -218,6 +218,19 @@
     <div class="field"><label>Пароль (мин. 8 символов)</label><input id="u-pass" type="password"></div>
     <div class="field"><label class="check-label"><input type="checkbox" id="u-admin"> Администратор</label></div>
     <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-user">Добавить</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-delete-user">
+  <div class="modal">
+    <h2>Удалить сотрудника</h2>
+    <p id="du-message" class="modal-msg"></p>
+    <div class="field" id="du-transfer-field">
+      <label>Что сделать с его лидами</label>
+      <select id="du-transfer" class="form-select"></select>
+      <p class="field-hint" id="du-hint"></p>
+    </div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-danger" data-action="confirm-delete-user">Удалить</button></div>
   </div>
 </div>
 

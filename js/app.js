@@ -289,8 +289,6 @@ function logActionsHtml(c) {
 
 function closeSearchDrop() { $('#search-drop')?.classList.remove('open'); }
 
-function placeSearchDrop() {}
-
 function localSearchEmployees(q) {
   if (Store.state.user?.role !== 'admin') return [];
   const query = String(q || '').trim().toLowerCase();
@@ -394,7 +392,6 @@ function renderSearchDrop(payload) {
   });
   if (!html) html = '<div class="search-empty">Ничего не найдено</div>';
   box.innerHTML = html;
-  placeSearchDrop();
   box.classList.add('open');
 }
 
@@ -720,7 +717,9 @@ function fillCarrierFromForm() {
 }
 
 let _carrierSaveChain = Promise.resolve();
-async function saveCarrierForm(sync = false, keepalive = false) {
+// Сохранения выстраиваются в цепочку (_carrierSaveChain), поэтому вызов всегда возвращает промис
+// своего результата; первый аргумент оставлен для совместимости вызовов и ни на что не влияет.
+async function saveCarrierForm(_sync = false, keepalive = false) {
   if (!UI.carrierId) return null;
   const run = async () => {
     const patch = fillCarrierFromForm();
@@ -739,7 +738,7 @@ async function saveCarrierForm(sync = false, keepalive = false) {
   };
   const job = _carrierSaveChain.then(run, run);
   _carrierSaveChain = job.catch(() => {});
-  return sync ? job : job;
+  return job;
 }
 const saveCarrierDebounced = debounce(() => saveCarrierForm(false), 500);
 
@@ -833,11 +832,13 @@ function goNeighborLead(dir) {
   if (next) openLead(next.id, true);
 }
 
+let _usersCache = [];
 async function loadUsers() {
   const res = await Net.req('get_users'); if (!res || !res.success) return;
+  _usersCache = res.users || [];
   const tbody = $('#users-tbody'); tbody.innerHTML = '';
   const currId = Store.state.user.id;
-  res.users.forEach(u => {
+  _usersCache.forEach(u => {
     const tr = document.createElement('tr');
     const role = u.role === 'admin' ? 'admin' : 'user';
     tr.innerHTML = `
@@ -845,6 +846,7 @@ async function loadUsers() {
       <td><input class="user-input" id="uname-${u.id}" value="${esc(u.name)}"></td>
       <td><input class="user-input" id="uemail-${u.id}" value="${esc(u.email)}"></td>
       <td><select class="user-input" id="urole-${u.id}"><option value="user"${role==='user'?' selected':''}>Сотрудник</option><option value="admin"${role==='admin'?' selected':''}>Админ</option></select></td>
+      <td class="td-leads">${Number(u.leads) || 0}</td>
       <td><input class="user-input" id="upass-${u.id}" type="password" placeholder="Пусто = не менять"></td>
       <td>
         <button class="btn btn-primary btn-sm" data-action="save-user" data-id="${u.id}">💾</button>
@@ -852,6 +854,53 @@ async function loadUsers() {
       </td>`;
     tbody.appendChild(tr);
   });
+}
+
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+
+// Модалка удаления сотрудника: показывает, сколько у него лидов, и предлагает передать их
+// другому сотруднику (по умолчанию) либо удалить безвозвратно вместе с логами и файлами.
+let _deleteUserId = null;
+function openDeleteUser(id) {
+  const u = _usersCache.find(x => x.id === id);
+  if (!u) return;
+  _deleteUserId = id;
+  const n = Number(u.leads) || 0;
+  const sel = $('#du-transfer');
+  const others = _usersCache.filter(x => x.id !== id);
+  const me = Store.state.user.id;
+  sel.innerHTML = others.map(o => `<option value="${o.id}"${o.id === me ? ' selected' : ''}>Передать: ${esc(o.name)}${o.id === me ? ' (мне)' : ''}</option>`).join('')
+    + '<option value="0">Удалить безвозвратно (лиды, лог, файлы, заявки)</option>';
+  $('#du-message').textContent = n
+    ? `${u.name}: ${n} ${plural(n, 'лид', 'лида', 'лидов')} на доске.`
+    : `${u.name}: лидов на доске нет.`;
+  $('#du-transfer-field').classList.toggle('hidden', n === 0);
+  const hint = $('#du-hint');
+  const upd = () => {
+    const del = sel.value === '0';
+    hint.textContent = del ? 'Отменить будет нельзя.' : 'Этап сохранится, если он есть у получателя; в лог каждого лида добавится запись о передаче.';
+    hint.classList.toggle('danger', del);
+  };
+  sel.onchange = upd; upd();
+  Modal.open('modal-delete-user');
+}
+
+async function confirmDeleteUser() {
+  const id = _deleteUserId; if (!id) return;
+  const u = _usersCache.find(x => x.id === id);
+  const n = Number(u?.leads) || 0;
+  const transferTo = n ? Number($('#du-transfer').value) || 0 : 0;
+  const res = await Net.req('delete_user', { id, transferTo });
+  if (!res?.success) { Toast.error(res?.error || 'Ошибка'); return; }
+  Modal.closeAll(); _deleteUserId = null;
+  const moved = Number(res.transferred) || 0;
+  Toast.success(moved ? `Удалён, передано ${moved} ${plural(moved, 'лид', 'лида', 'лидов')}` : 'Удалён');
+  loadUsers(); Store.load(true);
 }
 
 async function execLogout() {
@@ -1093,7 +1142,8 @@ async function deleteLeadApp(id) {
 }
 
 let _leadSaveChain = Promise.resolve();
-async function saveLeadForm(sync = false, keepalive = false, transfer = false) {
+// См. saveCarrierForm: цепочка _leadSaveChain, первый аргумент ни на что не влияет.
+async function saveLeadForm(_sync = false, keepalive = false, transfer = false) {
   if (!UI.leadId) return null; const lead = Store.getLead(UI.leadId); if (!lead || !lead._full) return null;
   const run = async () => {
     const cur = Store.getLead(UI.leadId); if (!cur || !cur._full) return null;
@@ -1267,7 +1317,6 @@ function initAppEvents() {
   document.addEventListener('click', e => {
     if (!e.target.closest('#board-search-wrap') && !e.target.closest('#search-drop')) closeSearchDrop();
   });
-  window.addEventListener('resize', () => { if ($('#search-drop.open')) placeSearchDrop(); });
 
   $('#btn-prev-lead').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborLead(-1); });
   $('#btn-next-lead').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborLead(1); });
@@ -1559,7 +1608,11 @@ function initAppEvents() {
       }
 
       case 'delete-user':
-        if (await askConfirm('Удалить сотрудника?')) { const resD = await Net.req('delete_user', { id: +actEl.dataset.id }); if (resD?.success) { Toast.success('Удален'); loadUsers(); Store.load(true); } }
+        openDeleteUser(+actEl.dataset.id);
+        break;
+
+      case 'confirm-delete-user':
+        await confirmDeleteUser();
         break;
 
       case 'add-stage':

@@ -63,14 +63,44 @@ function crm_session_opts(): array {
         'cookie_secure' => crm_is_https(),
     ];
 }
+/**
+ * Собственный каталог для файлов сессий (data/sessions, закрыт .htaccess и лежит вне uploads).
+ * На shared-хостинге общий session.save_path чистится сборщиком мусора с чужим gc_maxlifetime
+ * (обычно 24 минуты) — наш 8-часовой лимит там не действует, и пользователей выкидывало бы
+ * посреди работы. В своём каталоге GC видит только наши файлы и наш срок жизни.
+ */
+function crm_session_dir(): ?string {
+    static $dir = null;
+    if ($dir !== null) return $dir === '' ? null : $dir;
+    $d = __DIR__ . '/data/sessions';
+    if (!is_dir($d)) @mkdir($d, 0700, true);
+    $dir = (is_dir($d) && is_writable($d)) ? $d : '';
+    return $dir === '' ? null : $dir;
+}
 function crm_session_boot(): void {
     if (session_status() === PHP_SESSION_ACTIVE) return;
-    ini_set('session.gc_maxlifetime', (string) (8 * 3600));
+    ini_set('session.gc_maxlifetime', (string) CRM_IDLE_SEC);
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');
     ini_set('session.use_trans_sid', '0');
+    if (($dir = crm_session_dir()) !== null && ini_get('session.save_handler') === 'files') {
+        session_save_path($dir);
+        // GC в своём каталоге выполняем сами (см. crm_session_gc): вероятностный GC PHP
+        // на некоторых хостингах отключён (gc_probability=0), а старые файлы копились бы вечно.
+        ini_set('session.gc_probability', '0');
+    }
     session_name(CRM_SESSION_NAME);
     session_start(crm_session_opts());
+    crm_session_gc();
+}
+/** Раз в ~100 запросов удаляет файлы сессий старше CRM_IDLE_SEC в своём каталоге. */
+function crm_session_gc(): void {
+    $dir = crm_session_dir();
+    if ($dir === null || random_int(1, 100) !== 1) return;
+    $limit = time() - CRM_IDLE_SEC - 60;
+    foreach (glob($dir . '/sess_*') ?: [] as $f) {
+        if (@filemtime($f) < $limit) @unlink($f);
+    }
 }
 function crm_session_kill(string $msg = 'Сессия истекла'): never {
     if (session_status() === PHP_SESSION_ACTIVE) {
@@ -143,24 +173,13 @@ function crm_want_json(): bool {
     return str_starts_with($ct, 'application/json');
 }
 
-function out(array $data): never {
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
-    exit;
-}
-function ok(array $extra = []): never { out(['success' => true] + $extra); }
-function err(string $message, bool $needLogin = false): never {
-    $r = ['success' => false, 'error' => $message];
-    if ($needLogin) $r['need_login'] = true;
-    out($r);
-}
+// out() / ok() / err() / now_ms() объявлены в db.php (он подключается первым и сам ими пользуется).
 function body_json(): array {
     $raw = file_get_contents('php://input') ?: '';
     if ($raw === '') return [];
     $j = json_decode($raw, true);
     return is_array($j) ? $j : [];
 }
-function now_ms(): int { return (int) round(microtime(true) * 1000); }
 function csrf_token(): string {
     if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(16));
     return $_SESSION['csrf'];
@@ -435,9 +454,11 @@ switch ($action) {
         $from = crm_norm_city(strv($in['cityFrom'] ?? '', 80));
         $to = crm_norm_city(strv($in['cityTo'] ?? '', 80));
         if ($from === '' || $to === '') err('Укажите откуда и куда');
-        $rate = preg_replace('/\D/', '', strv($in['rate'] ?? '', 40)) ?? '';
+        $rate = crm_money_in(preg_replace('/\D/', '', strv($in['rate'] ?? '', 40)) ?? '');
+        if ($rate !== null && strlen($rate) > 12) err('Ставка: не больше 12 цифр');
         $margin = crm_parse_money(strv($in['margin'] ?? '', 40));
         if ($margin === null) err('Маржа: число, копейки через запятую');
+        $margin = crm_money_in($margin);
         $vat = !empty($in['vat']) ? 1 : 0;
         $company = strv($in['carrierCompany'] ?? '', 200);
         $inn = preg_replace('/\D/', '', strv($in['carrierInn'] ?? '', 12)) ?? '';
@@ -645,28 +666,7 @@ switch ($action) {
         $carrierId = strv($_POST['carrier_id'] ?? '', 80);
         $text = strv($_POST['text'] ?? '', 20000);
         if (!crm_carrier_by_id($pdo, $carrierId)) err('Контакт не найден');
-        $atts = [];
-        $files = $_FILES['files'] ?? null;
-        if (is_array($files) && !empty($files['name'])) {
-            $names = is_array($files['name']) ? $files['name'] : [$files['name']];
-            $tmps  = is_array($files['tmp_name']) ? $files['tmp_name'] : [$files['tmp_name']];
-            $sizes = is_array($files['size']) ? $files['size'] : [$files['size']];
-            $types = is_array($files['type']) ? $files['type'] : [$files['type']];
-            $errs  = is_array($files['error']) ? $files['error'] : [$files['error']];
-            foreach ($names as $i => $name) {
-                if (count($atts) >= 8) break;
-                if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
-                $size = (int) ($sizes[$i] ?? 0);
-                if ($size > CRM_MAX_UPLOAD) { crm_discard_uploads($atts); err('Файл больше 5 МБ'); }
-                $ext = crm_allowed_upload((string) $name);
-                if ($ext === null) { crm_discard_uploads($atts); err('Этот тип файла не разрешён'); }
-                if (!crm_upload_magic_ok((string) ($tmps[$i] ?? ''), $ext)) { crm_discard_uploads($atts); err('Файл не соответствует типу'); }
-                $fname = bin2hex(random_bytes(8)) . '.' . $ext;
-                if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) { crm_discard_uploads($atts); err('Не удалось сохранить файл'); }
-                $mime = crm_image_mime($ext) ?? (string) ($types[$i] ?? '');
-                $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => $mime, 'dataUrl' => 'uploads/' . $fname];
-            }
-        }
+        $atts = crm_take_uploads(8);
         if ($text === '' && !$atts) err('Пусто');
         $cid = 'cc_' . bin2hex(random_bytes(6));
         try {
@@ -818,7 +818,10 @@ switch ($action) {
                         $pdo->rollBack();
                         err('Карточка изменена в другом месте');
                     }
-                    crm_sys_comment($pdo, $id, 'Лид передан: ' . $user['name'] . ' → ' . $match['name']);
+                    // Отправитель — владелец доски, а не тот, кто нажал (админ может работать с чужой доски через ?as=).
+                    $fromName = $uid === (int) $user['id'] ? (string) $user['name'] : (string) ((crm_user_by_id($pdo, $uid)['name'] ?? '') ?: $user['name']);
+                    $via = $uid === (int) $user['id'] ? '' : ' (передал ' . $user['name'] . ')';
+                    crm_sys_comment($pdo, $id, 'Лид передан: ' . $fromName . ' → ' . $match['name'] . $via);
                     $transferredTo = $match['name'];
                     $now = $now2;
                 }
@@ -869,28 +872,7 @@ switch ($action) {
         $leadId = strv($_POST['lead_id'] ?? '', 80);
         $text = strv($_POST['text'] ?? '', 20000);
         if (!crm_lead_for_user($pdo, $leadId, $viewUid)) err('Лид не найден');
-        $atts = [];
-        $files = $_FILES['files'] ?? null;
-        if (is_array($files) && !empty($files['name'])) {
-            $names = is_array($files['name']) ? $files['name'] : [$files['name']];
-            $tmps  = is_array($files['tmp_name']) ? $files['tmp_name'] : [$files['tmp_name']];
-            $sizes = is_array($files['size']) ? $files['size'] : [$files['size']];
-            $types = is_array($files['type']) ? $files['type'] : [$files['type']];
-            $errs  = is_array($files['error']) ? $files['error'] : [$files['error']];
-            foreach ($names as $i => $name) {
-                if (count($atts) >= 8) break;
-                if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
-                $size = (int) ($sizes[$i] ?? 0);
-                if ($size > CRM_MAX_UPLOAD) { crm_discard_uploads($atts); err('Файл больше 5 МБ'); }
-                $ext = crm_allowed_upload((string) $name);
-                if ($ext === null) { crm_discard_uploads($atts); err('Этот тип файла не разрешён'); }
-                if (!crm_upload_magic_ok((string) ($tmps[$i] ?? ''), $ext)) { crm_discard_uploads($atts); err('Файл не соответствует типу'); }
-                $fname = bin2hex(random_bytes(8)) . '.' . $ext;
-                if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) { crm_discard_uploads($atts); err('Не удалось сохранить файл'); }
-                $mime = crm_image_mime($ext) ?? (string) ($types[$i] ?? '');
-                $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => $mime, 'dataUrl' => 'uploads/' . $fname];
-            }
-        }
+        $atts = crm_take_uploads(8);
         if ($text === '' && !$atts) err('Пусто');
         $cid = 'c_' . bin2hex(random_bytes(6));
         try {
@@ -1018,8 +1000,10 @@ switch ($action) {
 
     case 'get_users': {
         require_admin($user);
-        $rows = $pdo->query('SELECT id, name, email, role FROM crm_users ORDER BY id ASC')->fetchAll();
-        foreach ($rows as &$r) $r['id'] = (int) $r['id'];
+        $rows = $pdo->query('SELECT u.id, u.name, u.email, u.role, (SELECT COUNT(*) FROM crm_leads l WHERE l.user_id = u.id) AS leads
+            FROM crm_users u ORDER BY u.id ASC')->fetchAll();
+        foreach ($rows as &$r) { $r['id'] = (int) $r['id']; $r['leads'] = (int) $r['leads']; }
+        unset($r);
         ok(['users' => $rows]);
     }
 
@@ -1091,9 +1075,15 @@ switch ($action) {
         $target = crm_user_by_id($pdo, $id);
         if (!$target) err('Сотрудник не найден');
         if (($target['role'] ?? '') === 'admin' && crm_admin_count($pdo) <= 1) err('Нельзя удалить последнего администратора');
-        crm_purge_user($pdo, $id);
+        // transferTo: id сотрудника, которому уходят лиды удаляемого; 0/пусто — удалить лиды вместе с логами и файлами
+        $transferTo = (int) ($in['transferTo'] ?? 0);
+        if ($transferTo > 0) {
+            if ($transferTo === $id) err('Нельзя передать лиды удаляемому сотруднику');
+            if (!crm_user_by_id($pdo, $transferTo)) err('Получатель лидов не найден');
+        }
+        $moved = crm_purge_user($pdo, $id, $transferTo);
         crm_meta_bump($pdo, 'users');
-        ok();
+        ok(['transferred' => $moved]);
     }
 
     case 'change_password': {

@@ -1,6 +1,27 @@
 <?php
 declare(strict_types=1);
 
+/*
+ * Слой данных CRM: подключение к MySQL, миграции схемы, SQL-хелперы.
+ * Подключается из api.php после config.php. Ниже — общие примитивы ответа и времени,
+ * которыми пользуются и этот файл, и api.php (раньше они жили в api.php, и db.php
+ * зависел от подключающего файла).
+ */
+
+/** Отправить JSON и завершить запрос. */
+function out(array $data): never {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+function ok(array $extra = []): never { out(['success' => true] + $extra); }
+function err(string $message, bool $needLogin = false): never {
+    $r = ['success' => false, 'error' => $message];
+    if ($needLogin) $r['need_login'] = true;
+    out($r);
+}
+function now_ms(): int { return (int) round(microtime(true) * 1000); }
+
 /** @return list<array{0:string,1:int}> */
 function crm_mysql_targets(string $host, int $port): array {
     $host = trim($host);
@@ -44,6 +65,11 @@ function crm_pdo(): PDO {
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES => false,
+        // rowCount() = число строк, ПОДОШЕДШИХ под WHERE, а не фактически изменённых.
+        // Оптимистическая блокировка (`UPDATE ... WHERE updated_at = ?` → rowCount() === 0 значит
+        // «карточку изменили в другом месте») иначе даёт ложный конфликт, если запись совпала по
+        // условию, но новые значения оказались равны старым.
+        PDO::MYSQL_ATTR_FOUND_ROWS => true,
     ];
     $port = defined('CRM_DB_PORT') ? (int) CRM_DB_PORT : 0;
     $targets = crm_mysql_targets(CRM_DB_HOST, $port);
@@ -65,7 +91,7 @@ function crm_pdo(): PDO {
     return $pdo;
 }
 
-const CRM_SCHEMA_VERSION = 9;
+const CRM_SCHEMA_VERSION = 10;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -87,6 +113,7 @@ function crm_boot(PDO $pdo): void {
     crm_migrate_v7($pdo);
     crm_migrate_v8($pdo);
     crm_migrate_v9($pdo);
+    crm_migrate_v10($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -253,6 +280,59 @@ function crm_migrate_v9(PDO $pdo): void {
             $pdo->exec("ALTER TABLE crm_lead_apps ADD COLUMN margin VARCHAR(40) NOT NULL DEFAULT '' AFTER rate");
         } catch (PDOException $e) { /* ok */ }
     }
+}
+
+/** Тип колонки по information_schema (в нижнем регистре: 'varchar', 'decimal', ...). */
+function crm_column_type(PDO $pdo, string $table, string $col): string {
+    $st = $pdo->prepare('SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?');
+    $st->execute([$table, $col]);
+    return strtolower((string) $st->fetchColumn());
+}
+
+/**
+ * v10: ставка и маржа заявки — DECIMAL(15,2) NULL вместо VARCHAR.
+ * Раньше суммы считались через CAST(REPLACE(...)), а любой мусор в строке молча превращался в 0.
+ * Перед сменой типа старые значения нормализуются в PHP той же функцией, что и при вводе
+ * (пробелы, запятая как разделитель); что не распарсилось — NULL (пусто).
+ */
+function crm_migrate_v10(PDO $pdo): void {
+    foreach (['rate', 'margin'] as $col) {
+        if (!crm_has_column($pdo, 'crm_lead_apps', $col)) continue;
+        if (crm_column_type($pdo, 'crm_lead_apps', $col) === 'decimal') continue;
+        $st = $pdo->query("SELECT id, `$col` AS v FROM crm_lead_apps WHERE `$col` <> ''");
+        $upd = $pdo->prepare("UPDATE crm_lead_apps SET `$col` = ? WHERE id = ?");
+        foreach ($st->fetchAll() as $r) {
+            $clean = crm_parse_money($r['v']);
+            if ($clean === null) {
+                // не число: попробуем вытащить хотя бы цифры (например «45 000 руб.»)
+                $digits = preg_replace('/[^\d.,]/', '', (string) $r['v']) ?? '';
+                $clean = crm_parse_money($digits);
+            }
+            $upd->execute([$clean === null ? '' : $clean, $r['id']]);
+        }
+        // Пустые строки → NULL до смены типа (иначе ALTER упадёт в strict-режиме на '' → DECIMAL)
+        $pdo->exec("ALTER TABLE crm_lead_apps MODIFY `$col` VARCHAR(40) NULL DEFAULT NULL");
+        $pdo->exec("UPDATE crm_lead_apps SET `$col` = NULL WHERE `$col` = ''");
+        $pdo->exec("ALTER TABLE crm_lead_apps MODIFY `$col` DECIMAL(15,2) NULL DEFAULT NULL");
+    }
+}
+
+/** DECIMAL из БД → строка для API: '45000' / '1234.50' / '' (как вводил пользователь, без хвоста .00). */
+function crm_money_out($v): string {
+    if ($v === null || $v === '') return '';
+    $s = (string) $v;
+    if (!str_contains($s, '.')) return $s;
+    $s = rtrim(rtrim($s, '0'), '.');
+    if (str_contains($s, '.')) {
+        [$a, $b] = explode('.', $s, 2);
+        $s = $a . '.' . str_pad($b, 2, '0');
+    }
+    return $s === '' ? '0' : $s;
+}
+
+/** Значение для записи в DECIMAL-колонку: '' → NULL. */
+function crm_money_in(string $v): ?string {
+    return $v === '' ? null : $v;
 }
 
 function crm_migrate_v8(PDO $pdo): void {
@@ -718,11 +798,6 @@ function crm_delete_att_rows(PDO $pdo, string $table, array $commentIds): void {
 function crm_unlink_urls(array $urls): void {
     foreach ($urls as $u) crm_unlink_upload((string) $u);
 }
-function crm_delete_atts(PDO $pdo, string $table, array $commentIds): void {
-    $urls = crm_att_urls($pdo, $table, $commentIds);
-    crm_delete_att_rows($pdo, $table, $commentIds);
-    crm_unlink_urls($urls);
-}
 
 function crm_purge_lead(PDO $pdo, string $id, bool $ownTxn = true): array {
     $cidsSt = $pdo->prepare('SELECT id FROM crm_comments WHERE lead_id = ?');
@@ -748,15 +823,57 @@ function crm_purge_lead(PDO $pdo, string $id, bool $ownTxn = true): array {
     return $urls;
 }
 
-function crm_purge_user(PDO $pdo, int $id): void {
-    $st = $pdo->prepare('SELECT id FROM crm_leads WHERE user_id = ?');
+/** Сколько лидов у сотрудника (для предупреждения перед удалением). */
+function crm_user_lead_count(PDO $pdo, int $id): int {
+    $st = $pdo->prepare('SELECT COUNT(*) FROM crm_leads WHERE user_id = ?');
     $st->execute([$id]);
-    $lids = $st->fetchAll(PDO::FETCH_COLUMN);
+    return (int) $st->fetchColumn();
+}
+
+/**
+ * Передать все лиды сотрудника $from сотруднику $to (внутри уже открытой транзакции).
+ * Этап сохраняется, если такой есть у получателя, иначе — первый этап получателя.
+ * Возвращает число переданных лидов.
+ */
+function crm_transfer_user_leads(PDO $pdo, int $from, int $to, string $fromName, string $toName): int {
+    $toStages = crm_stages($pdo, $to);
+    $fallback = $toStages[0] ?? 'Новый';
+    $st = $pdo->prepare('SELECT id, stage FROM crm_leads WHERE user_id = ?');
+    $st->execute([$from]);
+    $rows = $st->fetchAll();
+    if (!$rows) return 0;
+    $upd = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ? AND user_id = ?');
+    $n = 0;
+    foreach ($rows as $r) {
+        $stage = in_array((string) $r['stage'], $toStages, true) ? (string) $r['stage'] : $fallback;
+        $upd->execute([$to, $stage, $toName, now_ms(), (string) $r['id'], $from]);
+        crm_sys_comment($pdo, (string) $r['id'], 'Лид передан: ' . $fromName . ' → ' . $toName . ' (сотрудник удалён)');
+        $n++;
+    }
+    return $n;
+}
+
+/**
+ * Удалить сотрудника. $transferTo > 0 — его лиды (с логом, вложениями и заявками) уходят
+ * другому сотруднику; 0 — лиды и их файлы удаляются безвозвратно.
+ * Возвращает число переданных лидов.
+ */
+function crm_purge_user(PDO $pdo, int $id, int $transferTo = 0): int {
     $urls = [];
+    $moved = 0;
     $pdo->beginTransaction();
     try {
-        foreach ($lids as $lid) {
-            $urls = array_merge($urls, crm_purge_lead($pdo, (string) $lid, false));
+        if ($transferTo > 0) {
+            $from = crm_user_by_id($pdo, $id);
+            $to = crm_user_by_id($pdo, $transferTo);
+            if (!$to || $transferTo === $id) throw new RuntimeException('bad transfer target');
+            $moved = crm_transfer_user_leads($pdo, $id, $transferTo, (string) ($from['name'] ?? ''), (string) $to['name']);
+        } else {
+            $st = $pdo->prepare('SELECT id FROM crm_leads WHERE user_id = ?');
+            $st->execute([$id]);
+            foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $lid) {
+                $urls = array_merge($urls, crm_purge_lead($pdo, (string) $lid, false));
+            }
         }
         $pdo->prepare('DELETE FROM crm_stages WHERE user_id = ?')->execute([$id]);
         $pdo->prepare('UPDATE crm_directions SET created_by = 0 WHERE created_by = ?')->execute([$id]);
@@ -770,6 +887,7 @@ function crm_purge_user(PDO $pdo, int $id): void {
         throw $e;
     }
     crm_unlink_urls($urls);
+    return $moved;
 }
 
 function crm_purge_carrier(PDO $pdo, string $id, bool $ownTxn = true): array {
@@ -893,26 +1011,14 @@ function crm_lead_for_user(PDO $pdo, string $id, int $userId): ?array {
     return $row ?: null;
 }
 
-function crm_lead_visible(PDO $pdo, string $id, array $user, int $viewUid): ?array {
-    $row = crm_lead_for_user($pdo, $id, $viewUid);
-    if ($row) return $row;
-    if (($user['role'] ?? '') === 'admin') {
-        $st = $pdo->prepare('SELECT * FROM crm_leads WHERE id = ?');
-        $st->execute([$id]);
-        $row = $st->fetch();
-        return $row ?: null;
-    }
-    return null;
-}
-
 function crm_lead_app_to_api(array $r): array {
     return [
         'id' => $r['id'],
         'leadId' => $r['lead_id'],
         'cityFrom' => $r['city_from'],
         'cityTo' => $r['city_to'],
-        'rate' => $r['rate'],
-        'margin' => $r['margin'] ?? '',
+        'rate' => crm_money_out($r['rate'] ?? null),
+        'margin' => crm_money_out($r['margin'] ?? null),
         'vat' => ((int) $r['vat']) ? 1 : 0,
         'carrierCompany' => $r['carrier_company'],
         'carrierInn' => $r['carrier_inn'],
@@ -960,7 +1066,7 @@ function crm_parse_money($v): ?string {
 
 function crm_apps_stats(PDO $pdo, int $userId, string $leadId, string $inn = ''): array {
     $zero = ['count' => 0, 'margin' => 0, 'clientCount' => 0, 'clientMargin' => 0];
-    $sumSql = "COUNT(*) AS c, COALESCE(SUM(CAST(REPLACE(REPLACE(NULLIF(margin, ''), ',', '.'), ' ', '') AS DECIMAL(15,2))), 0) AS m";
+    $sumSql = 'COUNT(*) AS c, COALESCE(SUM(margin), 0) AS m';
     try {
         $st = $pdo->prepare("SELECT $sumSql FROM crm_lead_apps WHERE lead_id = ?");
         $st->execute([$leadId]);
@@ -1079,12 +1185,6 @@ function crm_lead_comments(PDO $pdo, string $leadId): array {
     $st = $pdo->prepare('SELECT c.*, u.name AS live_name FROM crm_comments c LEFT JOIN crm_users u ON u.id = c.user_id AND c.user_id > 0 WHERE c.lead_id = ? ORDER BY c.time ASC');
     $st->execute([$leadId]);
     return crm_comments_payload($pdo, $st->fetchAll());
-}
-
-
-function crm_data_hash(PDO $pdo, int $userId): string {
-    $payload = json_encode(['s' => crm_stages($pdo, $userId), 'l' => crm_leads_full($pdo, $userId)], JSON_UNESCAPED_UNICODE);
-    return substr(hash('sha256', $payload), 0, 32);
 }
 
 function crm_sys_comment(PDO $pdo, string $leadId, string $text): void {
