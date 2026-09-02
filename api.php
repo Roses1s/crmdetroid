@@ -5,6 +5,11 @@
  */
 declare(strict_types=1);
 
+// Предупреждения PHP не должны попадать в тело ответа (ломают JSON и заголовки) — только в лог сервера.
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+error_reporting(E_ALL);
+
 if (!is_file(__DIR__ . '/config.php')) {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['success' => false, 'error' => 'Нет config.php. Скопируйте config.example.php в config.php и впишите доступы к MySQL.'], JSON_UNESCAPED_UNICODE);
@@ -51,9 +56,12 @@ if (crm_is_https()) {
     header('Strict-Transport-Security: max-age=15552000');
 }
 
-if (!is_dir(CRM_UPLOAD_DIR)) mkdir(CRM_UPLOAD_DIR, 0775, true);
+if (!is_dir(CRM_UPLOAD_DIR)) @mkdir(CRM_UPLOAD_DIR, 0775, true);
 
-const CRM_IDLE_SEC = 8 * 3600;
+const CRM_IDLE_SEC = 8 * 3600;        // простой: 8 часов без запросов — сессия закрывается
+const CRM_SESSION_MAX_SEC = 14 * 86400; // абсолютный срок: раз в две недели вход заново, даже если вкладка открыта
+const CRM_MAX_STAGES = 20;
+const CRM_MAX_APPS_PER_LEAD = 200;
 
 function crm_session_opts(): array {
     return [
@@ -116,27 +124,49 @@ function crm_session_kill(string $msg = 'Сессия истекла'): never {
 function crm_session_touch(bool $touch = true): void {
     $last = (int) ($_SESSION['last'] ?? 0);
     if ($last > 0 && (time() - $last) > CRM_IDLE_SEC) crm_session_kill();
-    if ($touch) {
-        $_SESSION['last'] = time();
-        $ip = crm_client_ip();
-        if ($ip !== '') $_SESSION['ip'] = $ip;
-    }
+    // Heartbeat из вкладки продлевал бы сессию бесконечно — ограничиваем общий срок жизни
+    $born = (int) ($_SESSION['born'] ?? 0);
+    if ($born > 0 && (time() - $born) > CRM_SESSION_MAX_SEC) crm_session_kill('Сессия истекла, войдите заново');
+    if ($touch) $_SESSION['last'] = time();
 }
+/**
+ * Отпечаток пароля в сессии: после смены пароля (своей или админом) все остальные сессии этого
+ * пользователя перестают действовать — забытая на чужом компьютере или украденная сессия
+ * раньше жила ещё до 8 часов простоя.
+ */
+function crm_pw_fingerprint(array $u): string {
+    return substr(hash('sha256', (string) ($u['password'] ?? '')), 0, 16);
+}
+/**
+ * Ключ HMAC для одноразовых токенов формы входа. Хранится в data/.csrf_secret (0600).
+ * Если каталог недоступен на запись — ошибка конфигурации, а не «запасной» ключ из пароля БД
+ * (пароль БД однажды уже утёк в git, такой ключ был бы предсказуем).
+ */
 function crm_csrf_secret(): string {
+    static $key = null;
+    if ($key !== null) return $key;
     $dir = __DIR__ . '/data';
     $f = $dir . '/.csrf_secret';
-    $raw = is_file($f) ? (string) file_get_contents($f) : '';
+    $raw = is_file($f) ? (string) @file_get_contents($f) : '';
     if (strlen($raw) < 32) {
-        if (!is_dir($dir)) @mkdir($dir, 0775, true);
-        $raw = bin2hex(random_bytes(32));
-        @file_put_contents($f, $raw, LOCK_EX);
-        $check = is_file($f) ? (string) file_get_contents($f) : '';
-        if (strlen($check) >= 32) $raw = $check;
+        if (!is_dir($dir)) @mkdir($dir, 0700, true);
+        $new = bin2hex(random_bytes(32));
+        // O_EXCL: два первых запроса не перезапишут ключ друг другу
+        $fh = @fopen($f, 'x');
+        if ($fh !== false) {
+            fwrite($fh, $new);
+            fclose($fh);
+            @chmod($f, 0600);
+        }
+        $raw = is_file($f) ? (string) @file_get_contents($f) : '';
     }
     if (strlen($raw) < 32) {
-        $raw = CRM_SESSION_NAME . '|' . CRM_DB_NAME . '|' . CRM_DB_USER . '|' . (defined('CRM_DB_PASS') ? CRM_DB_PASS : '');
+        error_log('CRM: каталог data/ недоступен для записи — не могу сохранить ключ CSRF');
+        err('Каталог data/ недоступен для записи. Дайте права на запись (chmod 755/775) и повторите.');
     }
-    return hash('sha256', $raw, true);
+    @chmod($f, 0600);
+    $key = hash('sha256', $raw, true);
+    return $key;
 }
 function crm_login_csrf_issue(PDO $pdo): string {
     $ts = (string) time();
@@ -146,6 +176,8 @@ function crm_login_csrf_issue(PDO $pdo): string {
     try {
         $pdo->prepare('INSERT INTO crm_login_nonces (h, created_at) VALUES (?, ?)')->execute([hash('sha256', $token), now_ms()]);
         $pdo->prepare('DELETE FROM crm_login_nonces WHERE created_at < ?')->execute([now_ms() - 20 * 60 * 1000]);
+        // Строки '#csrf' в crm_login_attempts раньше чистились только при неудачном входе и копились
+        if (random_int(1, 20) === 1) crm_login_attempts_gc($pdo);
     } catch (Throwable $e) { /* table may appear on next boot */ }
     return $token;
 }
@@ -163,8 +195,14 @@ function crm_login_csrf_ok(PDO $pdo, string $sent): bool {
         return false;
     }
 }
+/**
+ * Длина считается в символах, а не байтах (иначе «мама» — 8 байт — проходила как 8 символов).
+ * Верхний предел 64: bcrypt учитывает только первые 72 байта, кириллица — 2 байта на символ.
+ */
 function crm_pass_ok(string $pass): ?string {
-    if (strlen($pass) < 8) return 'Пароль мин. 8 символов';
+    $n = mb_strlen($pass, 'UTF-8');
+    if ($n < 8) return 'Пароль мин. 8 символов';
+    if ($n > 64 || strlen($pass) > 72) return 'Пароль не длиннее 64 символов';
     if (defined('CRM_DEFAULT_ADMIN_PASS') && $pass === CRM_DEFAULT_ADMIN_PASS) return 'Придумайте другой пароль';
     return null;
 }
@@ -178,18 +216,30 @@ function body_json(): array {
     $raw = file_get_contents('php://input') ?: '';
     if ($raw === '') return [];
     $j = json_decode($raw, true);
-    return is_array($j) ? $j : [];
+    // Битое тело — ошибка запроса, а не «пустой объект» (иначе save_lead создавал лид «Без названия»)
+    if (!is_array($j)) err('Некорректный запрос');
+    return $j;
 }
 function csrf_token(): string {
     if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(16));
     return $_SESSION['csrf'];
 }
+/** Строка из произвольного JSON-значения: массивы/объекты → пусто (раньше — warning и сломанный JSON). */
 function strv($v, int $max = 300, string $fallback = ''): string {
-    $s = trim(str_replace("\0", '', (string) ($v ?? '')));
-    if (function_exists('mb_strlen') && mb_strlen($s) > $max) $s = mb_substr($s, 0, $max);
-    elseif (strlen($s) > $max) $s = substr($s, 0, $max);
+    if (!is_scalar($v)) return $fallback;
+    $s = trim(str_replace("\0", '', (string) $v));
+    if (mb_strlen($s) > $max) $s = mb_substr($s, 0, $max);
     return $s !== '' ? $s : $fallback;
 }
+/** Целое из JSON-значения; массив/объект → 0 (а не 1, как даёт (int) от непустого массива). */
+function intv($v): int {
+    if (is_int($v)) return $v;
+    if (is_float($v)) return (int) $v;
+    if (is_string($v) && preg_match('/^-?\d{1,18}$/', trim($v))) return (int) trim($v);
+    if (is_bool($v)) return $v ? 1 : 0;
+    return 0;
+}
+
 function require_csrf(): void {
     $sent = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     $have = $_SESSION['csrf'] ?? '';
@@ -202,6 +252,7 @@ function require_user(PDO $pdo, bool $touch = true): array {
     crm_session_touch($touch);
     $u = crm_user_by_id($pdo, $id);
     if (!$u) crm_session_kill();
+    if (($_SESSION['pw'] ?? '') !== crm_pw_fingerprint($u)) crm_session_kill('Пароль был изменён, войдите заново');
     return $u;
 }
 function require_admin(array $u): void {
@@ -238,16 +289,33 @@ function crm_anon_throttled(PDO $pdo, string $ip, string $key, int $max, int $wi
     }
     return false;
 }
+/**
+ * Редактировать запись лога может её автор (по user_id) или админ.
+ * Записи с user_id = 0 — от удалённых сотрудников: их правит только админ (раньше право давалось
+ * по совпадению имени, и новый сотрудник с тем же именем получал чужие комментарии).
+ */
 function can_edit_comment(array $user, array $c): bool {
     if (crm_is_sys_comment($c)) return false;
     if (($user['role'] ?? '') === 'admin') return true;
     $uid = (int) ($c['user_id'] ?? 0);
-    if ($uid > 0) return $uid === (int) $user['id'];
-    return ($c['author'] ?? '') === ($user['name'] ?? '');
+    return $uid > 0 && $uid === (int) $user['id'];
 }
+/**
+ * Системные записи («Лид создан», «Лид передан», «Статус изменён») — след того, что происходило
+ * с карточкой; удалить их может только админ.
+ */
 function can_delete_comment(array $user, array $c): bool {
-    if (crm_is_sys_comment($c)) return true;
+    if (crm_is_sys_comment($c)) return ($user['role'] ?? '') === 'admin';
     return can_edit_comment($user, $c);
+}
+/**
+ * Справочник направлений и перевозчиков общий, но удалять/переименовывать запись (а с ней —
+ * чужие логи и файлы каскадом) может только её создатель или админ. Добавлять и вести лог — все.
+ */
+function can_manage_ref(array $user, array $row): bool {
+    if (($user['role'] ?? '') === 'admin') return true;
+    $by = (int) ($row['created_by'] ?? 0);
+    return $by > 0 && $by === (int) $user['id'];
 }
 function crm_discard_uploads(array $atts): void {
     foreach ($atts as $a) {
@@ -275,7 +343,9 @@ function crm_take_uploads(int $max): array {
         $fname = bin2hex(random_bytes(8)) . '.' . $ext;
         if (!move_uploaded_file($tmps[$i], CRM_UPLOAD_DIR . '/' . $fname)) { crm_discard_uploads($atts); err('Не удалось сохранить файл'); }
         $mime = crm_image_mime($ext) ?? (string) ($types[$i] ?? '');
-        $atts[] = ['name' => basename((string) $name), 'size' => $size, 'type' => $mime, 'dataUrl' => 'uploads/' . $fname];
+        // Колонка name — VARCHAR(255): длинное имя раньше валило INSERT («Не удалось сохранить»)
+        $orig = crm_short_filename(basename((string) $name), 200);
+        $atts[] = ['name' => $orig, 'size' => $size, 'type' => strv($mime, 120), 'dataUrl' => 'uploads/' . $fname];
     }
     return $atts;
 }
@@ -287,9 +357,16 @@ function crm_edit_comment_input(): array {
     return [strv($_POST['id'] ?? '', 80), strv($_POST['text'] ?? '', 20000)];
 }
 
-$action = $_GET['action'] ?? '';
+$action = is_string($_GET['action'] ?? null) ? $_GET['action'] : '';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $hasSess = isset($_COOKIE[CRM_SESSION_NAME]) && (string) $_COOKIE[CRM_SESSION_NAME] !== '';
+
+// Любое предупреждение (warning/notice) — исключение: попадёт в общий catch как 500 + error_log,
+// а не в тело ответа. Раньше «Array to string conversion» отдавал HTML вместо JSON.
+set_error_handler(static function (int $no, string $str, string $file, int $line): bool {
+    if (!(error_reporting() & $no)) return false; // подавлено через @
+    throw new ErrorException($str, 0, $no, $file, $line);
+});
 
 try {
 
@@ -322,13 +399,15 @@ if ($action === 'file') {
         exit;
     }
     $uFile = crm_user_by_id($pdo, $id);
-    if (!$uFile) {
+    if (!$uFile || ($_SESSION['pw'] ?? '') !== crm_pw_fingerprint($uFile)) {
         http_response_code(401);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Need login';
         exit;
     }
-    crm_serve_file($pdo, (string) ($_GET['f'] ?? ''), $uFile);
+    // Сессия больше не нужна — отпускаем блокировку, пока читаем файл с диска
+    session_write_close();
+    crm_serve_file($pdo, (string) (is_string($_GET['f'] ?? null) ? $_GET['f'] : ''), $uFile);
 }
 
 if ($action === 'check_auth') {
@@ -356,12 +435,13 @@ if ($action === 'login') {
         crm_login_fail($pdo, $email, $ip);
         err('Неверный e-mail или пароль');
     }
-    crm_login_ok($pdo, $email);
+    crm_login_ok($pdo, $email, $ip);
     crm_session_boot();
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int) $u['id'];
-    $_SESSION['ip'] = $ip;
+    $_SESSION['pw'] = crm_pw_fingerprint($u);
     $_SESSION['last'] = time();
+    $_SESSION['born'] = time();
     unset($_SESSION['csrf']);
     if (defined('CRM_DEFAULT_ADMIN_PASS') && $password === CRM_DEFAULT_ADMIN_PASS) {
         $_SESSION['must_change'] = 1;
@@ -403,6 +483,16 @@ if (!in_array($action, $readActions, true)) {
     require_csrf();
 }
 $viewUid = crm_view_uid($pdo, $user);
+// Дальше сессия только читается. Отпускаем файл сессии, чтобы параллельные запросы вкладки
+// (доска + лог + картинки) не ждали друг друга. Действия, которые пишут в сессию
+// (change_password, update_user), сессию держат.
+if (in_array($action, $readActions, true) || ($action !== 'change_password' && $action !== 'update_user')) {
+    session_write_close();
+}
+// Редкая фоновая уборка uploads/: файлы, на которые не осталось ссылок в БД (упавшие транзакции и т.п.)
+if (random_int(1, 1000) === 1) {
+    try { crm_sweep_uploads($pdo); } catch (Throwable $e) { crm_log_fail('sweep_uploads', $e); }
+}
 
 switch ($action) {
     case 'whoami': {
@@ -417,6 +507,13 @@ switch ($action) {
             'behindTrustedProxy' => crm_behind_trusted_proxy(),
             'https' => crm_is_https(),
         ]);
+    }
+
+    case 'sweep_uploads': {
+        // Ручная уборка uploads/ (файлы без записей в БД); автоматически то же выполняется раз в ~1000 запросов (см. выше).
+        require_admin($user);
+        [$checked, $removed] = crm_sweep_uploads($pdo);
+        ok(['checked' => $checked, 'removed' => $removed]);
     }
 
     case 'ui': {
@@ -454,8 +551,11 @@ switch ($action) {
         $from = crm_norm_city(strv($in['cityFrom'] ?? '', 80));
         $to = crm_norm_city(strv($in['cityTo'] ?? '', 80));
         if ($from === '' || $to === '') err('Укажите откуда и куда');
-        $rate = crm_money_in(preg_replace('/\D/', '', strv($in['rate'] ?? '', 40)) ?? '');
-        if ($rate !== null && strlen($rate) > 12) err('Ставка: не больше 12 цифр');
+        // Ставка и маржа парсятся одинаково строго: раньше из ставки молча вырезались не-цифры
+        // и «12 500,50» превращалось в 1250050.
+        $rate = crm_parse_money(strv($in['rate'] ?? '', 40));
+        if ($rate === null) err('Ставка: число, копейки через запятую');
+        $rate = crm_money_in($rate);
         $margin = crm_parse_money(strv($in['margin'] ?? '', 40));
         if ($margin === null) err('Маржа: число, копейки через запятую');
         $margin = crm_money_in($margin);
@@ -469,7 +569,10 @@ switch ($action) {
         $now = now_ms();
         $existing = $id !== '' ? crm_lead_app_by_id($pdo, $id) : null;
         if ($id !== '' && (!$existing || (string) $existing['lead_id'] !== $leadId)) err('Заявка не найдена');
-        if ($id === '') $id = 'a_' . bin2hex(random_bytes(6));
+        if ($id === '') {
+            $id = 'a_' . bin2hex(random_bytes(6));
+            if (crm_sync_lead_apps_count($pdo, $leadId) >= CRM_MAX_APPS_PER_LEAD) err('Слишком много заявок в одном лиде');
+        }
         try {
             if (!$existing) {
                 $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, city_from, city_to, rate, margin, vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
@@ -479,6 +582,7 @@ switch ($action) {
                     ->execute([$from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $id, $leadId]);
             }
         } catch (PDOException $e) {
+            crm_log_fail('save_lead_app', $e);
             err('Не удалось сохранить заявку');
         }
         $n = crm_sync_lead_apps_count($pdo, $leadId);
@@ -503,6 +607,7 @@ switch ($action) {
         try {
             $pdo->prepare('DELETE FROM crm_lead_apps WHERE id = ? AND lead_id = ?')->execute([$id, $leadId]);
         } catch (PDOException $e) {
+            crm_log_fail('delete_lead_app', $e);
             err('Не удалось удалить');
         }
         $n = crm_sync_lead_apps_count($pdo, $leadId);
@@ -542,7 +647,9 @@ switch ($action) {
             $pdo->prepare('INSERT INTO crm_directions (id, city_from, city_to, created_by, created_at) VALUES (?,?,?,?,?)')
                 ->execute([$id, $from, $to, $uid, now_ms()]);
         } else {
-            if (!crm_direction_by_id($pdo, $id)) err('Направление не найдено');
+            $dir = crm_direction_by_id($pdo, $id);
+            if (!$dir) err('Направление не найдено');
+            if (!can_manage_ref($user, $dir)) err('Переименовать направление может тот, кто его добавил, или администратор');
             $dup = $pdo->prepare('SELECT id FROM crm_directions WHERE city_from = ? AND city_to = ? AND id <> ?');
             $dup->execute([$from, $to, $id]);
             if ($dup->fetch()) err('Такое направление уже есть');
@@ -555,7 +662,9 @@ switch ($action) {
     case 'delete_direction': {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
-        if (!crm_direction_by_id($pdo, $id)) err('Направление не найдено');
+        $dir = crm_direction_by_id($pdo, $id);
+        if (!$dir) err('Направление не найдено');
+        if (!can_manage_ref($user, $dir)) err('Удалить направление может тот, кто его добавил, или администратор');
         $ids = $pdo->prepare('SELECT id FROM crm_carriers WHERE direction_id = ?');
         $ids->execute([$id]);
         $urls = [];
@@ -568,6 +677,7 @@ switch ($action) {
             $pdo->commit();
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
+            crm_log_fail('delete_direction', $e);
             err('Не удалось удалить');
         }
         crm_unlink_urls($urls);
@@ -585,8 +695,9 @@ switch ($action) {
                 'cityFrom' => $dir['city_from'],
                 'cityTo' => $dir['city_to'],
                 'createdByName' => $dir['creator'] ?: '',
+                'canManage' => can_manage_ref($user, $dir),
             ],
-            'carriers' => crm_carriers_list($pdo, $id),
+            'carriers' => crm_carriers_list($pdo, $id, $user),
         ]);
     }
 
@@ -611,18 +722,17 @@ switch ($action) {
             $st->execute([$id, $dirId]);
             $cur = $st->fetch();
             if (!$cur) err('Контакт не найден');
-            if (array_key_exists('updatedAt', $in) && (int) ($cur['updated_at'] ?? 0) !== (int) $in['updatedAt'] && (int) ($cur['updated_at'] ?? 0) !== 0) {
+            $rev = (int) ($cur['updated_at'] ?? 0);
+            if (array_key_exists('updatedAt', $in) && $rev !== intv($in['updatedAt'])) {
                 err('Карточка изменена в другом месте');
             }
             $note = array_key_exists('note', $in) ? strv($in['note'] ?? '', 2000) : (string) ($cur['note'] ?? '');
-            $rev = (int) ($cur['updated_at'] ?? 0);
+            // Условие по updated_at — единственная защита от одновременной правки в двух вкладках.
+            // (Старой ветки «updated_at = 0 → обновить без условия» больше нет: после миграции v6 нулей
+            // не бывает, а безусловный UPDATE перетирал чужие изменения.)
             $upd = $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ?, note = ?, updated_at = ? WHERE id = ? AND updated_at = ?');
             $upd->execute([$name, $phone, $company, $note, $now, $id, $rev]);
-            if ($upd->rowCount() === 0 && $rev !== 0) err('Карточка изменена в другом месте');
-            if ($upd->rowCount() === 0) {
-                $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ?, note = ?, updated_at = ? WHERE id = ?')
-                    ->execute([$name, $phone, $company, $note, $now, $id]);
-            }
+            if ($upd->rowCount() === 0) err('Карточка изменена в другом месте');
         }
         crm_meta_bump($pdo, 'routes');
         ok(['id' => $id, 'updatedAt' => $now]);
@@ -631,7 +741,9 @@ switch ($action) {
     case 'delete_carrier': {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
-        if (!crm_carrier_by_id($pdo, $id)) err('Контакт не найден');
+        $car = crm_carrier_by_id($pdo, $id);
+        if (!$car) err('Контакт не найден');
+        if (!can_manage_ref($user, $car)) err('Удалить перевозчика может тот, кто его добавил, или администратор');
         crm_purge_carrier($pdo, $id);
         crm_meta_bump($pdo, 'routes');
         ok();
@@ -651,6 +763,7 @@ switch ($action) {
                 'company' => $row['company'],
                 'note' => $row['note'] ?? '',
                 'createdByName' => $row['creator'] ?: '',
+                'canManage' => can_manage_ref($user, $row),
                 'updatedAt' => (int) ($row['updated_at'] ?? $row['created_at'] ?? 0),
             ],
             'direction' => $dir ? [
@@ -679,6 +792,7 @@ switch ($action) {
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             crm_discard_uploads($atts);
+            crm_log_fail('add_carrier_comment', $e);
             err('Не удалось сохранить');
         }
         $rev = crm_touch_carrier($pdo, $carrierId);
@@ -710,6 +824,7 @@ switch ($action) {
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             crm_discard_uploads($atts);
+            crm_log_fail('edit_carrier_comment', $e);
             err('Не удалось сохранить');
         }
         $rev = crm_touch_carrier($pdo, (string) $c['carrier_id']);
@@ -732,6 +847,7 @@ switch ($action) {
             $pdo->commit();
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
+            crm_log_fail('delete_carrier_comment', $e);
             err('Не удалось удалить');
         }
         crm_unlink_urls($urls);
@@ -742,7 +858,7 @@ switch ($action) {
     case 'get_data': {
         $uid = $viewUid;
         $hash = substr(hash('sha256', crm_board_rev($pdo, $uid)), 0, 32);
-        $client = (string) ($_GET['hash'] ?? '');
+        $client = strv($_GET['hash'] ?? '', 64);
         if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
             ok(['unchanged' => true, 'hash' => $hash]);
         }
@@ -754,14 +870,18 @@ switch ($action) {
     case 'save_lead': {
         $in = body_json();
         $id = strv($in['id'] ?? '', 80);
-        if ($id === '') $id = 'l_' . bin2hex(random_bytes(6));
         $uid = $viewUid;
         $stages = crm_stages($pdo, $uid);
-        $row = crm_lead_for_user($pdo, $id, $uid);
+        $row = $id !== '' ? crm_lead_for_user($pdo, $id, $uid) : null;
         if (!$row) {
-            $any = $pdo->prepare('SELECT id FROM crm_leads WHERE id = ?');
-            $any->execute([$id]);
-            if ($any->fetch()) err('Лид не найден');
+            if ($id !== '') {
+                // Чужой id — «не найден»; несуществующий — игнорируем: id новых лидов выдаёт только сервер
+                // (раньше клиент мог создать лид с произвольным id, вплоть до «../../etc»).
+                $any = $pdo->prepare('SELECT id FROM crm_leads WHERE id = ?');
+                $any->execute([$id]);
+                if ($any->fetch()) err('Лид не найден');
+            }
+            $id = 'l_' . bin2hex(random_bytes(6));
         }
 
         $title = strv($in['title'] ?? ($row['title'] ?? ''), 200, 'Без названия');
@@ -770,7 +890,9 @@ switch ($action) {
         $phone = strv($in['phone'] ?? ($row['phone'] ?? ''), 40);
         $email = strv($in['email'] ?? ($row['email'] ?? ''), 120);
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) err('Некорректный email');
-        $manager = strv($in['manager'] ?? ($row['manager'] ?? $user['name']), 80);
+        // Продавец по умолчанию — владелец доски (админ через ?as= создаёт лид сотруднику, а не себе)
+        $ownerName = $uid === (int) $user['id'] ? (string) $user['name'] : (string) ((crm_user_by_id($pdo, $uid)['name'] ?? '') ?: $user['name']);
+        $manager = strv($in['manager'] ?? ($row['manager'] ?? $ownerName), 80, $ownerName);
         $logistName = strv($in['logistName'] ?? ($row['logist_name'] ?? ''), 80);
         $logistPhone = strv($in['logistPhone'] ?? ($row['logist_phone'] ?? ''), 40);
         $cargo = strv($in['cargo'] ?? ($row['cargo'] ?? ''), 300);
@@ -781,7 +903,7 @@ switch ($action) {
         $stage = strv($in['stage'] ?? ($row['stage'] ?? ($stages[0] ?? 'Новый')), 80);
         if (!in_array($stage, $stages, true)) $stage = $row['stage'] ?? ($stages[0] ?? 'Новый');
 
-        if ($row && array_key_exists('updatedAt', $in) && (int) $row['updated_at'] !== (int) $in['updatedAt']) {
+        if ($row && array_key_exists('updatedAt', $in) && (int) $row['updated_at'] !== intv($in['updatedAt'])) {
             err('Карточка изменена в другом месте');
         }
 
@@ -801,36 +923,39 @@ switch ($action) {
                     err('Карточка изменена в другом месте');
                 }
             }
-            if (!empty($in['transfer'])) {
-                $match = crm_match_employee($pdo, $manager);
-                if ($match === 'ambiguous') {
+            // Передача лида — только по явному id сотрудника (клиент подставляет его после
+            // подтверждения «Передать лид?»). Раньше цель угадывалась по любому слову из поля
+            // «Продавец», и совпадение по имени могло отдать лид не тому человеку.
+            $toId = intv($in['transferTo'] ?? 0);
+            if ($toId > 0 && $toId !== $uid) {
+                $to = crm_user_by_id($pdo, $toId);
+                if (!$to) {
                     $pdo->rollBack();
-                    err('Несколько сотрудников с такой фамилией — напишите имя полностью');
+                    err('Сотрудник не найден');
                 }
-                if (is_array($match) && (int) $match['id'] !== $uid) {
-                    $toId = (int) $match['id'];
-                    $toStages = crm_stages($pdo, $toId);
-                    $newStage = in_array($stage, $toStages, true) ? $stage : ($toStages[0] ?? $stage);
-                    $now2 = now_ms();
-                    $tr = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
-                    $tr->execute([$toId, $newStage, $match['name'], $now2, $id, $uid, $now]);
-                    if ($tr->rowCount() === 0) {
-                        $pdo->rollBack();
-                        err('Карточка изменена в другом месте');
-                    }
-                    // Отправитель — владелец доски, а не тот, кто нажал (админ может работать с чужой доски через ?as=).
-                    $fromName = $uid === (int) $user['id'] ? (string) $user['name'] : (string) ((crm_user_by_id($pdo, $uid)['name'] ?? '') ?: $user['name']);
-                    $via = $uid === (int) $user['id'] ? '' : ' (передал ' . $user['name'] . ')';
-                    crm_sys_comment($pdo, $id, 'Лид передан: ' . $fromName . ' → ' . $match['name'] . $via);
-                    $transferredTo = $match['name'];
-                    $now = $now2;
+                $toName = (string) $to['name'];
+                $toStages = crm_stages($pdo, $toId);
+                $newStage = in_array($stage, $toStages, true) ? $stage : ($toStages[0] ?? $stage);
+                $now2 = now_ms();
+                $tr = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
+                $tr->execute([$toId, $newStage, $toName, $now2, $id, $uid, $now]);
+                if ($tr->rowCount() === 0) {
+                    $pdo->rollBack();
+                    err('Карточка изменена в другом месте');
                 }
+                // Отправитель — владелец доски, а не тот, кто нажал (админ может работать с чужой доски через ?as=).
+                // Запись системная: удалить её может только админ (can_delete_comment).
+                $via = $uid === (int) $user['id'] ? '' : ' (передал ' . $user['name'] . ')';
+                crm_sys_comment($pdo, $id, 'Лид передан: ' . $ownerName . ' → ' . $toName . $via);
+                $transferredTo = $toName;
+                $now = $now2;
             }
             $pdo->commit();
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
-            if ($e instanceof PDOException) err('Не удалось сохранить');
-            throw $e;
+            if (!$e instanceof PDOException) throw $e;
+            crm_log_fail('save_lead', $e);
+            err('Не удалось сохранить');
         }
         if ($transferredTo !== null) ok(['id' => $id, 'transferred' => true, 'to' => $transferredTo, 'updatedAt' => $now]);
         ok(['id' => $id, 'updatedAt' => $now]);
@@ -845,7 +970,7 @@ switch ($action) {
         if ($stage === '' || !in_array($stage, $stages, true)) err('Нет такого этапа');
         $row = crm_lead_for_user($pdo, $id, $uid);
         if (!$row) err('Лид не найден');
-        if (array_key_exists('updatedAt', $in) && (int) $row['updated_at'] !== (int) $in['updatedAt']) {
+        if (array_key_exists('updatedAt', $in) && (int) $row['updated_at'] !== intv($in['updatedAt'])) {
             err('Карточка изменена в другом месте');
         }
         $now = now_ms();
@@ -885,6 +1010,7 @@ switch ($action) {
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             crm_discard_uploads($atts);
+            crm_log_fail('add_comment', $e);
             err('Не удалось сохранить');
         }
         $rev = crm_touch_lead($pdo, $leadId);
@@ -915,6 +1041,7 @@ switch ($action) {
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             crm_discard_uploads($atts);
+            crm_log_fail('edit_comment', $e);
             err('Не удалось сохранить');
         }
         $rev = crm_touch_lead($pdo, (string) $c['lead_id']);
@@ -936,6 +1063,7 @@ switch ($action) {
             $pdo->commit();
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
+            crm_log_fail('delete_comment', $e);
             err('Не удалось удалить');
         }
         crm_unlink_urls($urls);
@@ -944,8 +1072,11 @@ switch ($action) {
 
     case 'delete_attachment': {
         $in = body_json();
-        $id = (int) ($in['id'] ?? 0);
-        $row = crm_find_attachment($pdo, $id);
+        $id = intv($in['id'] ?? 0);
+        // kind обязателен: без него id неоднозначен (см. crm_find_attachment)
+        $kind = strv($in['kind'] ?? '', 16);
+        if ($kind !== 'lead' && $kind !== 'carrier') err('Не указан тип вложения');
+        $row = crm_find_attachment($pdo, $id, $kind);
         if (!$row) err('Вложение не найдено');
         if (!can_edit_comment($user, $row)) err('Нет прав');
         if (($row['kind'] ?? '') === 'lead') {
@@ -958,6 +1089,7 @@ switch ($action) {
         try {
             $pdo->prepare("DELETE FROM {$table} WHERE id = ?")->execute([$id]);
         } catch (PDOException $e) {
+            crm_log_fail('delete_attachment', $e);
             err('Не удалось удалить');
         }
         if (($row['kind'] ?? '') === 'lead') {
@@ -976,7 +1108,10 @@ switch ($action) {
         if (!is_array($ns) || !$ns) err('Пустой список этапов');
         $ns = array_values(array_filter(array_map(fn($s) => strv($s, 80), $ns)));
         if (!$ns) err('Пустой список этапов');
-        if (count($ns) !== count(array_unique($ns))) err('Имя занято');
+        if (count($ns) > CRM_MAX_STAGES) err('Не больше ' . CRM_MAX_STAGES . ' этапов');
+        // Дубликаты с разным регистром («Новый»/«новый») упали бы на UNIQUE-индексе с невнятной ошибкой
+        $keys = array_map(fn($s) => mb_strtolower($s, 'UTF-8'), $ns);
+        if (count($keys) !== count(array_unique($keys))) err('Имя занято');
         $uid = $viewUid;
         $old = crm_stages($pdo, $uid);
         $pdo->beginTransaction();
@@ -993,6 +1128,7 @@ switch ($action) {
             $pdo->commit();
         } catch (Throwable $e) {
             $pdo->rollBack();
+            crm_log_fail('save_stages', $e);
             err('Не удалось сохранить этапы');
         }
         ok();
@@ -1032,7 +1168,7 @@ switch ($action) {
     case 'update_user': {
         require_admin($user);
         $in = body_json();
-        $id = (int) ($in['id'] ?? 0);
+        $id = intv($in['id'] ?? 0);
         $name = strv($in['name'] ?? '', 80);
         $email = mb_strtolower(strv($in['email'] ?? '', 120));
         $pass = (string) ($in['password'] ?? '');
@@ -1059,9 +1195,15 @@ switch ($action) {
         if ($name !== (string) $target['name']) {
             $pdo->prepare('UPDATE crm_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
             $pdo->prepare('UPDATE crm_carrier_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
+            // «Продавец» на карточках — то же имя; иначе на лидах остаётся старое, а передача по имени ломается
+            $pdo->prepare('UPDATE crm_leads SET manager = ? WHERE user_id = ? AND manager = ?')->execute([$name, $id, (string) $target['name']]);
         }
         if ($pass !== '') {
             $pdo->prepare('UPDATE crm_users SET password = ? WHERE id = ?')->execute([password_hash($pass, PASSWORD_DEFAULT), $id]);
+            if ($id === (int) $user['id']) {
+                $fresh = crm_user_by_id($pdo, $id);
+                if ($fresh) $_SESSION['pw'] = crm_pw_fingerprint($fresh);
+            }
         }
         crm_meta_bump($pdo, 'users');
         ok();
@@ -1070,13 +1212,13 @@ switch ($action) {
     case 'delete_user': {
         require_admin($user);
         $in = body_json();
-        $id = (int) ($in['id'] ?? 0);
+        $id = intv($in['id'] ?? 0);
         if ($id === (int) $user['id']) err('Нельзя удалить себя');
         $target = crm_user_by_id($pdo, $id);
         if (!$target) err('Сотрудник не найден');
         if (($target['role'] ?? '') === 'admin' && crm_admin_count($pdo) <= 1) err('Нельзя удалить последнего администратора');
         // transferTo: id сотрудника, которому уходят лиды удаляемого; 0/пусто — удалить лиды вместе с логами и файлами
-        $transferTo = (int) ($in['transferTo'] ?? 0);
+        $transferTo = intv($in['transferTo'] ?? 0);
         if ($transferTo > 0) {
             if ($transferTo === $id) err('Нельзя передать лиды удаляемому сотруднику');
             if (!crm_user_by_id($pdo, $transferTo)) err('Получатель лидов не найден');
@@ -1097,6 +1239,10 @@ switch ($action) {
         }
         $pdo->prepare('UPDATE crm_users SET password = ? WHERE id = ?')->execute([password_hash($new, PASSWORD_DEFAULT), (int) $user['id']]);
         unset($_SESSION['must_change']);
+        // Своя сессия остаётся; все остальные сессии этого пользователя отвалятся на следующем запросе
+        // (id сессии не меняем: параллельный запрос вкладки — опрос доски — со старым id вылетел бы на вход)
+        $fresh = crm_user_by_id($pdo, (int) $user['id']);
+        if ($fresh) $_SESSION['pw'] = crm_pw_fingerprint($fresh);
         ok();
     }
 
@@ -1104,8 +1250,16 @@ switch ($action) {
         err('Неизвестное действие');
 }
 } catch (Throwable $e) {
-    http_response_code(500);
-    header('Content-Type: application/json; charset=utf-8');
+    // В ответ — общая фраза, в лог сервера — что именно и где (иначе сбои на проде невидимы).
+    error_log(sprintf('CRM api action=%s uid=%s: %s: %s in %s:%d',
+        $action, (string) ($_SESSION['user_id'] ?? '-'), get_class($e), $e->getMessage(), $e->getFile(), $e->getLine()));
+    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+        try { $pdo->rollBack(); } catch (Throwable $ignored) { /* соединение уже могло закрыться */ }
+    }
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+    }
     echo json_encode(['success' => false, 'error' => 'Ошибка сервера'], JSON_UNESCAPED_UNICODE);
     exit;
 }

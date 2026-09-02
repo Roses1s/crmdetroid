@@ -21,13 +21,19 @@ const Theme = {
 };
 const $  = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const escAttr = s => encodeURI(String(s ?? '')).replace(/"/g, '%22');
 const debounce = (fn, ms) => { let t; const d = (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; d.cancel = () => clearTimeout(t); return d; };
 const fmtTime = ts => new Date(ts).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 const fmtBytes = b => { if (!b) return '0 B'; const k=1024, s=['B','KB','MB']; const i=Math.min(2, Math.floor(Math.log(b)/Math.log(k))); return `${(b/Math.pow(k,i)).toFixed(1)} ${s[i]}`; };
 const isValidEmail = v => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+// Те же правила, что на сервере (crm_pass_ok): 8–64 символа, считаем символы, а не байты.
+function passwordError(p) {
+  const n = [...String(p || '')].length;
+  if (n < 8) return 'Пароль мин. 8 символов';
+  if (n > 64) return 'Пароль не длиннее 64 символов';
+  return null;
+}
 const IMG_EXTS = ['png','jpg','jpeg','gif','webp','bmp'];
 function attExt(a) {
   const n = String(a?.name || '');
@@ -166,7 +172,14 @@ const Store = {
   async load(force = false) {
     const res = await Net.req('get_data');
     if (!res || !res.success) return;
-    if (res.unchanged && !force) return;
+    if (res.unchanged) {
+      if (!force) return;
+      // Принудительная загрузка при совпавшем хэше (например, повторный вход в той же вкладке
+      // после истечения сессии): у сервера нет данных в ответе, а состояние уже сброшено —
+      // запрашиваем без хэша, иначе доска останется пустой.
+      Net.hash = null;
+      return this.load(true);
+    }
 
     if (res.hash) Net.hash = res.hash;
     this.state.stages = res.stages || [];
@@ -266,18 +279,19 @@ function authorInitial(c) {
   const a = String(c?.author || '').trim();
   return a ? a[0].toUpperCase() : '?';
 }
+// Зеркало серверных can_edit_comment / can_delete_comment (решает сервер; здесь — только показ кнопок)
 function canEditComment(c) {
   const user = Store.state.user;
   if (!user) return false;
   if (isSystemComment(c)) return false;
   if (user.role === 'admin') return true;
   const uid = Number(c.userId || 0);
-  if (uid > 0) return uid === Number(user.id);
-  return (c.author || '') === (user.name || '');
+  return uid > 0 && uid === Number(user.id);
 }
 function canDeleteComment(c) {
-  if (!Store.state.user) return false;
-  if (isSystemComment(c)) return true;
+  const user = Store.state.user;
+  if (!user) return false;
+  if (isSystemComment(c)) return user.role === 'admin';
   return canEditComment(c);
 }
 function logActionsHtml(c) {
@@ -425,6 +439,7 @@ function handleLogoutUI(msg) {
   UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = []; UI.editingCommentId = null; UI.formDirty = false;
   Store.viewUserId = null; Store.viewUserName = '';
   Store.state.user = null; Store.state.leads = []; Store.state.stages = [];
+  Net.hash = null; _lastBoardHash = null;
   clearSearch();
   history.replaceState(null, '', location.pathname);
   $$('.view-section').forEach(el => el.classList.remove('active'));
@@ -492,15 +507,21 @@ async function syncViewUserFromUrl() {
 }
 
 /* === НАВИГАЦИЯ (РОУТЕР) === */
+// decodeURIComponent бросает URIError на битом хэше (#lead/%E0) — тогда просто идём на доску.
+function hashParam(hash, prefix) {
+  try { return decodeURIComponent(hash.slice(prefix.length)); } catch (e) { return ''; }
+}
 function handleHashRouting() {
   const hash = window.location.hash;
   if (hash.startsWith('#lead/')) {
-    const targetLeadId = decodeURIComponent(hash.replace('#lead/', ''));
-    if (Store.getLead(targetLeadId)) { openLead(targetLeadId, false); return; }
+    const targetLeadId = hashParam(hash, '#lead/');
+    if (targetLeadId && Store.getLead(targetLeadId)) { openLead(targetLeadId, false); return; }
   } else if (hash.startsWith('#carrier/')) {
-    openCarrier(decodeURIComponent(hash.replace('#carrier/', '')), false); return;
+    const cid = hashParam(hash, '#carrier/');
+    if (cid) { openCarrier(cid, false); return; }
   } else if (hash.startsWith('#route/')) {
-    openRoute(decodeURIComponent(hash.replace('#route/', '')), false); return;
+    const rid = hashParam(hash, '#route/');
+    if (rid) { openRoute(rid, false); return; }
   } else if (hash === '#routes') {
     switchView('routes-view', false); return;
   } else if (hash === '#users' && Store.state.user?.role === 'admin') {
@@ -520,7 +541,7 @@ async function switchView(viewId, updateHash = true) {
   if (UI.leadId && UI.formDirty) {
     const saved = await saveLeadForm(true);
     if (!persistOk(saved)) return;
-    if (saved.transferred) await Store.load(true);
+    if (saved?.transferred) await Store.load(true);
   }
   if (UI.carrierId && UI.formDirty) {
     const savedC = await saveCarrierForm(true);
@@ -608,6 +629,8 @@ async function openRoute(id, updateHash = true) {
   $('#nav-routes')?.classList.add('active');
   const d = res.direction;
   $('#route-crumb').textContent = `${d.cityFrom} → ${d.cityTo}`;
+  // Удалять направление может создатель или админ — остальным кнопку не показываем (сервер проверяет сам)
+  $('[data-action="delete-direction"]')?.classList.toggle('hidden', !d.canManage);
   if (updateHash) navTo('#route/' + encodeURIComponent(id));
   renderCarriers(res.carriers || []);
 }
@@ -631,7 +654,7 @@ function renderCarriers(list) {
       <td>${esc(c.company)}</td>
       <td><span class="log-link" data-action="open-carrier" data-id="${esc(c.id)}">${n ? n + ' зап.' : 'Открыть лог'}</span></td>
       <td>${esc(c.createdByName)}</td>
-      <td><button class="btn btn-danger btn-sm" data-action="delete-carrier" data-id="${esc(c.id)}">🗑️</button></td>`;
+      <td>${c.canManage ? `<button class="btn btn-danger btn-sm" data-action="delete-carrier" data-id="${esc(c.id)}">🗑️</button>` : ''}</td>`;
     tbody.appendChild(tr);
   });
 }
@@ -668,6 +691,7 @@ async function openCarrier(id, updateHash = true) {
   $('#cf-company').value = c.company || '';
   if ($('#cf-note')) $('#cf-note').value = c.note || '';
   UI.carrierRev = c.updatedAt;
+  $('#carrier-view [data-action="delete-carrier"]')?.classList.toggle('hidden', !c.canManage);
   $('#carrier-crumb').textContent = c.name || '';
   $('#carrier-dir-crumb').textContent = d ? `${d.cityFrom} → ${d.cityTo}` : 'Направление';
   setupPhoneMask($('#cf-phone'));
@@ -742,18 +766,19 @@ async function saveCarrierForm(_sync = false, keepalive = false) {
 }
 const saveCarrierDebounced = debounce(() => saveCarrierForm(false), 500);
 
-function renderCarrierLog() {
-  const log = $('#carrier-chatter-log'); if (!log) return;
-  const comments = UI.carrierComments || [];
-  if (!comments.length) { log.innerHTML = '<div class="log-empty">Лог пуст</div>'; return; }
+// Один рендер лога для лида и перевозчика (раньше две одинаковые копии расходились при правках).
+function renderLogInto(log, comments) {
+  if (!log) return;
+  if (!comments || !comments.length) { log.innerHTML = '<div class="log-empty">Лог пуст</div>'; return; }
   log.innerHTML = '';
   const frag = document.createDocumentFragment();
   [...comments].reverse().forEach(c => {
-    const init = authorInitial(c);
+    const isSys = isSystemComment(c);
+    const init = isSys ? '⚙' : authorInitial(c);
     const atts = (c.attachments || []).map(a => renderAttHtml(a, c)).join('');
     const el = document.createElement('div'); el.className = 'log-entry';
     el.innerHTML = `
-      <div class="log-avatar">${esc(init)}</div>
+      <div class="log-avatar${isSys ? ' sys' : ''}">${esc(init)}</div>
       <div class="log-body">
         <div class="log-head">
           <div><div class="log-author">${esc(c.author)}</div><div>${esc(fmtTime(c.time))}${c.editedAt ? ` <span class="log-edited">изм. ${esc(fmtTime(c.editedAt))}</span>` : ''}</div></div>
@@ -775,6 +800,8 @@ function renderCarrierLog() {
     if (edt && txt) { edt.classList.add('active'); txt.classList.add('hidden'); renderFiles(); }
   }
 }
+function renderCarrierLog() { renderLogInto($('#carrier-chatter-log'), UI.carrierComments || []); }
+function renderLog() { const lead = Store.getLead(UI.leadId); renderLogInto($('#chatter-log'), (lead && lead.comments) || []); }
 
 async function openLead(id, updateHash = true) {
   await ensureLeadFull(id);
@@ -847,11 +874,20 @@ async function loadUsers() {
       <td><input class="user-input" id="uemail-${u.id}" value="${esc(u.email)}"></td>
       <td><select class="user-input" id="urole-${u.id}"><option value="user"${role==='user'?' selected':''}>Сотрудник</option><option value="admin"${role==='admin'?' selected':''}>Админ</option></select></td>
       <td class="td-leads">${Number(u.leads) || 0}</td>
-      <td><input class="user-input" id="upass-${u.id}" type="password" placeholder="Пусто = не менять"></td>
+      <td><input class="user-input" id="upass-${u.id}" type="password" autocomplete="new-password" placeholder="Пусто = не менять"></td>
       <td>
         <button class="btn btn-primary btn-sm" data-action="save-user" data-id="${u.id}">💾</button>
         ${u.id !== currId ? `<button class="btn btn-danger btn-sm" data-action="delete-user" data-id="${u.id}">🗑️</button>` : ''}
       </td>`;
+    // Отмечаем ручной ввод пароля: событие input от автозаполнения браузера isTrusted, но без
+    // нажатий клавиш; проверяем keydown/paste в самом поле.
+    const passEl = tr.querySelector(`#upass-${u.id}`);
+    if (passEl) {
+      const mark = () => { passEl.dataset.typed = '1'; };
+      passEl.addEventListener('keydown', mark);
+      passEl.addEventListener('paste', mark);
+      passEl.addEventListener('input', () => { if (!passEl.value) delete passEl.dataset.typed; });
+    }
     tbody.appendChild(tr);
   });
 }
@@ -924,12 +960,6 @@ function fillLeadForm(lead, fromServer = false) {
 
 function leadAppsOf(lead) {
   return Array.isArray(lead?.applications) ? lead.applications : [];
-}
-
-function fmtRate(s) {
-  const d = String(s || '').replace(/\D/g, '');
-  if (!d) return '';
-  return d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
 function updateAppsCount(n) {
@@ -1010,7 +1040,7 @@ function renderLeadApps() {
   }
   box.innerHTML = apps.map(a => {
     const route = [a.cityFrom, a.cityTo].filter(Boolean).join(' → ') || 'Без маршрута';
-    const rate = fmtRate(a.rate);
+    const rate = fmtMoney(a.rate);
     const vat = Number(a.vat) ? 'с НДС' : 'без НДС';
     const rateLine = rate ? `${esc(rate)} ₽ · ${vat}` : vat;
     const mar = fmtMoney(a.margin);
@@ -1053,7 +1083,9 @@ function openLeadAppModal(app) {
   $('#lead-app-modal-title').textContent = app?.id ? 'Заявка' : 'Новая заявка';
   $('#la-from').value = app?.cityFrom || '';
   $('#la-to').value = app?.cityTo || '';
-  $('#la-rate').value = String(app?.rate || '').replace(/\D/g, '');
+  // Ставка и маржа — одинаковый денежный формат (копейки через запятую); раньше ставка «1234.50»
+  // из БД показывалась как 123450
+  $('#la-rate').value = moneyToInput(app?.rate || '');
   if ($('#la-margin')) $('#la-margin').value = moneyToInput(app?.margin || '');
   const vat = Number(app?.vat) ? '1' : '0';
   $$('input[name="la-vat"]').forEach(r => { r.checked = r.value === vat; });
@@ -1094,7 +1126,7 @@ async function saveLeadAppFromModal() {
     leadId: UI.leadId,
     cityFrom: from,
     cityTo: to,
-    rate: ($('#la-rate').value || '').replace(/\D/g, ''),
+    rate: ($('#la-rate').value || '').trim(),
     margin: ($('#la-margin')?.value || '').trim(),
     vat: vatEl && vatEl.value === '1' ? 1 : 0,
     carrierCompany: ($('#la-company').value || '').trim(),
@@ -1143,7 +1175,7 @@ async function deleteLeadApp(id) {
 
 let _leadSaveChain = Promise.resolve();
 // См. saveCarrierForm: цепочка _leadSaveChain, первый аргумент ни на что не влияет.
-async function saveLeadForm(_sync = false, keepalive = false, transfer = false) {
+async function saveLeadForm(_sync = false, keepalive = false, transferTo = 0) {
   if (!UI.leadId) return null; const lead = Store.getLead(UI.leadId); if (!lead || !lead._full) return null;
   const run = async () => {
     const cur = Store.getLead(UI.leadId); if (!cur || !cur._full) return null;
@@ -1158,7 +1190,7 @@ async function saveLeadForm(_sync = false, keepalive = false, transfer = false) 
       return { success: false, error: 'Некорректный email' };
     }
     $('#crumb-name').textContent = patch.title;
-    if (transfer) patch.transfer = true;
+    if (transferTo) patch.transferTo = transferTo;
     const extra = keepalive ? { keepalive: true } : {};
     const res = await Net.req('save_lead', patch, false, extra);
     if (res && res.transferred) {
@@ -1244,44 +1276,6 @@ function renderFiles() {
   });
 }
 
-function renderLog() {
-  const lead = Store.getLead(UI.leadId); const log = $('#chatter-log');
-  if (!log) return;
-  if (!lead || !lead.comments || !lead.comments.length) { log.innerHTML = '<div class="log-empty">Лог пуст</div>'; return; }
-  log.innerHTML = '';
-  const frag = document.createDocumentFragment();
-
-  [...lead.comments].reverse().forEach(c => {
-    const isSys = isSystemComment(c);
-    const init = isSys ? '⚙' : authorInitial(c);
-    const atts = (c.attachments || []).map(a => renderAttHtml(a, c)).join('');
-
-    const el = document.createElement('div'); el.className = 'log-entry';
-    el.innerHTML = `
-      <div class="log-avatar${isSys ? ' sys' : ''}">${esc(init)}</div>
-      <div class="log-body">
-        <div class="log-head">
-          <div><div class="log-author">${esc(c.author)}</div><div>${esc(fmtTime(c.time))}${c.editedAt ? ` <span class="log-edited">изм. ${esc(fmtTime(c.editedAt))}</span>` : ''}</div></div>
-          ${logActionsHtml(c)}
-        </div>
-        <div class="log-text" data-txt="${esc(c.id)}">${esc(c.text)}</div>
-        <div class="inline-editor" data-edt="${esc(c.id)}">
-          <textarea data-inp="${esc(c.id)}">${esc(c.text)}</textarea>
-          <div class="files-preview edit-files-preview"></div>
-          <div class="inline-edit-btns"><label class="file-label">📎 Прикрепить<input type="file" class="edit-file-input" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label><button class="btn btn-secondary btn-sm" data-action="toggle-edit" data-cid="${esc(c.id)}">Отмена</button><button class="btn btn-primary btn-sm" data-action="save-comment" data-cid="${esc(c.id)}">Сохранить</button></div>
-        </div>
-        ${atts ? `<div class="attachments">${atts}</div>` : ''}
-      </div>`;
-    frag.appendChild(el);
-  });
-  log.appendChild(frag);
-
-  if (UI.editingCommentId) {
-    const edt = $(`[data-edt="${UI.editingCommentId}"]`), txt = $(`[data-txt="${UI.editingCommentId}"]`);
-    if (edt && txt) { edt.classList.add('active'); txt.classList.add('hidden'); renderFiles(); }
-  }
-}
-
 function initEvents() {
   $('#btn-login').addEventListener('click', execLogin);
   $('#login-password').addEventListener('keydown', e => { if (e.key === 'Enter') execLogin(); });
@@ -1331,7 +1325,7 @@ function initAppEvents() {
   });
   $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; saveLeadDebounced(); } });
   $('#la-inn')?.addEventListener('input', e => formatInnInput(e.target));
-  $('#la-rate')?.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 15); });
+  $('#la-rate')?.addEventListener('input', e => formatMarginInput(e.target));
   $('#la-margin')?.addEventListener('input', e => formatMarginInput(e.target));
   $('#f-manager').addEventListener('blur', async () => {
     if (!UI.leadId) return;
@@ -1339,24 +1333,22 @@ function initAppEvents() {
     const lead = Store.getLead(UI.leadId);
     const typed = ($('#f-manager').value || '').trim();
     const prev = (lead && lead.manager) || '';
-    let transfer = false;
-    if (typed && Store.state.colleagues) {
-      const q = typed.toLowerCase();
-      const hits = Store.state.colleagues.filter(u => {
-        const n = String(u.name || '').toLowerCase();
-        if (n === q) return true;
-        return n.split(/\s+/).includes(q);
-      });
-      const me = Store.state.user && hits.length === 1 && +hits[0].id === +Store.state.user.id;
-      if (hits.length === 1 && !me) {
-        if (!await askConfirm('Передать лид?', 'Лид уйдёт сотруднику «' + hits[0].name + '»')) {
+    // Передача — только при полном совпадении с именем сотрудника из подсказки (без регистра).
+    // Одна фамилия больше не переводит лид: «Иванов» могло уйти не тому Иванову.
+    let transferTo = 0;
+    if (typed && typed !== prev && Store.state.colleagues) {
+      const q = typed.toLowerCase().replace(/\s+/g, ' ');
+      const hits = Store.state.colleagues.filter(u => String(u.name || '').toLowerCase().replace(/\s+/g, ' ') === q);
+      const ownerId = Store.viewUserId || (Store.state.user && Store.state.user.id);
+      if (hits.length === 1 && +hits[0].id !== +ownerId) {
+        if (!await askConfirm('Передать лид?', 'Лид уйдёт сотруднику «' + hits[0].name + '» вместе с логом и файлами')) {
           $('#f-manager').value = prev;
           return;
         }
-        transfer = true;
+        transferTo = +hits[0].id;
       }
     }
-    const res = await saveLeadForm(true, false, transfer);
+    const res = await saveLeadForm(true, false, transferTo);
     if (res && res.transferred) { await Store.load(true); await goHome(true); }
   });
   $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; saveCarrierDebounced(); } });
@@ -1543,7 +1535,7 @@ function initAppEvents() {
       case 'toggle-theme': Theme.toggle(); break;
       case 'submit-password': {
         const np = $('#pw-new')?.value || '', n2 = $('#pw-new2')?.value || '';
-        if (np.length < 8) return Toast.error('Пароль мин. 8 символов');
+        const npErr = passwordError(np); if (npErr) return Toast.error(npErr);
         if (np !== n2) return Toast.error('Пароли не совпадают');
         const resPw = await Net.req('change_password', { password: np });
         if (resPw?.success) {
@@ -1582,7 +1574,8 @@ function initAppEvents() {
         if (!t) return Toast.error('Введите название');
         if (i && i.length !== 10 && i.length !== 12) return Toast.error('ИНН 10 или 12 цифр');
         if (!isValidEmail(em)) return Toast.error('Некорректный email');
-        const resL = await Net.req('save_lead', { id: 'l_'+uid(), title: t, inn: i, phone: $('#m-phone').value.trim(), email: em, manager: Store.state.user.name, stage: Store.state.stages[0], applicationsCount: 0 });
+        // id новому лиду выдаёт сервер
+        const resL = await Net.req('save_lead', { title: t, inn: i, phone: $('#m-phone').value.trim(), email: em, stage: Store.state.stages[0] });
         if (resL?.success) { Modal.closeAll(); await Store.load(true); } else Toast.error(resL?.error || 'Ошибка');
         break;
 
@@ -1591,7 +1584,7 @@ function initAppEvents() {
         if (!n || !ue || !p) return Toast.error('Все поля');
         if (isReservedUserName(n)) return Toast.error('Это имя зарезервировано');
         if (!isValidEmail(ue)) return Toast.error('Некорректный email');
-        if (p.length < 8) return Toast.error('Пароль мин. 8 символов');
+        const pErr = passwordError(p); if (pErr) return Toast.error(pErr);
         const resU = await Net.req('register_user', { name: n, email: ue, password: p, role: $('#u-admin')?.checked ? 'admin' : 'user' });
         if (resU?.success) { Toast.success('Добавлен'); Modal.closeAll(); loadUsers(); } else Toast.error(resU?.error || 'Ошибка');
         break;
@@ -1601,8 +1594,13 @@ function initAppEvents() {
         if (!un || !uem) return Toast.error('Обязательны Имя и Email');
         if (isReservedUserName(un)) return Toast.error('Это имя зарезервировано');
         if (!isValidEmail(uem)) return Toast.error('Некорректный email');
-        if (up && up.length < 8) return Toast.error('Пароль мин. 8 символов');
-        const resS = await Net.req('update_user', { id: +id, name: un, email: uem, password: up, role: ur });
+        if (up) { const upErr = passwordError(up); if (upErr) return Toast.error(upErr); }
+        // Пароль отправляем только если поле трогали руками: автозаполнение браузера могло
+        // подставить пароль админа в чужую строку, а «💾» тихо сменил бы сотруднику пароль.
+        const passEl = $(`#upass-${id}`);
+        const payloadU = { id: +id, name: un, email: uem, role: ur };
+        if (up && passEl?.dataset.typed === '1') payloadU.password = up;
+        const resS = await Net.req('update_user', payloadU);
         if (resS?.success) { Toast.success('Сохранено'); loadUsers(); } else Toast.error(resS?.error || 'Ошибка');
         break;
       }
@@ -1712,7 +1710,8 @@ function initAppEvents() {
         if (!await askConfirm('Удалить вложение?')) return;
         const attId = String(actEl.dataset.id || '');
         if (!attId) return;
-        const resDA = await Net.req('delete_attachment', { id: +attId });
+        // kind обязателен: номера вложений лидов и перевозчиков независимы и могут совпадать
+        const resDA = await Net.req('delete_attachment', { id: +attId, kind: UI.currentView === 'carrier' ? 'carrier' : 'lead' });
         if (!resDA?.success) { Toast.error(resDA?.error || 'Ошибка'); break; }
         const dropAtt = list => (list || []).map(c => Object.assign({}, c, {
           attachments: (c.attachments || []).filter(a => String(a.id) !== attId)

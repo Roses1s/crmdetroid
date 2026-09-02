@@ -22,6 +22,11 @@ function err(string $message, bool $needLogin = false): never {
 }
 function now_ms(): int { return (int) round(microtime(true) * 1000); }
 
+/** Записать причину сбоя в лог сервера перед тем, как отдать пользователю общую фразу. */
+function crm_log_fail(string $where, Throwable $e): void {
+    error_log(sprintf('CRM %s: %s: %s in %s:%d', $where, get_class($e), $e->getMessage(), $e->getFile(), $e->getLine()));
+}
+
 /** @return list<array{0:string,1:int}> */
 function crm_mysql_targets(string $host, int $port): array {
     $host = trim($host);
@@ -91,7 +96,9 @@ function crm_pdo(): PDO {
     return $pdo;
 }
 
-const CRM_SCHEMA_VERSION = 10;
+const CRM_SCHEMA_VERSION = 11;
+/** Минимальная длина запроса (символов названия или цифр ИНН), при которой ищем пересечения с чужими лидами. */
+const CRM_SEARCH_MIN_CHARS = 4;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -104,6 +111,24 @@ function crm_schema_version(PDO $pdo): int {
 
 function crm_boot(PDO $pdo): void {
     if (crm_schema_version($pdo) >= CRM_SCHEMA_VERSION) return;
+    // Миграции запускает первый же запрос после обновления файлов. Два одновременных первых запроса
+    // раньше выполняли ALTER параллельно, и один из них падал с 500. Блокировка на уровне MySQL
+    // (GET_LOCK) выстраивает их в очередь; второй после ожидания перечитывает версию и выходит.
+    $locked = false;
+    try {
+        $locked = (int) $pdo->query("SELECT GET_LOCK('crm_migrate', 30)")->fetchColumn() === 1;
+    } catch (PDOException $e) { /* без блокировки — как раньше */ }
+    try {
+        if ($locked && crm_schema_version($pdo) >= CRM_SCHEMA_VERSION) return;
+        crm_run_migrations($pdo);
+    } finally {
+        if ($locked) {
+            try { $pdo->query("SELECT RELEASE_LOCK('crm_migrate')"); } catch (PDOException $e) { /* ok */ }
+        }
+    }
+}
+
+function crm_run_migrations(PDO $pdo): void {
     crm_migrate($pdo);
     crm_migrate_owners($pdo);
     crm_migrate_routes($pdo);
@@ -114,6 +139,7 @@ function crm_boot(PDO $pdo): void {
     crm_migrate_v8($pdo);
     crm_migrate_v9($pdo);
     crm_migrate_v10($pdo);
+    crm_migrate_v11($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -290,30 +316,80 @@ function crm_column_type(PDO $pdo, string $table, string $col): string {
 }
 
 /**
+ * Старое текстовое значение ставки/маржи → DECIMAL-строка или NULL (не распознано).
+ * Распознаётся только однозначная сумма: «45 000», «45000 руб.», «17608,65», «12 500 ₽».
+ * Диапазоны, дроби через слэш, буквы кроме валютных подписей («12000-15000», «40-45 тыс»,
+ * «1e5», «от 40 000») НЕ угадываются: раньше из них склеивались цифры (1200015000, 4045, 15),
+ * а исходник терялся. Теперь такие значения остаются в *_raw, а в DECIMAL пишется NULL.
+ */
+function crm_legacy_money(string $v): ?string {
+    $clean = crm_parse_money($v);
+    if ($clean !== null) return $clean === '' ? null : $clean;
+    $s = mb_strtolower(trim($v), 'UTF-8');
+    // валютные подписи и слово «рублей» в любых формах — не информация о сумме
+    $s = preg_replace('/(руб(лей|ля|ль|\.)?|р\.|₽|rub|rur)\s*$/u', '', $s) ?? $s;
+    $s = trim($s);
+    if ($s === '' || preg_match('/[^\d\s.,\x{00A0}]/u', $s)) return null;
+    $clean = crm_parse_money($s);
+    return ($clean === null || $clean === '') ? null : $clean;
+}
+
+/**
  * v10: ставка и маржа заявки — DECIMAL(15,2) NULL вместо VARCHAR.
  * Раньше суммы считались через CAST(REPLACE(...)), а любой мусор в строке молча превращался в 0.
- * Перед сменой типа старые значения нормализуются в PHP той же функцией, что и при вводе
- * (пробелы, запятая как разделитель); что не распарсилось — NULL (пусто).
+ * Исходные строки сохраняются в rate_raw / margin_raw (ничего не теряется, можно свериться и
+ * поправить руками), в DECIMAL попадают только однозначно распознанные суммы (crm_legacy_money).
  */
 function crm_migrate_v10(PDO $pdo): void {
     foreach (['rate', 'margin'] as $col) {
         if (!crm_has_column($pdo, 'crm_lead_apps', $col)) continue;
         if (crm_column_type($pdo, 'crm_lead_apps', $col) === 'decimal') continue;
+        $raw = $col . '_raw';
+        if (!crm_has_column($pdo, 'crm_lead_apps', $raw)) {
+            $pdo->exec("ALTER TABLE crm_lead_apps ADD COLUMN `$raw` VARCHAR(40) NULL DEFAULT NULL AFTER `$col`");
+        }
+        // 1) резервная копия исходника — до любых изменений значения
+        $pdo->exec("UPDATE crm_lead_apps SET `$raw` = `$col` WHERE `$col` <> '' AND `$raw` IS NULL");
+        // 2) нормализация в PHP; нераспознанное → '' (станет NULL ниже)
         $st = $pdo->query("SELECT id, `$col` AS v FROM crm_lead_apps WHERE `$col` <> ''");
         $upd = $pdo->prepare("UPDATE crm_lead_apps SET `$col` = ? WHERE id = ?");
         foreach ($st->fetchAll() as $r) {
-            $clean = crm_parse_money($r['v']);
-            if ($clean === null) {
-                // не число: попробуем вытащить хотя бы цифры (например «45 000 руб.»)
-                $digits = preg_replace('/[^\d.,]/', '', (string) $r['v']) ?? '';
-                $clean = crm_parse_money($digits);
-            }
-            $upd->execute([$clean === null ? '' : $clean, $r['id']]);
+            $upd->execute([crm_legacy_money((string) $r['v']) ?? '', $r['id']]);
         }
-        // Пустые строки → NULL до смены типа (иначе ALTER упадёт в strict-режиме на '' → DECIMAL)
+        // 3) пустые строки → NULL до смены типа (иначе ALTER упадёт в strict-режиме на '' → DECIMAL)
         $pdo->exec("ALTER TABLE crm_lead_apps MODIFY `$col` VARCHAR(40) NULL DEFAULT NULL");
         $pdo->exec("UPDATE crm_lead_apps SET `$col` = NULL WHERE `$col` = ''");
         $pdo->exec("ALTER TABLE crm_lead_apps MODIFY `$col` DECIMAL(15,2) NULL DEFAULT NULL");
+    }
+}
+
+/** Есть ли индекс с таким именем у таблицы. */
+function crm_has_index(PDO $pdo, string $table, string $index): bool {
+    $st = $pdo->prepare('SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?');
+    $st->execute([$table, $index]);
+    return (int) $st->fetchColumn() > 0;
+}
+
+/**
+ * v11: индексы под реальные запросы.
+ * - crm_leads(stage) не использовался: доска, перенос этапов и save_stages фильтруют по user_id + stage;
+ * - статистика «заявок по клиенту» ищет по user_id + inn.
+ */
+function crm_migrate_v11(PDO $pdo): void {
+    // Единая схема: колонки *_raw есть всегда (у баз, прошедших v10 старым кодом, они пустые)
+    foreach (['rate', 'margin'] as $col) {
+        if (!crm_has_column($pdo, 'crm_lead_apps', $col . '_raw')) {
+            $pdo->exec("ALTER TABLE crm_lead_apps ADD COLUMN `{$col}_raw` VARCHAR(40) NULL DEFAULT NULL AFTER `$col`");
+        }
+    }
+    if (!crm_has_index($pdo, 'crm_leads', 'idx_user_stage')) {
+        try { $pdo->exec('ALTER TABLE crm_leads ADD KEY idx_user_stage (user_id, stage)'); } catch (PDOException $e) { /* ok */ }
+    }
+    if (!crm_has_index($pdo, 'crm_leads', 'idx_user_inn')) {
+        try { $pdo->exec('ALTER TABLE crm_leads ADD KEY idx_user_inn (user_id, inn)'); } catch (PDOException $e) { /* ok */ }
+    }
+    if (crm_has_index($pdo, 'crm_leads', 'idx_stage') && crm_has_index($pdo, 'crm_leads', 'idx_user_stage')) {
+        try { $pdo->exec('ALTER TABLE crm_leads DROP INDEX idx_stage'); } catch (PDOException $e) { /* ok */ }
     }
 }
 
@@ -355,17 +431,20 @@ function crm_migrate_v8(PDO $pdo): void {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
+/**
+ * Ревизия доски для get_data (клиент сравнивает хэш и не качает данные, если ничего не менялось).
+ * Любое изменение лида или его лога проходит через crm_touch_lead → updated_at, поэтому достаточно
+ * агрегатов по crm_leads (без прохода по всем комментариям пользователя, как было раньше).
+ * Счётчик справочника (routes) сюда не входит: доска маршруты не показывает, а раньше любой
+ * комментарий к перевозчику заставлял все клиенты перекачивать доски целиком.
+ */
 function crm_board_rev(PDO $pdo, int $userId): string {
-    $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(updated_at),0) u, COALESCE(MAX(created_at),0) cr FROM crm_leads WHERE user_id = ?');
+    $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(updated_at),0) u, COALESCE(MAX(created_at),0) cr, COALESCE(SUM(CRC32(id)),0) h FROM crm_leads WHERE user_id = ?');
     $st->execute([$userId]);
-    $L = $st->fetch() ?: ['c' => 0, 'u' => 0, 'cr' => 0];
-    $st = $pdo->prepare('SELECT COUNT(*) c, COALESCE(MAX(c.time),0) t, COALESCE(MAX(c.edited_at),0) e, COALESCE(SUM(CRC32(c.id)),0) h
-        FROM crm_comments c INNER JOIN crm_leads l ON l.id = c.lead_id WHERE l.user_id = ?');
-    $st->execute([$userId]);
-    $C = $st->fetch() ?: ['c' => 0, 't' => 0, 'e' => 0, 'h' => 0];
+    $L = $st->fetch() ?: ['c' => 0, 'u' => 0, 'cr' => 0, 'h' => 0];
     $stages = implode("\n", crm_stages($pdo, $userId));
-    return $userId . '|' . $L['c'] . '|' . $L['u'] . '|' . $L['cr'] . '|' . $C['c'] . '|' . $C['t'] . '|' . $C['e'] . '|' . $C['h']
-        . '|' . crm_meta_get($pdo, 'users') . '|' . crm_meta_get($pdo, 'routes') . '|' . $stages;
+    return $userId . '|' . $L['c'] . '|' . $L['u'] . '|' . $L['cr'] . '|' . $L['h']
+        . '|' . crm_meta_get($pdo, 'users') . '|' . $stages;
 }
 
 function crm_default_stages(): array {
@@ -440,9 +519,10 @@ function crm_migrate(PDO $pdo): void {
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL DEFAULT 0,
       PRIMARY KEY (id),
-      KEY idx_stage (stage),
       KEY idx_user (user_id),
-      KEY idx_updated (user_id, updated_at)
+      KEY idx_updated (user_id, updated_at),
+      KEY idx_user_stage (user_id, stage),
+      KEY idx_user_inn (user_id, inn)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS crm_comments (
@@ -571,7 +651,7 @@ function crm_directions_list(PDO $pdo, string $q = ''): array {
     return $out;
 }
 
-function crm_carriers_list(PDO $pdo, string $directionId): array {
+function crm_carriers_list(PDO $pdo, string $directionId, array $user = []): array {
     $st = $pdo->prepare('SELECT c.*, u.name AS creator,
             (SELECT COUNT(*) FROM crm_carrier_comments x WHERE x.carrier_id = c.id) AS comments_count
             FROM crm_carriers c LEFT JOIN crm_users u ON u.id = c.created_by
@@ -587,6 +667,7 @@ function crm_carriers_list(PDO $pdo, string $directionId): array {
             'note' => $r['note'],
             'commentsCount' => (int) $r['comments_count'],
             'createdByName' => $r['creator'] ?: '',
+            'canManage' => $user ? can_manage_ref($user, $r) : false,
             'updatedAt' => (int) ($r['updated_at'] ?? $r['created_at'] ?? 0),
         ];
     }
@@ -656,11 +737,56 @@ function crm_upload_name(string $dataUrl): ?string {
     return null;
 }
 
+/** Обрезать имя файла до $max символов, сохранив расширение. */
+function crm_short_filename(string $name, int $max = 200): string {
+    $name = trim(str_replace(["\0", "\r", "\n"], '', $name));
+    if ($name === '') return 'file';
+    if (mb_strlen($name, 'UTF-8') <= $max) return $name;
+    $ext = pathinfo($name, PATHINFO_EXTENSION);
+    $base = $ext !== '' ? mb_substr($name, 0, mb_strlen($name, 'UTF-8') - mb_strlen($ext, 'UTF-8') - 1, 'UTF-8') : $name;
+    $keep = max(1, $max - ($ext !== '' ? mb_strlen($ext, 'UTF-8') + 1 : 0));
+    $base = mb_substr($base, 0, $keep, 'UTF-8');
+    return $ext !== '' ? $base . '.' . $ext : $base;
+}
+
 function crm_unlink_upload(string $url): void {
     $name = crm_upload_name($url);
     if ($name === null) return;
     $path = CRM_UPLOAD_DIR . '/' . $name;
     if (is_file($path)) @unlink($path);
+}
+
+/**
+ * Удалить из uploads/ файлы, на которые нет ссылок ни в одной таблице вложений
+ * (остатки от упавших транзакций, ручных правок БД, старых версий). Файлы моложе часа
+ * не трогаем — они могут принадлежать запросу, который ещё выполняется.
+ * Возвращает [проверено, удалено].
+ */
+function crm_sweep_uploads(PDO $pdo): array {
+    $dir = realpath(CRM_UPLOAD_DIR);
+    if ($dir === false) return [0, 0];
+    $known = [];
+    foreach (['crm_attachments', 'crm_carrier_attachments'] as $t) {
+        foreach ($pdo->query("SELECT data_url FROM $t") as $r) {
+            $n = crm_upload_name((string) $r['data_url']);
+            if ($n !== null) $known[$n] = true;
+        }
+    }
+    $checked = 0;
+    $removed = 0;
+    $limit = time() - 3600;
+    foreach (scandir($dir) ?: [] as $f) {
+        if ($f === '.' || $f === '..' || $f === '.htaccess' || $f === '.gitkeep') continue;
+        $p = $dir . '/' . $f;
+        if (!is_file($p)) continue;
+        $checked++;
+        if (isset($known[$f])) continue;
+        // Трогаем только файлы, которые создала сама CRM (свой формат имени); чужое не удаляем
+        if (crm_upload_name('uploads/' . $f) === null) continue;
+        if ((int) @filemtime($p) > $limit) continue;
+        if (@unlink($p)) $removed++;
+    }
+    return [$checked, $removed];
 }
 
 function crm_image_mime(string $ext): ?string {
@@ -757,21 +883,29 @@ function crm_serve_file(PDO $pdo, string $name, array $user): never {
     if (str_starts_with($mime, 'image/')) {
         header('Content-Disposition: inline');
     } else {
-        header('Content-Disposition: inline; filename="' . $ascii . '"');
+        // filename* (RFC 5987) — чтобы «Договор.pdf» скачивался с русским именем, а не «_______.pdf»
+        header('Content-Disposition: inline; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($orig));
     }
     readfile($path);
     exit;
 }
 
-function crm_find_attachment(PDO $pdo, int $id): ?array {
+/**
+ * Вложение по id и виду ('lead' | 'carrier'). Таблицы crm_attachments и crm_carrier_attachments
+ * нумеруются независимо, поэтому id без вида неоднозначен: раньше поиск шёл «сначала у лидов»,
+ * и клик «×» на файле перевозчика мог удалить файл из лида с тем же номером.
+ */
+function crm_find_attachment(PDO $pdo, int $id, string $kind): ?array {
     if ($id <= 0) return null;
-    $st = $pdo->prepare('SELECT a.id, a.comment_id, a.name, a.data_url, c.lead_id AS owner_id, c.author, c.user_id, \'lead\' AS kind
-        FROM crm_attachments a INNER JOIN crm_comments c ON c.id = a.comment_id WHERE a.id = ?');
-    $st->execute([$id]);
-    $row = $st->fetch();
-    if ($row) return $row;
-    $st = $pdo->prepare('SELECT a.id, a.comment_id, a.name, a.data_url, c.carrier_id AS owner_id, c.author, c.user_id, \'carrier\' AS kind
-        FROM crm_carrier_attachments a INNER JOIN crm_carrier_comments c ON c.id = a.comment_id WHERE a.id = ?');
+    if ($kind === 'lead') {
+        $st = $pdo->prepare('SELECT a.id, a.comment_id, a.name, a.data_url, c.lead_id AS owner_id, c.author, c.user_id, \'lead\' AS kind
+            FROM crm_attachments a INNER JOIN crm_comments c ON c.id = a.comment_id WHERE a.id = ?');
+    } elseif ($kind === 'carrier') {
+        $st = $pdo->prepare('SELECT a.id, a.comment_id, a.name, a.data_url, c.carrier_id AS owner_id, c.author, c.user_id, \'carrier\' AS kind
+            FROM crm_carrier_attachments a INNER JOIN crm_carrier_comments c ON c.id = a.comment_id WHERE a.id = ?');
+    } else {
+        return null;
+    }
     $st->execute([$id]);
     $row = $st->fetch();
     return $row ?: null;
@@ -821,13 +955,6 @@ function crm_purge_lead(PDO $pdo, string $id, bool $ownTxn = true): array {
         return [];
     }
     return $urls;
-}
-
-/** Сколько лидов у сотрудника (для предупреждения перед удалением). */
-function crm_user_lead_count(PDO $pdo, int $id): int {
-    $st = $pdo->prepare('SELECT COUNT(*) FROM crm_leads WHERE user_id = ?');
-    $st->execute([$id]);
-    return (int) $st->fetchColumn();
 }
 
 /**
@@ -935,7 +1062,7 @@ function crm_user_public(array $u): array {
 }
 
 function crm_view_uid(PDO $pdo, array $user): int {
-    $as = (int) ($_GET['as'] ?? 0);
+    $as = is_scalar($_GET['as'] ?? null) ? (int) $_GET['as'] : 0;
     if ($as <= 0) return (int) $user['id'];
     if (($user['role'] ?? '') !== 'admin') err('Нет прав');
     if ($as === (int) $user['id']) return $as;
@@ -959,29 +1086,6 @@ function crm_colleagues(PDO $pdo): array {
         $out[] = ['id' => (int) $u['id'], 'name' => $u['name']];
     }
     return $out;
-}
-
-/** @return array{id:int,name:string}|string|null  string = "ambiguous" */
-function crm_match_employee(PDO $pdo, string $hint) {
-    $hint = trim($hint);
-    if ($hint === '' || mb_strlen($hint) < 2) return null;
-    $h = mb_strtolower($hint);
-    $exact = [];
-    $word = [];
-    foreach ($pdo->query('SELECT id, name FROM crm_users') as $u) {
-        $name = trim((string) $u['name']);
-        if ($name === '') continue;
-        $ln = mb_strtolower($name);
-        if ($ln === $h) { $exact[] = $u; continue; }
-        foreach (preg_split('/\s+/u', $ln) as $part) {
-            if ($part === $h) { $word[] = $u; break; }
-        }
-    }
-    if (count($exact) === 1) return ['id' => (int) $exact[0]['id'], 'name' => $exact[0]['name']];
-    if (count($exact) > 1) return 'ambiguous';
-    if (count($word) === 1) return ['id' => (int) $word[0]['id'], 'name' => $word[0]['name']];
-    if (count($word) > 1) return 'ambiguous';
-    return null;
 }
 
 function crm_user_by_id(PDO $pdo, int $id): ?array {
@@ -1207,13 +1311,28 @@ function crm_login_throttled(PDO $pdo, string $email, string $ip = ''): bool {
     return (int) $st->fetchColumn() >= 8;
 }
 
-function crm_login_fail(PDO $pdo, string $email, string $ip = ''): void {
-    $pdo->prepare('INSERT INTO crm_login_attempts (email, ip, attempted_at) VALUES (?,?,?)')->execute([$email, $ip, now_ms()]);
-    $pdo->prepare('DELETE FROM crm_login_attempts WHERE attempted_at < ?')->execute([now_ms() - 24 * 3600 * 1000]);
+/** Удалить записи о попытках старше суток (лимиты считают только последние 15 минут). */
+function crm_login_attempts_gc(PDO $pdo): void {
+    try {
+        $pdo->prepare('DELETE FROM crm_login_attempts WHERE attempted_at < ?')->execute([now_ms() - 24 * 3600 * 1000]);
+    } catch (PDOException $e) { /* ok */ }
 }
 
-function crm_login_ok(PDO $pdo, string $email): void {
-    $pdo->prepare('DELETE FROM crm_login_attempts WHERE email = ?')->execute([$email]);
+function crm_login_fail(PDO $pdo, string $email, string $ip = ''): void {
+    $pdo->prepare('INSERT INTO crm_login_attempts (email, ip, attempted_at) VALUES (?,?,?)')->execute([$email, $ip, now_ms()]);
+    crm_login_attempts_gc($pdo);
+}
+
+/**
+ * Успешный вход сбрасывает счётчик только для этой пары (email, IP). Раньше сбрасывались попытки
+ * со всех адресов — каждый вход жертвы обнулял лимит подбирающему пароль с другого IP.
+ */
+function crm_login_ok(PDO $pdo, string $email, string $ip = ''): void {
+    if ($ip !== '') {
+        $pdo->prepare('DELETE FROM crm_login_attempts WHERE email = ? AND ip = ?')->execute([$email, $ip]);
+    } else {
+        $pdo->prepare('DELETE FROM crm_login_attempts WHERE email = ?')->execute([$email]);
+    }
 }
 
 /** Переименования стадий: не трогать лиды при обычной перестановке колонок. */
@@ -1265,14 +1384,18 @@ function crm_search_leads(PDO $pdo, int $userId, string $q): array {
         ];
     }
 
-    $othSql = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND (l.title LIKE ?';
-    $othParams = [$userId, $titlePat];
-    if (strlen($digits) >= 2) {
-        $othSql .= ' OR l.inn LIKE ?';
-        $othParams[] = crm_like_pat($digits);
-    }
-    $othSql .= ')';
-    $othSql .= ' LIMIT 60';
+    // «Пересечения» — чужие лиды с тем же клиентом. Показываем их только по достаточно точному
+    // запросу (≥4 символа названия или ≥4 цифры ИНН) и не больше 20 за раз: по двузначным
+    // фрагментам ИНН («77», «78», …) раньше можно было выгрузить всю клиентскую базу компании.
+    $byTitle = mb_strlen($q, 'UTF-8') >= CRM_SEARCH_MIN_CHARS;
+    $byInn = strlen($digits) >= CRM_SEARCH_MIN_CHARS;
+    if (!$byTitle && !$byInn) return ['leads' => $leads, 'intersections' => []];
+    $othSql = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND (';
+    $othParams = [$userId];
+    $conds = [];
+    if ($byTitle) { $conds[] = 'l.title LIKE ?'; $othParams[] = $titlePat; }
+    if ($byInn) { $conds[] = 'l.inn LIKE ?'; $othParams[] = crm_like_pat($digits); }
+    $othSql .= implode(' OR ', $conds) . ') LIMIT 20';
     $st = $pdo->prepare($othSql);
     $st->execute($othParams);
     $grouped = [];

@@ -38,7 +38,7 @@
       <div class="form-grid">
         <div>
           <div class="form-row"><div class="form-label">ИНН</div><input class="form-input" id="f-inn" placeholder="10 или 12 цифр" maxlength="12"></div>
-          <div class="form-row"><div class="form-label">Продавец</div><input class="form-input" id="f-manager" list="colleagues-list" placeholder="Фамилия — передать лид" autocomplete="off"></div>
+          <div class="form-row"><div class="form-label">Продавец</div><input class="form-input" id="f-manager" list="colleagues-list" placeholder="Имя сотрудника из списка — передать лид" autocomplete="off"></div>
           <datalist id="colleagues-list"></datalist>
         </div>
         <div>
@@ -182,7 +182,7 @@
     <input type="hidden" id="la-id">
     <div class="field"><label>Откуда *</label><input id="la-from" placeholder="Город"></div>
     <div class="field"><label>Куда *</label><input id="la-to" placeholder="Город"></div>
-    <div class="field"><label>Ставка</label><input id="la-rate" inputmode="numeric" placeholder="Сумма"></div>
+    <div class="field"><label>Ставка</label><input id="la-rate" inputmode="decimal" placeholder="например 45000"></div>
     <div class="field"><label>Маржа с поездки</label><input id="la-margin" inputmode="decimal" placeholder="например 17608,65"></div>
     <div class="field">
       <label>НДС</label>
@@ -215,7 +215,7 @@
     <h2>Добавить сотрудника</h2>
     <div class="field"><label>Имя сотрудника</label><input id="u-name"></div>
     <div class="field"><label>E-mail (логин)</label><input id="u-email" type="email"></div>
-    <div class="field"><label>Пароль (мин. 8 символов)</label><input id="u-pass" type="password"></div>
+    <div class="field"><label>Пароль (8–64 символа)</label><input id="u-pass" type="password" autocomplete="new-password"></div>
     <div class="field"><label class="check-label"><input type="checkbox" id="u-admin"> Администратор</label></div>
     <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-user">Добавить</button></div>
   </div>
