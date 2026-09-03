@@ -1305,10 +1305,6 @@ async function saveLeadForm(_sync = false, keepalive = false, transferTo = 0) {
       manager: $('#f-manager').value.trim(),
       logistName: ($('#f-logist-name')?.value || '').trim(),
       logistPhone: ($('#f-logist-phone')?.value || '').trim(),
-      cargo: ($('#f-cargo')?.value || '').trim(),
-      format: ($('#f-format')?.value || '').trim(),
-      payment: ($('#f-payment')?.value || '').trim(),
-      ati: ($('#f-ati')?.value || '').trim(),
       stage: cur.stage,
       updatedAt: cur._editRev ?? cur.updatedAt
     };
