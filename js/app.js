@@ -1040,7 +1040,7 @@ function fillLeadForm(lead, fromServer = false) {
   if (!lead || !lead._full) return;
   if (fromServer || lead._editRev == null) lead._editRev = lead.updatedAt;
   $('#f-title').value = lead.title;
-  ['inn','phone','email','manager','cargo','format','payment','ati'].forEach(f => {
+  ['inn','phone','email','manager'].forEach(f => {
     const el = $(`#f-${f}`); if (el && document.activeElement !== el) el.value = lead[f] || '';
   });
   const ln = $('#f-logist-name'); if (ln && document.activeElement !== ln) ln.value = lead.logistName || '';

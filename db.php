@@ -1385,10 +1385,6 @@ function crm_lead_row_to_api(array $r, bool $full = true): array {
         $out['email'] = $r['email'];
         $out['logistName'] = $r['logist_name'] ?? '';
         $out['logistPhone'] = $r['logist_phone'] ?? '';
-        $out['cargo'] = $r['cargo'];
-        $out['format'] = $r['format'];
-        $out['payment'] = $r['payment'];
-        $out['ati'] = $r['ati'];
     }
     return $out;
 }
