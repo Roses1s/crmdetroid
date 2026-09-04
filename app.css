@@ -513,6 +513,24 @@
   }
   @keyframes crm-spin { to { transform: rotate(360deg); } }
 
+  /* === АКТИВНОСТЬ КЛИЕНТОВ === */
+  .activity-year-nav { display: flex; align-items: center; gap: 10px; }
+  .activity-year { font-size: 18px; font-weight: 700; color: var(--primary); min-width: 50px; text-align: center; font-variant-numeric: tabular-nums; }
+  .activity-table-wrap { overflow-x: auto; }
+  .activity-table { min-width: 700px; }
+  .activity-table th { text-align: center; font-size: 11px; padding: 8px 4px; white-space: nowrap; }
+  .activity-table th:first-child { text-align: left; min-width: 180px; }
+  .activity-table th:last-child { text-align: center; min-width: 50px; }
+  .activity-client { font-weight: 700; font-size: 13px; }
+  .activity-inn { font-weight: 400; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .activity-cell { text-align: center; padding: 8px 4px; font-size: 12px; color: var(--muted); }
+  .activity-cell.active { background: #e8f5e9; color: #2e7d32; font-weight: 700; border-radius: 4px; cursor: default; }
+  html[data-theme="dark"] .activity-cell.active { background: #1b3a26; color: #66bb6a; }
+  .activity-total { text-align: center; font-weight: 700; color: var(--primary); font-size: 13px; }
+  .name-link[data-action="open-activity-client"] { cursor: pointer; color: var(--primary); }
+  .name-link[data-action="open-activity-client"]:hover { text-decoration: underline; }
+
+
   /* === A11Y: focus-visible для keyboard navigation (#4) === */
   .btn:focus-visible, .card:focus-visible, .nav-item:focus-visible,
   .search-item:focus-visible, input:focus-visible, textarea:focus-visible,

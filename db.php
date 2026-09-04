@@ -1635,6 +1635,35 @@ function crm_reserved_user_name(string $name): bool {
 }
 
 /**
+ * Активность клиентов по месяцам: для каждого ИНН возвращает массив месяцев,
+ * в которых была хотя бы одна поездка (заявка). Группирует все лиды с одинаковым ИНН.
+ * Возвращает: [ { inn, title, months: { 1: count, 3: count, ... } } ]
+ */
+function crm_client_activity(PDO $pdo, int $userId, int $year): array {
+    $sql = "SELECT l.inn, MAX(l.title) AS title,
+                   MONTH(FROM_UNIXTIME(a.created_at / 1000)) AS month,
+                   COUNT(*) AS trips
+            FROM crm_lead_apps a
+            INNER JOIN crm_leads l ON l.id = a.lead_id
+            WHERE l.user_id = ?
+              AND YEAR(FROM_UNIXTIME(a.created_at / 1000)) = ?
+              AND l.inn <> ''
+            GROUP BY l.inn, month
+            ORDER BY l.inn";
+    $st = $pdo->prepare($sql);
+    $st->execute([$userId, $year]);
+    $clients = [];
+    foreach ($st->fetchAll() as $r) {
+        $inn = (string) $r['inn'];
+        if (!isset($clients[$inn])) {
+            $clients[$inn] = ['inn' => $inn, 'title' => $r['title'], 'months' => []];
+        }
+        $clients[$inn]['months'][(int) $r['month']] = (int) $r['trips'];
+    }
+    return array_values($clients);
+}
+
+/**
  * Системный комментарий определяется по пересечению двух условий: user_id = 0 И author = 'Система'.
  * Только user_id = 0 — недостаточно: миграция v4 могла оставить user_id = 0 у старых пользовательских
  * комментариев, чей автор не нашёлся в crm_users. Только author — хрупко (ручная правка БД).

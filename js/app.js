@@ -303,6 +303,7 @@ const Store = {
     }
     if (UI.currentView === 'users' && !usersTableBusy()) loadUsers();
     if (UI.currentView === 'routes') loadRoutes();
+    if (UI.currentView === 'activity') loadActivity();
     if (UI.currentView === 'route' && UI.routeId) openRoute(UI.routeId, false);
     if (UI.currentView === 'carrier' && UI.carrierId && !UI.pendingFiles.length) openCarrier(UI.carrierId, false);
     } finally { if (force) Loading.hide(); }
@@ -608,6 +609,8 @@ function handleHashRouting() {
     if (rid) { openRoute(rid, false); return; }
   } else if (hash === '#routes') {
     switchView('routes-view', false); return;
+  } else if (hash === '#activity') {
+    switchView('activity-view', false); return;
   } else if (hash === '#users' && Store.state.user?.role === 'admin') {
     switchView('users-view', false); return;
   }
@@ -650,6 +653,10 @@ async function switchView(viewId, updateHash = true) {
     $('#nav-routes')?.classList.add('active');
     if (updateHash) navTo('#routes');
     loadRoutes();
+  } else if (viewId === 'activity-view') {
+    $('#nav-activity')?.classList.add('active');
+    if (updateHash) navTo('#activity');
+    loadActivity();
   }
 }
 
@@ -1443,6 +1450,8 @@ function initAppEvents() {
   $('#btn-next-lead').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborLead(1); });
   $('#btn-prev-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(-1); });
   $('#btn-next-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(1); });
+  $('#activity-prev-year')?.addEventListener('click', () => loadActivity(_activityYear - 1));
+  $('#activity-next-year')?.addEventListener('click', () => loadActivity(_activityYear + 1));
 
   window.addEventListener('beforeunload', e => {
     if (!UI.formDirty) return;
@@ -1592,6 +1601,15 @@ function initAppEvents() {
       case 'go-home': goHome(true); break;
       case 'go-routes': switchView('routes-view', true); break;
       case 'go-users': if (Store.state.user?.role === 'admin') switchView('users-view', true); break;
+      case 'go-activity': switchView('activity-view', true); break;
+      case 'open-activity-client': {
+        const inn = actEl.dataset.inn;
+        if (!inn) break;
+        await switchView('kanban-view', true);
+        const searchInp = $('#board-search');
+        if (searchInp) { searchInp.value = inn; liveSearch(inn); }
+        break;
+      }
       case 'open-route': if (actEl.dataset.id) openRoute(actEl.dataset.id, true); break;
 
       case 'new-direction':
@@ -2005,6 +2023,55 @@ async function loadLeadComments(id) {
   if (!lead) return;
   const res = await Net.req('get_comments', { id });
   if (res && res.success) lead.comments = res.comments || [];
+}
+
+// === АКТИВНОСТЬ КЛИЕНТОВ ===
+let _activityYear = new Date().getFullYear();
+let _activityCache = {};
+
+async function loadActivity(year) {
+  if (year != null) _activityYear = year;
+  Loading.show();
+  try {
+    const res = await Net.req('get_activity', { year: _activityYear });
+    if (!res || !res.success) return;
+    _activityYear = res.year || _activityYear;
+    _activityCache[_activityYear] = res.clients || [];
+    renderActivity();
+  } finally {
+    Loading.hide();
+  }
+}
+
+function renderActivity() {
+  const yearEl = $('#activity-year');
+  if (yearEl) yearEl.textContent = String(_activityYear);
+  const tbody = $('#activity-tbody');
+  if (!tbody) return;
+  const clients = _activityCache[_activityYear] || [];
+  tbody.innerHTML = '';
+  if (!clients.length) {
+    tbody.innerHTML = '<tr><td colspan="14" class="cell-muted">Нет поездок за этот год</td></tr>';
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  clients.forEach(c => {
+    const tr = document.createElement('tr');
+    let totalTrips = 0;
+    let monthCells = '';
+    for (let m = 1; m <= 12; m++) {
+      const count = c.months[m] || 0;
+      totalTrips += count;
+      if (count > 0) {
+        monthCells += `<td class="activity-cell active" title="${count} ${plural(count, 'поездка', 'поездки', 'поездок')}" data-inn="${esc(c.inn)}" data-month="${m}">${count}</td>`;
+      } else {
+        monthCells += '<td class="activity-cell"></td>';
+      }
+    }
+    tr.innerHTML = `<td class="activity-client"><span class="name-link" data-action="open-activity-client" data-inn="${esc(c.inn)}">${esc(c.title)}</span><div class="activity-inn">${esc(c.inn)}</div></td>${monthCells}<td class="activity-total">${totalTrips}</td>`;
+    frag.appendChild(tr);
+  });
+  tbody.appendChild(frag);
 }
 
 async function loadAppShell() {
