@@ -905,7 +905,7 @@ switch ($action) {
         $uid = $viewUid;
         $stages = crm_stages($pdo, $uid);
         $leads = crm_leads_full($pdo, $uid);
-        // Хэш считаем из уже загруженных данных (без отдельного запроса crm_board_rev)
+        // Хэш считаем из уже загруженных данных (один запрос вместо двух)
         $c = count($leads); $u = 0; $cr = 0; $ids = '';
         foreach ($leads as $l) {
             $u = max($u, (int) $l['updatedAt']);

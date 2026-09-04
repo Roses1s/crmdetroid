@@ -544,36 +544,6 @@ function crm_migrate_v8(PDO $pdo): void {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
-/**
- * Ревизия доски для get_data (клиент сравнивает хэш и не качает данные, если ничего не менялось).
- * Любое изменение лида или его лога проходит через crm_touch_lead → updated_at, поэтому достаточно
- * агрегатов по crm_leads (без прохода по всем комментариям пользователя, как было раньше).
- * Счётчик справочника (routes) сюда не входит: доска маршруты не показывает, а раньше любой
- * комментарий к перевозчику заставлял все клиенты перекачивать доски целиком.
- *
- * Хэш id считается в PHP (а не через GROUP_CONCAT в SQL): это устраняет зависимость от
- * group_concat_max_len (по умолчанию 1024 байт) без SET SESSION и без ограничений на число лидов.
- * Один запрос вместо двух: id, updated_at, created_at выбираются вместе.
- */
-function crm_board_rev(PDO $pdo, int $userId): string {
-    $st = $pdo->prepare('SELECT id, updated_at, created_at FROM crm_leads WHERE user_id = ? ORDER BY id');
-    $st->execute([$userId]);
-    $rows = $st->fetchAll();
-    $c = count($rows);
-    $u = 0;
-    $cr = 0;
-    $ids = '';
-    foreach ($rows as $r) {
-        $u = max($u, (int) $r['updated_at']);
-        $cr = max($cr, (int) $r['created_at']);
-        $ids .= (string) $r['id'];
-    }
-    $h = $c > 0 ? substr(hash('sha256', $ids), 0, 16) : '0';
-    $stages = implode("\n", crm_stages($pdo, $userId));
-    return $userId . '|' . $c . '|' . $u . '|' . $cr . '|' . $h
-        . '|' . crm_meta_get($pdo, 'users') . '|' . $stages;
-}
-
 function crm_default_stages(): array {
     return ['Новый', 'Вышел на ЛПР', 'Потенциальный клиент', 'Сделали просчет', 'Разместили заявку', 'Уехали, ждем заявку'];
 }
