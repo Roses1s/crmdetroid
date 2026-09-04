@@ -2074,7 +2074,13 @@ function renderActivity() {
   const tbody = $('#activity-tbody');
   if (!tbody) return;
   const cacheKey = _activityYear + ':' + (_activityUserId || 'me');
-  const clients = _activityCache[cacheKey] || [];
+  let clients = _activityCache[cacheKey] || [];
+  // Сортировка: сначала клиенты с поездками (по убыванию итого), потом без поездок
+  clients = clients.slice().sort((a, b) => {
+    const totalA = Object.values(a.months).reduce((s, v) => s + v, 0);
+    const totalB = Object.values(b.months).reduce((s, v) => s + v, 0);
+    return totalB - totalA;
+  });
   tbody.innerHTML = '';
   if (!clients.length) {
     tbody.innerHTML = '<tr><td colspan="14" class="cell-muted">Нет поездок за этот год</td></tr>';
