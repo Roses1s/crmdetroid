@@ -2064,7 +2064,7 @@ function renderActivity() {
     const isAdmin = Store.state.user?.role === 'admin';
     sel.style.display = isAdmin ? '' : 'none';
     if (isAdmin) {
-      const curId = Store.viewUserId || Store.state.user?.id;
+      const curId = _activityUserId || Store.state.user?.id;
       const opts = (Store.state.colleagues || []).map(u =>
         `<option value="${esc(u.id)}"${+u.id === +curId ? ' selected' : ''}>${esc(u.name)}</option>`
       ).join('');
