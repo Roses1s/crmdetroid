@@ -215,7 +215,7 @@ const Net = {
     try {
       let url = `api.php?action=${encodeURIComponent(action)}`;
       if (action === 'get_data' && this.hash) url += `&hash=${encodeURIComponent(this.hash)}`;
-      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1, get_activity:1 };
+      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1 };
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
@@ -646,9 +646,6 @@ async function switchView(viewId, updateHash = true) {
     if (updateHash) navTo('#kanban');
     updateViewBanner();
     renderBoard();
-    // Если viewUserId изменился (админ переключил сотрудника в активности) — сразу грузим данные
-    // вместо ожидания поллинга (15 сек). Net.hash уже сброшен при смене сотрудника.
-    if (Net.hash === null) Store.load(true);
   } else if (viewId === 'users-view') {
     $('#nav-users')?.classList.add('active');
     if (updateHash) navTo('#users');
@@ -1458,19 +1455,7 @@ function initAppEvents() {
   $('#activity-next-year')?.addEventListener('click', () => loadActivity(_activityYear + 1));
   $('#activity-employee')?.addEventListener('change', async (e) => {
     const id = parseInt(e.target.value, 10);
-    if (!id || id === Store.state.user?.id) {
-      Store.viewUserId = null;
-      Store.viewUserName = '';
-    } else {
-      const col = (Store.state.colleagues || []).find(u => +u.id === id);
-      Store.viewUserId = id;
-      Store.viewUserName = col?.name || '';
-    }
-    Net.hash = null;
-    _lastBoardHash = null;
-    // Обновляем URL с ?as= чтобы при переходе в Лиды баннер «К своим» отображался
-    navTo('#activity', false);
-    updateViewBanner();
+    _activityUserId = (!id || id === Store.state.user?.id) ? null : id;
     loadActivity();
   });
 
@@ -2049,15 +2034,21 @@ async function loadLeadComments(id) {
 // === АКТИВНОСТЬ КЛИЕНТОВ ===
 let _activityYear = new Date().getFullYear();
 let _activityCache = {};
+let _activityUserId = null; // локальный для вкладки «Активность», не влияет на «Лиды»
 
 async function loadActivity(year) {
   if (year != null) _activityYear = year;
   Loading.show();
   try {
-    const res = await Net.req('get_activity', { year: _activityYear });
+    // Передаём as напрямую, минуя Store.viewUserId (чтобы не влиять на «Лиды»)
+    let url = `api.php?action=get_activity&year=${encodeURIComponent(_activityYear)}`;
+    if (_activityUserId) url += `&as=${encodeURIComponent(_activityUserId)}`;
+    const opts = { method: 'GET', headers: {} };
+    if (Net.csrf) opts.headers['X-CSRF-Token'] = Net.csrf;
+    const res = await fetch(url, opts).then(r => r.json()).catch(() => null);
     if (!res || !res.success) return;
     _activityYear = res.year || _activityYear;
-    _activityCache[_activityYear] = res.clients || [];
+    _activityCache[_activityYear + ':' + (_activityUserId || 'me')] = res.clients || [];
     renderActivity();
   } finally {
     Loading.hide();
@@ -2082,7 +2073,8 @@ function renderActivity() {
   }
   const tbody = $('#activity-tbody');
   if (!tbody) return;
-  const clients = _activityCache[_activityYear] || [];
+  const cacheKey = _activityYear + ':' + (_activityUserId || 'me');
+  const clients = _activityCache[cacheKey] || [];
   tbody.innerHTML = '';
   if (!clients.length) {
     tbody.innerHTML = '<tr><td colspan="14" class="cell-muted">Нет поездок за этот год</td></tr>';
