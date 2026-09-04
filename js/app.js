@@ -646,6 +646,9 @@ async function switchView(viewId, updateHash = true) {
     if (updateHash) navTo('#kanban');
     updateViewBanner();
     renderBoard();
+    // Если viewUserId изменился (админ переключил сотрудника в активности) — сразу грузим данные
+    // вместо ожидания поллинга (15 сек). Net.hash уже сброшен при смене сотрудника.
+    if (Net.hash === null) Store.load(true);
   } else if (viewId === 'users-view') {
     $('#nav-users')?.classList.add('active');
     if (updateHash) navTo('#users');
