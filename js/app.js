@@ -215,7 +215,7 @@ const Net = {
     try {
       let url = `api.php?action=${encodeURIComponent(action)}`;
       if (action === 'get_data' && this.hash) url += `&hash=${encodeURIComponent(this.hash)}`;
-      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1 };
+      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1, get_activity:1 };
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
@@ -2046,6 +2046,14 @@ async function loadActivity(year) {
 function renderActivity() {
   const yearEl = $('#activity-year');
   if (yearEl) yearEl.textContent = String(_activityYear);
+  // Баннер: чья доска (для админов при просмотре чужой активности)
+  const banner = $('#activity-user-banner');
+  const nameEl = $('#activity-user-name');
+  if (banner && nameEl) {
+    const viewing = !!Store.viewUserId;
+    banner.classList.toggle('show', viewing);
+    nameEl.textContent = Store.viewUserName || '';
+  }
   const tbody = $('#activity-tbody');
   if (!tbody) return;
   const clients = _activityCache[_activityYear] || [];

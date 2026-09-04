@@ -145,7 +145,12 @@
 <section id="activity-view" class="view-section users-view">
   <div class="users-wrap">
     <div class="users-head">
-      <h2>Активность клиентов</h2>
+      <h2>Активность клиентов
+        <span class="view-user-banner" id="activity-user-banner">
+          <span>Доска:</span><b id="activity-user-name"></b>
+          <button type="button" class="btn btn-secondary btn-sm" data-action="exit-view-user">К своим</button>
+        </span>
+      </h2>
       <div class="activity-year-nav">
         <button type="button" class="btn btn-secondary btn-sm" id="activity-prev-year" aria-label="Предыдущий год">←</button>
         <span class="activity-year" id="activity-year"></span>
