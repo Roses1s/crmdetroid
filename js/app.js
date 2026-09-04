@@ -22,7 +22,9 @@ const Theme = {
 const $  = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const escAttr = s => encodeURI(String(s ?? '')).replace(/"/g, '%22');
+// Полноценное экранирование HTML-атрибутов (раньше использовался encodeURI, который не кодирует '&',
+// что позволяло инъекцию через HTML-entities). Та же функция, что esc — для двойных кавычек достаточно.
+const escAttr = s => esc(s);
 const debounce = (fn, ms) => { let t; const d = (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; d.cancel = () => clearTimeout(t); return d; };
 const fmtTime = ts => new Date(ts).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 const fmtBytes = b => { if (!b) return '0 B'; const k=1024, s=['B','KB','MB']; const i=Math.min(2, Math.floor(Math.log(b)/Math.log(k))); return `${(b/Math.pow(k,i)).toFixed(1)} ${s[i]}`; };
@@ -46,9 +48,19 @@ function isImageAtt(a) {
   if (t.startsWith('image/')) return true;
   return IMG_EXTS.includes(attExt(a));
 }
+/**
+ * Проверка URL вложения: принимаем только URL, которые генерирует сервер (api.php?action=file).
+ * Defense-in-depth: даже если серверный формат сломается, javascript:/data: URL не попадут в DOM.
+ */
+function safeAttUrl(raw) {
+  const s = String(raw || '');
+  if (s.startsWith('api.php?action=file&f=') || s.startsWith('api.php?action=file&amp;f=')) return escAttr(s);
+  return '';
+}
 function renderAttHtml(a, c) {
   const raw = String(a.dataUrl || '');
-  const u = escAttr(raw), n = esc(a.name);
+  const u = safeAttUrl(raw), n = esc(a.name);
+  if (!u) return `<span class="att-file-wrap"><span class="att-file">📄 ${n} <span class="att-size">${fmtBytes(a.size)}</span></span></span>`;
   const id = a.id != null ? String(a.id) : '';
   const del = (id && c && canEditComment(c))
     ? `<button type="button" class="att-del" data-action="del-att" data-id="${esc(id)}" title="Удалить вложение">×</button>`
@@ -111,10 +123,71 @@ const Toast = {
   error(m) { this.show(m, 'error', 4000); }
 };
 
+// Loading overlay: показывается при первичной загрузке и долгих операциях (#2).
+// Анти-дрожжание: показываем не сразу, а через 300ms — быстрые запросы не мерцают.
+const Loading = {
+  _timer: null, _count: 0,
+  show() {
+    this._count++;
+    if (this._timer) return;
+    this._timer = setTimeout(() => {
+      const el = $('#loading-overlay');
+      if (el) { el.classList.add('show'); el.setAttribute('aria-hidden', 'false'); }
+    }, 300);
+  },
+  hide() {
+    this._count = Math.max(0, this._count - 1);
+    if (this._count > 0) return;
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    const el = $('#loading-overlay');
+    if (el) { el.classList.remove('show'); el.setAttribute('aria-hidden', 'true'); }
+  }
+};
+
+// Focus-trap для модалок (#4): Tab/Shift+Tab循环 внутри открытой модалки.
+function trapFocus(modalEl) {
+  const focusable = modalEl.querySelectorAll('input, select, textarea, button, [tabindex]:not([tabindex="-1"])');
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  first.focus();
+  modalEl._trapHandler = (e) => {
+    if (e.key !== 'Tab') return;
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+  modalEl.addEventListener('keydown', modalEl._trapHandler);
+}
+function releaseFocusTrap(modalEl) {
+  if (modalEl && modalEl._trapHandler) {
+    modalEl.removeEventListener('keydown', modalEl._trapHandler);
+    delete modalEl._trapHandler;
+  }
+}
+
 const Modal = {
-  open(id) { const el = $('#'+id); if (el) el.classList.add('open'); },
-  close(id) { const el = $('#'+id); if (el) el.classList.remove('open'); },
-  closeAll() { $$('.modal-backdrop').forEach(m => m.classList.remove('open')); }
+  open(id) {
+    const el = $('#'+id);
+    if (!el) return;
+    el.classList.add('open');
+    // A11y (#4): role="dialog", aria-modal, focus-trap
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    const title = el.querySelector('h2');
+    if (title && !el.hasAttribute('aria-labelledby')) {
+      if (!title.id) title.id = id + '-title';
+      el.setAttribute('aria-labelledby', title.id);
+    }
+    setTimeout(() => trapFocus(el), 50);
+  },
+  close(id) {
+    const el = $('#'+id);
+    if (!el) return;
+    el.classList.remove('open');
+    releaseFocusTrap(el);
+  },
+  closeAll() {
+    $$('.modal-backdrop').forEach(m => { m.classList.remove('open'); releaseFocusTrap(m); });
+  }
 };
 
 let _promptResolver = null, _confirmResolver = null;
@@ -142,7 +215,7 @@ const Net = {
     try {
       let url = `api.php?action=${encodeURIComponent(action)}`;
       if (action === 'get_data' && this.hash) url += `&hash=${encodeURIComponent(this.hash)}`;
-      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1 };
+      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1, get_activity:1 };
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
@@ -157,8 +230,16 @@ const Net = {
       if (extra.keepalive) opts.keepalive = true;
       if (this.csrf) opts.headers['X-CSRF-Token'] = this.csrf;
       if (isFormData) opts.body = data; else if (data) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(data); }
-      const res = await fetch(url, opts); const json = await res.json();
+      const res = await fetch(url, opts);
       this.setOnline(true);
+      // Если сервер вернул не-JSON (например, 502 от прокси или HTML ошибку) — не бросаем
+      // непонятное исключение, а показываем осмысленное сообщение.
+      const ctype = (res.headers.get('content-type') || '');
+      if (!ctype.includes('application/json')) {
+        if (res.status === 401) { handleLogoutUI('Сессия истекла'); return null; }
+        return { success: false, error: res.ok ? 'Некорректный ответ сервера' : `Ошибка сервера (${res.status})` };
+      }
+      const json = await res.json();
       if (json.need_login) { handleLogoutUI(json.error); return null; }
       if (json.must_change_password) { showMustChangePassword(); return json; }
       return json;
@@ -170,13 +251,12 @@ const Store = {
   viewUserId: null, viewUserName: '',
   state: { stages: [], leads: [], user: null, colleagues: [] },
   async load(force = false) {
+    if (force) Loading.show();
+    try {
     const res = await Net.req('get_data');
     if (!res || !res.success) return;
     if (res.unchanged) {
       if (!force) return;
-      // Принудительная загрузка при совпавшем хэше (например, повторный вход в той же вкладке
-      // после истечения сессии): у сервера нет данных в ответе, а состояние уже сброшено —
-      // запрашиваем без хэша, иначе доска останется пустой.
       Net.hash = null;
       return this.load(true);
     }
@@ -223,8 +303,10 @@ const Store = {
     }
     if (UI.currentView === 'users' && !usersTableBusy()) loadUsers();
     if (UI.currentView === 'routes') loadRoutes();
+    if (UI.currentView === 'activity') loadActivity();
     if (UI.currentView === 'route' && UI.routeId) openRoute(UI.routeId, false);
     if (UI.currentView === 'carrier' && UI.carrierId && !UI.pendingFiles.length) openCarrier(UI.carrierId, false);
+    } finally { if (force) Loading.hide(); }
   },
   getLead(id) {
     if (!id) return null;
@@ -264,8 +346,11 @@ async function ensureLeadFull(id) {
   return lead;
 }
 
+// Системность определяется сервером (crm_is_sys_comment) и передаётся в поле isSystem.
+// Раньше клиент проверял author === 'Система' — это рассинхронизировалось с сервером,
+// который проверял user_id = 0. Теперь один источник правды — сервер.
 function isSystemComment(c) {
-  return String(c?.author || '').trim() === 'Система';
+  return !!c?.isSystem;
 }
 function isReservedUserName(name) {
   const n = String(name || '').trim().toLowerCase();
@@ -358,7 +443,7 @@ function localSearchLeads(q) {
   return Store.state.leads.filter(l => {
     const title = String(l.title || '').toLowerCase();
     const inn = String(l.inn || '').replace(/\D/g, '');
-    return title.includes(query) || (digits.length >= 2 && inn.includes(digits));
+    return title.includes(query) || (digits.length >= 4 && inn.includes(digits));
   }).slice(0, 40).map(l => ({ id: l.id, title: l.title, inn: l.inn, stage: l.stage, phone: l.phone }));
 }
 
@@ -524,6 +609,8 @@ function handleHashRouting() {
     if (rid) { openRoute(rid, false); return; }
   } else if (hash === '#routes') {
     switchView('routes-view', false); return;
+  } else if (hash === '#activity') {
+    switchView('activity-view', false); return;
   } else if (hash === '#users' && Store.state.user?.role === 'admin') {
     switchView('users-view', false); return;
   }
@@ -557,6 +644,7 @@ async function switchView(viewId, updateHash = true) {
   if (viewId === 'kanban-view') {
     $('#nav-leads')?.classList.add('active');
     if (updateHash) navTo('#kanban');
+    updateViewBanner();
     renderBoard();
   } else if (viewId === 'users-view') {
     $('#nav-users')?.classList.add('active');
@@ -566,6 +654,10 @@ async function switchView(viewId, updateHash = true) {
     $('#nav-routes')?.classList.add('active');
     if (updateHash) navTo('#routes');
     loadRoutes();
+  } else if (viewId === 'activity-view') {
+    $('#nav-activity')?.classList.add('active');
+    if (updateHash) navTo('#activity');
+    loadActivity();
   }
 }
 
@@ -865,6 +957,13 @@ async function loadUsers() {
   _usersCache = res.users || [];
   const tbody = $('#users-tbody'); tbody.innerHTML = '';
   const currId = Store.state.user.id;
+  // Empty state (#3): если в системе только текущий пользователь — показываем подсказку
+  if (_usersCache.length <= 1) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7" class="cell-muted">Добавьте сотрудников, чтобы распределять лиды и вести совместную работу.</td>';
+    tbody.appendChild(tr);
+    if (_usersCache.length === 0) return;
+  }
   _usersCache.forEach(u => {
     const tr = document.createElement('tr');
     const role = u.role === 'admin' ? 'admin' : 'user';
@@ -1121,6 +1220,11 @@ async function saveLeadAppFromModal() {
   const inn = ($('#la-inn').value || '').replace(/\D/g, '');
   if (inn && inn.length !== 10 && inn.length !== 12) return Toast.error('ИНН 10 или 12 цифр');
   const vatEl = $('input[name="la-vat"]:checked');
+  // updatedAt для оптимистической блокировки: если заявку изменили в другой вкладке,
+  // сервер ответит «Заявка изменена в другом месте» вместо молчаливой перезаписи.
+  const editApp = ($('#la-id').value || '').trim()
+    ? leadAppsOf(Store.getLead(UI.leadId)).find(a => String(a.id) === String($('#la-id').value || ''))
+    : null;
   const payload = {
     id: ($('#la-id').value || '').trim(),
     leadId: UI.leadId,
@@ -1134,8 +1238,16 @@ async function saveLeadAppFromModal() {
     carrierName: ($('#la-name').value || '').trim(),
     carrierPhone: ($('#la-phone').value || '').trim()
   };
+  if (editApp) payload.updatedAt = editApp.updatedAt;
   const res = await Net.req('save_lead_app', payload);
-  if (!res?.success) return Toast.error(res?.error || 'Ошибка');
+  if (!res?.success) {
+    if (res?.error === 'Заявка изменена в другом месте') {
+      Toast.error('Заявку изменили в другой вкладке — обновляю');
+      if (UI.leadId) await ensureLeadFull(UI.leadId);
+      renderLeadApps();
+    } else Toast.error(res?.error || 'Ошибка');
+    return;
+  }
   _leadAppSnap = leadAppSnapshot();
   Modal.close('modal-lead-app');
   const lead = Store.getLead(UI.leadId);
@@ -1161,8 +1273,20 @@ async function deleteLeadApp(id) {
     const saved = await saveLeadForm(true);
     if (!persistOk(saved)) return;
   }
-  const res = await Net.req('delete_lead_app', { id, leadId: UI.leadId });
-  if (!res?.success) return Toast.error(res?.error || 'Ошибка');
+  // Передаём updatedAt для оптимистической блокировки: если заявку изменили
+  // в другой вкладке, сервер ответит «Заявка изменена в другом месте».
+  const appToDelete = leadAppsOf(Store.getLead(UI.leadId)).find(a => String(a.id) === String(id));
+  const payload = { id, leadId: UI.leadId };
+  if (appToDelete) payload.updatedAt = appToDelete.updatedAt;
+  const res = await Net.req('delete_lead_app', payload);
+  if (!res?.success) {
+    if (res?.error === 'Заявка изменена в другом месте') {
+      Toast.error('Заявку изменили в другой вкладке — обновляю');
+      if (UI.leadId) await ensureLeadFull(UI.leadId);
+      renderLeadApps();
+    } else Toast.error(res?.error || 'Ошибка');
+    return;
+  }
   const lead = Store.getLead(UI.leadId);
   if (lead) {
     lead.applications = leadAppsOf(lead).filter(a => String(a.id) !== String(id));
@@ -1180,7 +1304,18 @@ async function saveLeadForm(_sync = false, keepalive = false, transferTo = 0) {
   const run = async () => {
     const cur = Store.getLead(UI.leadId); if (!cur || !cur._full) return null;
     const innDigits = ($('#f-inn').value || '').replace(/\D/g, '');
-    const patch = { id: UI.leadId, title: $('#f-title').value.trim() || 'Без названия', inn: innDigits, phone: $('#f-phone').value.trim(), email: $('#f-email').value.trim(), manager: $('#f-manager').value.trim(), logistName: ($('#f-logist-name')?.value || '').trim(), logistPhone: ($('#f-logist-phone')?.value || '').trim(), stage: cur.stage, updatedAt: cur._editRev ?? cur.updatedAt };
+    const patch = {
+      id: UI.leadId,
+      title: $('#f-title').value.trim() || 'Без названия',
+      inn: innDigits,
+      phone: $('#f-phone').value.trim(),
+      email: $('#f-email').value.trim(),
+      manager: $('#f-manager').value.trim(),
+      logistName: ($('#f-logist-name')?.value || '').trim(),
+      logistPhone: ($('#f-logist-phone')?.value || '').trim(),
+      stage: cur.stage,
+      updatedAt: cur._editRev ?? cur.updatedAt
+    };
     if (innDigits && innDigits.length !== 10 && innDigits.length !== 12) {
       Toast.error('ИНН 10 или 12 цифр');
       return { success: false, error: 'ИНН 10 или 12 цифр' };
@@ -1316,6 +1451,25 @@ function initAppEvents() {
   $('#btn-next-lead').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborLead(1); });
   $('#btn-prev-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(-1); });
   $('#btn-next-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(1); });
+  $('#activity-prev-year')?.addEventListener('click', () => loadActivity(_activityYear - 1));
+  $('#activity-next-year')?.addEventListener('click', () => loadActivity(_activityYear + 1));
+  $('#activity-employee')?.addEventListener('change', async (e) => {
+    const id = parseInt(e.target.value, 10);
+    if (!id || id === Store.state.user?.id) {
+      Store.viewUserId = null;
+      Store.viewUserName = '';
+    } else {
+      const col = (Store.state.colleagues || []).find(u => +u.id === id);
+      Store.viewUserId = id;
+      Store.viewUserName = col?.name || '';
+    }
+    Net.hash = null;
+    _lastBoardHash = null;
+    // Обновляем URL с ?as= чтобы при переходе в Лиды баннер «К своим» отображался
+    navTo('#activity', false);
+    updateViewBanner();
+    loadActivity();
+  });
 
   window.addEventListener('beforeunload', e => {
     if (!UI.formDirty) return;
@@ -1465,6 +1619,15 @@ function initAppEvents() {
       case 'go-home': goHome(true); break;
       case 'go-routes': switchView('routes-view', true); break;
       case 'go-users': if (Store.state.user?.role === 'admin') switchView('users-view', true); break;
+      case 'go-activity': switchView('activity-view', true); break;
+      case 'open-activity-client': {
+        const inn = actEl.dataset.inn;
+        if (!inn) break;
+        await switchView('kanban-view', true);
+        const searchInp = $('#board-search');
+        if (searchInp) { searchInp.value = inn; liveSearch(inn); }
+        break;
+      }
       case 'open-route': if (actEl.dataset.id) openRoute(actEl.dataset.id, true); break;
 
       case 'new-direction':
@@ -1641,11 +1804,16 @@ function initAppEvents() {
         if (resESt?.success) await Store.load(true); else Toast.error(resESt?.error || 'Ошибка');
         break;
 
-      case 'delete-lead':
+      case 'delete-lead': {
         if (!await askConfirm('Удалить лид?', 'Навсегда')) return;
-        const resDL = await Net.req('delete_lead', { id: UI.leadId });
-        if (resDL?.success) { goHome(true); await Store.load(true); } else Toast.error(resDL?.error || 'Ошибка');
+        const delLead = Store.getLead(UI.leadId);
+        const delRev = delLead ? (delLead._editRev ?? delLead.updatedAt) : 0;
+        const resDL = await Net.req('delete_lead', { id: UI.leadId, updatedAt: delRev });
+        if (resDL?.success) { goHome(true); await Store.load(true); }
+        else if (resDL?.error === 'Карточка изменена в другом месте') { Toast.error('Карточку изменили в другой вкладке — обновляю'); await Store.load(true); }
+        else Toast.error(resDL?.error || 'Ошибка');
         break;
+      }
 
       case 'set-stage':
         const lead = Store.getLead(UI.leadId); if (!lead) return;
@@ -1766,6 +1934,13 @@ function initAppEvents() {
     const card = e.target.closest('.card'); if (card) openLead(card.dataset.id, true);
   });
 
+  initKeyboardShortcuts();
+
+  initDragDrop();
+}
+
+/** Глобальные клавиатурные сокращения (#16: вынесено из initAppEvents). */
+function initKeyboardShortcuts() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Enter' && $('#modal-lead-app.open') && !$('#modal-confirm.open') && !$('#modal-prompt.open') && !$('#modal-password.open')) {
       const tag = (document.activeElement && document.activeElement.tagName) || '';
@@ -1800,7 +1975,10 @@ function initAppEvents() {
       }
     }
   });
+}
 
+/** Drag-n-drop для карточек и колонок канбан-доски (#16: вынесено из initAppEvents). */
+function initDragDrop() {
   const b = $('#board');
   b.addEventListener('dragstart', e => {
     const card = e.target.closest('.card'), col = e.target.closest('.column');
@@ -1865,6 +2043,68 @@ async function loadLeadComments(id) {
   if (res && res.success) lead.comments = res.comments || [];
 }
 
+// === АКТИВНОСТЬ КЛИЕНТОВ ===
+let _activityYear = new Date().getFullYear();
+let _activityCache = {};
+
+async function loadActivity(year) {
+  if (year != null) _activityYear = year;
+  Loading.show();
+  try {
+    const res = await Net.req('get_activity', { year: _activityYear });
+    if (!res || !res.success) return;
+    _activityYear = res.year || _activityYear;
+    _activityCache[_activityYear] = res.clients || [];
+    renderActivity();
+  } finally {
+    Loading.hide();
+  }
+}
+
+function renderActivity() {
+  const yearEl = $('#activity-year');
+  if (yearEl) yearEl.textContent = String(_activityYear);
+  // Select сотрудников (только для админов)
+  const sel = $('#activity-employee');
+  if (sel) {
+    const isAdmin = Store.state.user?.role === 'admin';
+    sel.style.display = isAdmin ? '' : 'none';
+    if (isAdmin) {
+      const curId = Store.viewUserId || Store.state.user?.id;
+      const opts = (Store.state.colleagues || []).map(u =>
+        `<option value="${esc(u.id)}"${+u.id === +curId ? ' selected' : ''}>${esc(u.name)}</option>`
+      ).join('');
+      sel.innerHTML = opts;
+    }
+  }
+  const tbody = $('#activity-tbody');
+  if (!tbody) return;
+  const clients = _activityCache[_activityYear] || [];
+  tbody.innerHTML = '';
+  if (!clients.length) {
+    tbody.innerHTML = '<tr><td colspan="14" class="cell-muted">Нет поездок за этот год</td></tr>';
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  clients.forEach(c => {
+    const tr = document.createElement('tr');
+    let totalTrips = 0;
+    let monthCells = '';
+    for (let m = 1; m <= 12; m++) {
+      const count = c.months[m] || 0;
+      totalTrips += count;
+      if (count > 0) {
+        monthCells += `<td class="activity-cell active" title="${count} ${plural(count, 'поездка', 'поездки', 'поездок')}" data-inn="${esc(c.inn)}" data-month="${m}">${count}</td>`;
+      } else {
+        monthCells += '<td class="activity-cell"></td>';
+      }
+    }
+    tr.innerHTML = `<td class="activity-client"><span class="name-link" data-action="open-activity-client" data-inn="${esc(c.inn)}">${esc(c.title)}</span><div class="activity-inn">${esc(c.inn)}</div></td>${monthCells}<td class="activity-total">${totalTrips}</td>`;
+    frag.appendChild(tr);
+  });
+  tbody.appendChild(frag);
+}
+
 async function loadAppShell() {
   if (UI.shellReady) {
     document.body.classList.remove('guest');
@@ -1880,6 +2120,13 @@ async function loadAppShell() {
       return false;
     }
     const html = await res.text();
+    // Defense-in-depth: ui.html не должен содержать inline-скриптов (CSP и так их блокирует,
+    // но если заголовок потеряется — это второй слой). При обнаружении — отказываемся грузить shell.
+    if (/<script\b/i.test(html)) {
+      console.error('CRM: ui.html содержит <script> — shell не загружен');
+      handleLogoutUI('Ошибка загрузки интерфейса');
+      return false;
+    }
     const root = $('#app-root');
     if (!root) return false;
     root.innerHTML = html;

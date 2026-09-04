@@ -30,3 +30,9 @@ define('CRM_DEFAULT_ADMIN_NAME', getenv('CRM_ADMIN_NAME') ?: 'Администр
 // впишите сюда IP прокси (через запятую), чтобы лимиты на вход считались по реальному IP
 // из X-Forwarded-For / X-Real-IP. Пусто = заголовкам не верить (безопасный вариант по умолчанию).
 define('CRM_TRUSTED_PROXIES', getenv('CRM_TRUSTED_PROXIES') ?: '');
+
+// Фолбэк подключения к MySQL: если основной хост недоступен, пробовать 127.0.0.1:3308 / localhost:3308
+// (типичный адрес MySQL 8 на SpaceWeb). По умолчанию ВЫКЛЮЧЕН: раньше молчаливый фолбэк мог
+// увести подключение в чужой MySQL на том же сервере, если credentials совпали.
+// Включайте только если знаете, что на сервере нет других MySQL-инстансов.
+define('CRM_DB_FALLBACK', getenv('CRM_DB_FALLBACK') ?: false);

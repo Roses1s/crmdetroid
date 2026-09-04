@@ -465,4 +465,84 @@
     .section-title, .section-title-row { margin-top: 20px; }
     .modal { padding: 20px; }
     .login-card { margin: 16px; padding: 24px; }
+    .col-edit { opacity: 1; }
+    .users-table { font-size: 12px; }
+    .users-table th, .users-table td { padding: 6px 4px; }
+    .th-actions { width: 100px; }
+    .toolbar-sub { flex-wrap: wrap; gap: 6px; }
+    .stages-row { margin-left: 0 !important; }
   }
+
+  @media (max-width: 480px) {
+    header { padding: 6px 10px; }
+    .brand { font-size: 14px; }
+    .nav-menu { gap: 8px; font-size: 12px; margin-left: 6px; }
+    .user-info { font-size: 11px; gap: 6px; }
+    .header-right { gap: 8px; }
+    .column { width: 220px; }
+    .add-column { width: 220px; }
+    .kanban-board { padding: 8px; gap: 8px; }
+    .breadcrumb { padding: 8px 12px; font-size: 12px; }
+    .toolbar { padding: 8px 12px; }
+    .form-panel { padding: 12px; }
+    .chatter { min-height: 40vh; }
+    .modal { padding: 16px; margin: 8px; max-width: calc(100vw - 16px); }
+    .login-card { margin: 8px; padding: 20px; }
+    .lead-nav .btn { padding: 4px 6px; min-width: 28px; }
+    .users-wrap { padding: 0 8px; }
+    .users-head { flex-direction: column; gap: 10px; align-items: stretch; }
+    .th-id, .th-leads { display: none; }
+    .td-leads { display: none; }
+    .routes-grid { gap: 8px; }
+    .route-card { padding: 12px; }
+    .vat-row { flex-direction: column; gap: 4px; }
+  }
+
+  /* === LOADING OVERLAY (#2) === */
+  .loading-overlay {
+    position: fixed; inset: 0; z-index: 9500;
+    background: rgba(255,255,255,.7); display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .loading-overlay.show { opacity: 1; pointer-events: auto; }
+  html[data-theme="dark"] .loading-overlay { background: rgba(0,0,0,.6); }
+  .loading-spinner {
+    width: 36px; height: 36px; border: 3px solid var(--border);
+    border-top-color: var(--primary); border-radius: 50%;
+    animation: crm-spin .7s linear infinite;
+  }
+  @keyframes crm-spin { to { transform: rotate(360deg); } }
+
+  /* === АКТИВНОСТЬ КЛИЕНТОВ === */
+  .activity-controls { display: flex; align-items: center; gap: 16px; }
+  .activity-employee-select { min-width: 180px; padding: 6px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--input-bg); color: var(--text); cursor: pointer; }
+  .activity-employee-select:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(113,75,103,.1); }
+  .activity-year-nav { display: flex; align-items: center; gap: 10px; }
+  .activity-year { font-size: 18px; font-weight: 700; color: var(--primary); min-width: 50px; text-align: center; font-variant-numeric: tabular-nums; }
+  .activity-table-wrap { overflow-x: auto; }
+  .activity-table { min-width: 700px; }
+  .activity-table th { text-align: center; font-size: 11px; padding: 8px 4px; white-space: nowrap; }
+  .activity-table th:first-child { text-align: left; min-width: 180px; }
+  .activity-table th:last-child { text-align: center; min-width: 50px; }
+  .activity-client { font-weight: 700; font-size: 13px; }
+  .activity-inn { font-weight: 400; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .activity-cell { text-align: center; padding: 8px 4px; font-size: 12px; color: var(--muted); }
+  .activity-cell.active { background: #e8f5e9; color: #2e7d32; font-weight: 700; border-radius: 4px; cursor: default; }
+  html[data-theme="dark"] .activity-cell.active { background: #1b3a26; color: #66bb6a; }
+  .activity-total { text-align: center; font-weight: 700; color: var(--primary); font-size: 13px; }
+  .name-link[data-action="open-activity-client"] { cursor: pointer; color: var(--primary); }
+  .name-link[data-action="open-activity-client"]:hover { text-decoration: underline; }
+
+
+  /* === A11Y: focus-visible для keyboard navigation (#4) === */
+  .btn:focus-visible, .card:focus-visible, .nav-item:focus-visible,
+  .search-item:focus-visible, input:focus-visible, textarea:focus-visible,
+  select:focus-visible, [data-action]:focus-visible {
+    outline: 2px solid var(--primary); outline-offset: 2px;
+  }
+  /* sr-only: визуально скрыт, но доступен для скринридеров */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+

@@ -7,7 +7,7 @@
 <script src="js/theme.js"></script>
 <title>CRM — Детроид</title>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="app.css?v=fix15">
+<link rel="stylesheet" href="app.css?v=fix18">
 
 </head>
 <body class="booting">
@@ -29,6 +29,7 @@
     <div class="nav-menu" id="main-nav">
       <span class="nav-item active" data-action="go-home" id="nav-leads">Лиды</span>
       <span class="nav-item" data-action="go-routes" id="nav-routes">Направления</span>
+      <span class="nav-item" data-action="go-activity" id="nav-activity">Активность</span>
     </div>
   </div>
   <div class="header-right">
@@ -59,6 +60,11 @@
 
 <div class="toast-container" id="toast-container"></div>
 
-<script src="js/app.js?v=fix15" defer></script>
+<!-- Loading overlay: показывается при первичной загрузке и долгих операциях (#2) -->
+<div class="loading-overlay" id="loading-overlay" aria-hidden="true">
+  <div class="loading-spinner" role="status"><span class="sr-only">Загрузка…</span></div>
+</div>
+
+<script src="js/app.js?v=fix18" defer></script>
 </body>
 </html>
