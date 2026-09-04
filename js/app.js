@@ -644,6 +644,7 @@ async function switchView(viewId, updateHash = true) {
   if (viewId === 'kanban-view') {
     $('#nav-leads')?.classList.add('active');
     if (updateHash) navTo('#kanban');
+    updateViewBanner();
     renderBoard();
   } else if (viewId === 'users-view') {
     $('#nav-users')?.classList.add('active');
@@ -1464,6 +1465,9 @@ function initAppEvents() {
     }
     Net.hash = null;
     _lastBoardHash = null;
+    // Обновляем URL с ?as= чтобы при переходе в Лиды баннер «К своим» отображался
+    navTo('#activity', false);
+    updateViewBanner();
     loadActivity();
   });
 
