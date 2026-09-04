@@ -1455,12 +1455,16 @@ function initAppEvents() {
   $('#activity-employee')?.addEventListener('change', async (e) => {
     const id = parseInt(e.target.value, 10);
     if (!id || id === Store.state.user?.id) {
-      await exitViewUser();
+      Store.viewUserId = null;
+      Store.viewUserName = '';
     } else {
       const col = (Store.state.colleagues || []).find(u => +u.id === id);
-      await viewUserBoard(id, col?.name || '');
+      Store.viewUserId = id;
+      Store.viewUserName = col?.name || '';
     }
-    if (UI.currentView === 'activity') loadActivity();
+    Net.hash = null;
+    _lastBoardHash = null;
+    loadActivity();
   });
 
   window.addEventListener('beforeunload', e => {
