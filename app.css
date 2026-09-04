@@ -514,6 +514,9 @@
   @keyframes crm-spin { to { transform: rotate(360deg); } }
 
   /* === АКТИВНОСТЬ КЛИЕНТОВ === */
+  .activity-controls { display: flex; align-items: center; gap: 16px; }
+  .activity-employee-select { min-width: 180px; padding: 6px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--input-bg); color: var(--text); cursor: pointer; }
+  .activity-employee-select:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(113,75,103,.1); }
   .activity-year-nav { display: flex; align-items: center; gap: 10px; }
   .activity-year { font-size: 18px; font-weight: 700; color: var(--primary); min-width: 50px; text-align: center; font-variant-numeric: tabular-nums; }
   .activity-table-wrap { overflow-x: auto; }

@@ -1452,6 +1452,16 @@ function initAppEvents() {
   $('#btn-next-carrier').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborCarrier(1); });
   $('#activity-prev-year')?.addEventListener('click', () => loadActivity(_activityYear - 1));
   $('#activity-next-year')?.addEventListener('click', () => loadActivity(_activityYear + 1));
+  $('#activity-employee')?.addEventListener('change', async (e) => {
+    const id = parseInt(e.target.value, 10);
+    if (!id || id === Store.state.user?.id) {
+      await exitViewUser();
+    } else {
+      const col = (Store.state.colleagues || []).find(u => +u.id === id);
+      await viewUserBoard(id, col?.name || '');
+    }
+    if (UI.currentView === 'activity') loadActivity();
+  });
 
   window.addEventListener('beforeunload', e => {
     if (!UI.formDirty) return;
@@ -2046,13 +2056,18 @@ async function loadActivity(year) {
 function renderActivity() {
   const yearEl = $('#activity-year');
   if (yearEl) yearEl.textContent = String(_activityYear);
-  // Баннер: чья доска (для админов при просмотре чужой активности)
-  const banner = $('#activity-user-banner');
-  const nameEl = $('#activity-user-name');
-  if (banner && nameEl) {
-    const viewing = !!Store.viewUserId;
-    banner.classList.toggle('show', viewing);
-    nameEl.textContent = Store.viewUserName || '';
+  // Select сотрудников (только для админов)
+  const sel = $('#activity-employee');
+  if (sel) {
+    const isAdmin = Store.state.user?.role === 'admin';
+    sel.style.display = isAdmin ? '' : 'none';
+    if (isAdmin) {
+      const curId = Store.viewUserId || Store.state.user?.id;
+      const opts = (Store.state.colleagues || []).map(u =>
+        `<option value="${esc(u.id)}"${+u.id === +curId ? ' selected' : ''}>${esc(u.name)}</option>`
+      ).join('');
+      sel.innerHTML = opts;
+    }
   }
   const tbody = $('#activity-tbody');
   if (!tbody) return;
