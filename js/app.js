@@ -2066,9 +2066,10 @@ function renderActivity() {
     if (isAdmin) {
       const curId = _activityUserId || Store.state.user?.id;
       const opts = (Store.state.colleagues || []).map(u =>
-        `<option value="${esc(u.id)}"${+u.id === +curId ? ' selected' : ''}>${esc(u.name)}</option>`
+        `<option value="${esc(u.id)}">${esc(u.name)}</option>`
       ).join('');
       sel.innerHTML = opts;
+      sel.value = String(curId);
     }
   }
   const tbody = $('#activity-tbody');
