@@ -903,13 +903,22 @@ switch ($action) {
 
     case 'get_data': {
         $uid = $viewUid;
-        $hash = substr(hash('sha256', crm_board_rev($pdo, $uid)), 0, 32);
+        $stages = crm_stages($pdo, $uid);
+        $leads = crm_leads_full($pdo, $uid);
+        // Хэш считаем из уже загруженных данных (без отдельного запроса crm_board_rev)
+        $c = count($leads); $u = 0; $cr = 0; $ids = '';
+        foreach ($leads as $l) {
+            $u = max($u, (int) $l['updatedAt']);
+            $cr = max($cr, (int) $l['createdAt']);
+            $ids .= (string) $l['id'];
+        }
+        $h = $c > 0 ? substr(hash('sha256', $ids), 0, 16) : '0';
+        $revStr = $uid . '|' . $c . '|' . $u . '|' . $cr . '|' . $h . '|' . crm_meta_get($pdo, 'users') . '|' . implode("\n", $stages);
+        $hash = substr(hash('sha256', $revStr), 0, 32);
         $client = strv($_GET['hash'] ?? '', 64);
         if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
             ok(['unchanged' => true, 'hash' => $hash]);
         }
-        $stages = crm_stages($pdo, $uid);
-        $leads = crm_leads_full($pdo, $uid);
         ok(['hash' => $hash, 'stages' => $stages, 'leads' => $leads, 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo)]);
     }
 
