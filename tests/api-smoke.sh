@@ -99,6 +99,8 @@ R=$(post "$JI" "$TI" save_carrier "{\"directionId\":\"$DID\",\"name\":\"ИП С�
 R=$(post "$JP" "$TP" delete_direction "{\"id\":\"$DID\"}"); check "B не может удалить направление, созданное A" "'администратор' in r.get('error','')" "$R"
 R=$(post "$JP" "$TP" save_direction "{\"id\":\"$DID\",\"cityFrom\":\"Смоукград\",\"cityTo\":\"Другой\"}"); check "B не может переименовать направление A" "'администратор' in r.get('error','')" "$R"
 R=$(post "$JP" "$TP" delete_carrier "{\"id\":\"$CID\"}"); check "B не может удалить перевозчика A" "'администратор' in r.get('error','')" "$R"
+R=$(post "$JP" "$TP" save_carrier "{\"id\":\"$CID\",\"directionId\":\"$DID\",\"name\":\"Хайджек\"}"); check "B не может править карточку перевозчика A" "'администратор' in r.get('error','')" "$R"
+R=$(post "$JI" "$TI" save_carrier "{\"id\":\"$CID\",\"directionId\":\"$DID\",\"name\":\"ИП Смоук\"}"); check "создатель может править свою карточку перевозчика" "r.get('success') is True" "$R"
 R=$(upload "$JP" "$TP" -F carrier_id="$CID" -F text="запись B" "$B?action=add_carrier_comment"); check "B может писать в лог перевозчика A" "r.get('success') is True" "$R"
 R=$(get "$JP" "get_carriers&id=$DID"); check "canManage=false для B, у перевозчика A тоже" "r['direction']['canManage'] is False and all(c['canManage'] is False for c in r['carriers'])" "$R"
 R=$(post "$JA" "$TA" delete_carrier "{\"id\":\"$CID\"}"); check "админ удаляет перевозчика" "r.get('success') is True" "$R"
@@ -116,6 +118,9 @@ R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LA1\",\"title\":\"Smoke A1\",\"manage
 R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LA1\",\"title\":\"Smoke A1\",\"transferTo\":999999}"); check "transferTo на несуществующего → Сотрудник не найден" "r.get('error')=='Сотрудник не найден'" "$R"
 R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LA1\",\"title\":\"Smoke A1\",\"transferTo\":$UB}"); check "transferTo=B → передан" "r.get('transferred') is True" "$R"
 R=$(get "$JP" "get_comments&id=$LA1"); check "у B в логе запись «Лид передан»" "any('Лид передан' in c['text'] for c in r.get('comments',[]))" "$R"
+# Регрессия: новый лид с transferTo в одном запросе раньше падал в 500 ($row['updated_at'] при $row=null)
+R=$(post "$JI" "$TI" save_lead "{\"title\":\"Smoke новый с передачей\",\"transferTo\":$UB}"); LNEW=$(jget "$R" "r.get('id','')"); check "новый лид с transferTo сразу передан (не 500)" "r.get('transferred') is True" "$R"
+[ -n "$LNEW" ] && post "$JP" "$TP" delete_lead "{\"id\":\"$LNEW\"}" >/dev/null
 
 # --- 9. продавец по умолчанию и переименование ----------------------------
 R=$(post "$JA" "$TA" save_lead '{"title":"Smoke от админа"}' "&as=$UA"); LADM=$(jget "$R" "r['id']")

@@ -776,6 +776,10 @@ switch ($action) {
             $st->execute([$id, $dirId]);
             $cur = $st->fetch();
             if (!$cur) err('Контакт не найден');
+            // Править карточку перевозчика может её создатель или админ — как и удалять/переименовывать
+            // направление (см. README «Права и правила»). Раньше проверка была только на delete_carrier,
+            // и любой сотрудник мог переписать чужую карточку через save_carrier.
+            if (!can_manage_ref($user, $cur)) err('Изменить перевозчика может тот, кто его добавил, или администратор');
             $rev = (int) ($cur['updated_at'] ?? 0);
             if (array_key_exists('updatedAt', $in) && $rev !== intv($in['updatedAt'])) {
                 err('Карточка изменена в другом месте');
@@ -984,7 +988,10 @@ switch ($action) {
             $toId = intv($in['transferTo'] ?? 0);
             if ($toId > 0 && $toId !== $uid) {
                 $via = $uid === (int) $user['id'] ? '' : (string) $user['name'];
-                $toName = crm_transfer_lead($pdo, $id, $uid, $toId, $ownerName, $stage, $via, (int) $row['updated_at'] ?? $now);
+                // $row === null для только что созданного лида: его updated_at = $now (INSERT выше).
+                // Раньше здесь было «(int) $row['updated_at'] ?? $now» — из-за приоритета операторов
+                // ?? был мёртвым кодом, а при $row = null warning превращался обработчиком ошибок в 500.
+                $toName = crm_transfer_lead($pdo, $id, $uid, $toId, $ownerName, $stage, $via, $row !== null ? (int) $row['updated_at'] : $now);
                 if ($toName === null) {
                     $pdo->rollBack();
                     err($row ? 'Карточка изменена в другом месте' : 'Сотрудник не найден');

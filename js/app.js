@@ -314,7 +314,7 @@ const Store = {
   }
 };
 
-const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
+const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
 
 function syncAdminNav(user) {
   const nav = $('#main-nav');
@@ -787,6 +787,12 @@ async function openCarrier(id, updateHash = true) {
   $('#cf-phone').value = c.phone || '';
   $('#cf-company').value = c.company || '';
   if ($('#cf-note')) $('#cf-note').value = c.note || '';
+  // Править карточку может создатель или админ (сервер проверяет can_manage_ref);
+  // остальным поля показываем только для чтения — иначе автосейв сыпал бы ошибками при вводе.
+  UI.carrierCanManage = !!c.canManage;
+  ['#cf-name', '#cf-phone', '#cf-company', '#cf-note'].forEach(sel => {
+    const el = $(sel); if (el) el.readOnly = !c.canManage;
+  });
   UI.carrierRev = c.updatedAt;
   $('#carrier-view [data-action="delete-carrier"]')?.classList.toggle('hidden', !c.canManage);
   $('#carrier-crumb').textContent = c.name || '';
@@ -842,6 +848,9 @@ let _carrierSaveChain = Promise.resolve();
 // своего результата; первый аргумент оставлен для совместимости вызовов и ни на что не влияет.
 async function saveCarrierForm(_sync = false, keepalive = false) {
   if (!UI.carrierId) return null;
+  // Поля read-only для тех, кто не может править карточку (создатель/админ) — не шлём запрос,
+  // который сервер всё равно отклонит.
+  if (!UI.carrierCanManage) { UI.formDirty = false; return null; }
   const run = async () => {
     const patch = fillCarrierFromForm();
     $('#carrier-crumb').textContent = patch.name;
