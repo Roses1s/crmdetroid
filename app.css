@@ -571,49 +571,66 @@
   }
 
 
-/* Dashboard tiles */
+/* Dashboard tiles — плитки приложений в стиле Odoo: цветной скруглённый квадрат
+   с белой иконкой, подпись под ним */
 .dashboard-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 16px;
-  padding: 20px 24px;
-  max-width: 600px;
+  grid-template-columns: repeat(auto-fill, 110px);
+  justify-content: center;
+  gap: 28px 24px;
+  padding: 36px 24px;
+  max-width: 640px;
   margin: 0 auto;
   width: 100%;
 }
 .tile {
-  background: var(--card-bg, #fff);
-  border: 1px solid var(--border, #e0e0e0);
-  border-radius: 10px;
-  padding: 20px 16px;
-  text-decoration: none;
-  color: inherit;
-  transition: all 0.2s;
   display: flex;
   flex-direction: column;
   align-items: center;
-  text-align: center;
-  min-height: 120px;
-  justify-content: center;
+  gap: 10px;
+  text-decoration: none;
+  color: inherit;
   cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
 }
-.tile:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0,0,0,.08);
-  border-color: var(--accent, #4a90d9);
+.tile-icon {
+  width: 74px;
+  height: 74px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.22);
+  transition: transform .15s, box-shadow .15s;
 }
-.tile:active { transform: translateY(0); }
-.tile-icon { font-size: 32px; margin-bottom: 8px; line-height: 1; }
-.tile-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
-.tile-desc { font-size: 12px; opacity: .5; line-height: 1.3; }
+.tile-icon svg { width: 38px; height: 38px; }
+.tile:hover .tile-icon {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 18px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.22);
+}
+.tile:active .tile-icon { transform: translateY(0); }
+.tile-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  text-align: center;
+}
+/* Палитра плиток в духе Odoo */
+.tile-icon-clients  { background: linear-gradient(160deg, #a24689, #7d2f68); }
+.tile-icon-routes   { background: linear-gradient(160deg, #35b5ac, #1f8f87); }
+.tile-icon-activity { background: linear-gradient(160deg, #e2a63d, #c8862a); }
+.tile-icon-users    { background: linear-gradient(160deg, #6b7fd7, #4a5cb8); }
 
 @media (max-width: 768px) {
   .dashboard-tiles {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 12px;
-    padding: 16px;
+    grid-template-columns: repeat(auto-fill, 96px);
+    gap: 20px 16px;
+    padding: 24px 16px;
   }
-  .tile { padding: 16px 12px; min-height: 100px; }
-  .tile-icon { font-size: 28px; margin-bottom: 6px; }
-  .tile-title { font-size: 14px; }
+  .tile-icon { width: 64px; height: 64px; border-radius: 14px; }
+  .tile-icon svg { width: 32px; height: 32px; }
+  .tile-title { font-size: 12px; }
 }

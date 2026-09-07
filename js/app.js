@@ -330,6 +330,8 @@ function syncAdminNav(user) {
       nav.appendChild(el);
     }
   } else if (el) el.remove();
+  // Плитка «Сотрудники» на дашборде — тоже только для админа
+  $('#tile-users')?.classList.toggle('hidden', !admin);
 }
 
 async function ensureLeadFull(id) {
