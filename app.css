@@ -80,7 +80,8 @@
   .breadcrumb a { cursor: pointer; color: var(--primary); font-weight: 500; }
   .breadcrumb a:hover { text-decoration: underline; }
   .toolbar { justify-content: space-between; }
-  #kanban-view > .toolbar { display: grid; grid-template-columns: 1fr minmax(240px, 520px) 1fr; align-items: center; gap: 12px; }
+  #kanban-view > .toolbar,
+  #dashboard-view > .toolbar { display: grid; grid-template-columns: 1fr minmax(240px, 520px) 1fr; align-items: center; gap: 12px; }
   #kanban-view > .toolbar > .btn { justify-self: start; }
   .board-search { position: relative; width: 100%; justify-self: center; min-width: 0; }
   .board-search-field { position: relative; }
