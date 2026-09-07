@@ -641,6 +641,8 @@ async function switchView(viewId, updateHash = true) {
 
   $$('.view-section').forEach(el => el.classList.remove('active'));
   $$('.nav-item').forEach(el => el.classList.remove('active'));
+  // Кнопка дашборда — не .nav-item: её подсветку снимаем отдельно, иначе она «залипала» активной
+  $('#nav-dashboard')?.classList.remove('active');
   const viewEl = $('#'+viewId); if (viewEl) viewEl.classList.add('active');
 
   if (viewId === 'dashboard-view') {
@@ -722,6 +724,7 @@ async function openRoute(id, updateHash = true) {
   UI.routeId = id; UI.currentView = 'route';
   $$('.view-section').forEach(el => el.classList.remove('active'));
   $$('.nav-item').forEach(el => el.classList.remove('active'));
+  $('#nav-dashboard')?.classList.remove('active');
   $('#route-view').classList.add('active');
   $('#nav-routes')?.classList.add('active');
   const d = res.direction;
@@ -781,6 +784,7 @@ async function openCarrier(id, updateHash = true) {
   if (c.directionId) UI.routeId = c.directionId;
   $$('.view-section').forEach(el => el.classList.remove('active'));
   $$('.nav-item').forEach(el => el.classList.remove('active'));
+  $('#nav-dashboard')?.classList.remove('active');
   $('#carrier-view').classList.add('active');
   $('#nav-routes')?.classList.add('active');
   $('#cf-name').value = c.name || '';
@@ -922,6 +926,11 @@ async function openLead(id, updateHash = true) {
 
   UI.leadId = id; UI.currentView = 'lead'; UI.pendingFiles = []; UI.formDirty = false;
   $$('.view-section').forEach(el => el.classList.remove('active'));
+  // Синхронизируем подсветку навигации: карточка лида относится к разделу «Лиды»
+  // (иначе при открытии лида из поиска дашборда кнопка дашборда оставалась подсвеченной)
+  $$('.nav-item').forEach(el => el.classList.remove('active'));
+  $('#nav-dashboard')?.classList.remove('active');
+  $('#nav-leads')?.classList.add('active');
   $('#detail-view').classList.add('active');
   fillLeadForm(still, true);
   renderLeadApps();
