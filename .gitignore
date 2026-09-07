@@ -1,0 +1,16 @@
+# Секреты — никогда не коммитить
+config.php
+data/.csrf_secret
+
+# Пользовательские файлы (вложения из логов)
+uploads/*
+!uploads/.gitkeep
+!uploads/.htaccess
+
+# Служебное
+data/*
+!data/.htaccess
+*.log
+.DS_Store
+Thumbs.db
+node_modules/

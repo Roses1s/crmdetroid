@@ -1,0 +1,2 @@
+body.booting #login-overlay{display:flex!important}
+body.booting header,body.booting #app-root{display:none!important}
