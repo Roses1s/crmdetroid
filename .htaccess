@@ -10,12 +10,12 @@ ServerSignature Off
 # Служебные файлы наружу не отдаём. Apache 2.4 (mod_authz_core) и 2.2 (mod_access_compat) —
 # обе ветки, чтобы на любом хостинге config.php / db.php / schema.sql не открывались по URL.
 <IfModule mod_authz_core.c>
-  <FilesMatch "^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|\.gitignore|tests\.sh)$">
+  <FilesMatch "^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$">
     Require all denied
   </FilesMatch>
 </IfModule>
 <IfModule !mod_authz_core.c>
-  <FilesMatch "^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|\.gitignore|tests\.sh)$">
+  <FilesMatch "^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$">
     Order allow,deny
     Deny from all
   </FilesMatch>
@@ -35,7 +35,7 @@ ServerSignature Off
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
   # Служебные каталоги и файлы наружу не отдаём (третья линия — на случай, если FilesMatch не сработал)
   RewriteRule ^(data|uploads|tests|\.git)(/|$) - [F]
-  RewriteRule ^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|\.gitignore)$ - [F]
+  RewriteRule ^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$ - [F]
 </IfModule>
 
 <IfModule mod_headers.c>

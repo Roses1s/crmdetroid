@@ -144,7 +144,7 @@ const Loading = {
   }
 };
 
-// Focus-trap для модалок (#4): Tab/Shift+Tab循环 внутри открытой модалки.
+// Focus-trap для модалок (#4): Tab/Shift+Tab циклически ходят внутри открытой модалки.
 function trapFocus(modalEl) {
   const focusable = modalEl.querySelectorAll('input, select, textarea, button, [tabindex]:not([tabindex="-1"])');
   if (!focusable.length) return;
@@ -388,7 +388,10 @@ function logActionsHtml(c) {
   return bits.length ? `<div class="log-actions">${bits.join('')}</div>` : '';
 }
 
-function closeSearchDrop() { $('#search-drop')?.classList.remove('open'); }
+function closeSearchDrop() {
+  $('#search-drop')?.classList.remove('open');
+  $('#dashboard-search-drop')?.classList.remove('open');
+}
 
 function localSearchEmployees(q) {
   if (Store.state.user?.role !== 'admin') return [];
@@ -696,20 +699,9 @@ function renderRoutes() {
     </div>`).join('');
 }
 
-function carrierWord(n) {
-  n = Math.abs(n) % 100; const n1 = n % 10;
-  if (n > 10 && n < 20) return 'перевозчиков';
-  if (n1 === 1) return 'перевозчик';
-  if (n1 >= 2 && n1 <= 4) return 'перевозчика';
-  return 'перевозчиков';
-}
-function appsWord(n) {
-  n = Math.abs(n) % 100; const n1 = n % 10;
-  if (n > 10 && n < 20) return 'заявок';
-  if (n1 === 1) return 'заявка';
-  if (n1 >= 2 && n1 <= 4) return 'заявки';
-  return 'заявок';
-}
+// Единое склонение — plural() объявлен ниже (hoisting); раньше были три копии одной логики
+function carrierWord(n) { return plural(Math.abs(n), 'перевозчик', 'перевозчика', 'перевозчиков'); }
+function appsWord(n) { return plural(Math.abs(n), 'заявка', 'заявки', 'заявок'); }
 
 async function openRoute(id, updateHash = true) {
   if (UI.leadId && UI.formDirty) {
@@ -1667,7 +1659,7 @@ function initAppEvents() {
 
       case 'new-carrier':
         if (!UI.routeId) return;
-        $('#k-id').value = ''; $('#k-name').value = ''; $('#k-phone').value = ''; $('#k-company').value = '';
+        $('#k-name').value = ''; $('#k-phone').value = ''; $('#k-company').value = '';
         Modal.open('modal-carrier'); setTimeout(() => $('#k-name').focus(), 50);
         break;
       case 'submit-carrier': {
@@ -2278,11 +2270,13 @@ function initDashboardSearch() {
       drop.classList.add('open');
       return;
     }
+    // data-action="open-search-lead" — существующий обработчик (раньше стоял "open-lead",
+    // для которого ветки в switch нет: открытие срабатывало лишь косвенно через смену href/hash)
     drop.innerHTML = results.map(r =>
-      `<a class="search-item" data-action="open-lead" data-id="${esc(r.id)}" href="#lead/${esc(r.id)}">
+      `<div class="search-item" data-action="open-search-lead" data-id="${esc(r.id)}">
         <span class="search-item-title">${esc(r.title || 'Без названия')}</span>
         <span class="search-item-meta">${esc(r.inn || '')}</span>
-      </a>`
+      </div>`
     ).join('');
     drop.classList.add('open');
   }, 150);

@@ -131,12 +131,6 @@
   .btn-danger { background: var(--danger); color: #fff; }
   .btn-sm { padding: 4px 10px; font-size: 12px; }
 
-  .dropdown { position: relative; }
-  .dropdown-menu { display: none; position: absolute; top: calc(100% + 4px); left: 0; min-width: 200px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-md); z-index: 200; overflow: hidden; }
-  .dropdown-menu.open { display: block; }
-  .dropdown-item { padding: 10px 15px; font-size: 13px; cursor: pointer; display: flex; gap: 8px; border-bottom: 1px solid #eee; }
-  .dropdown-item.danger { color: var(--danger); }
-  .dropdown-item:hover { background: #f9f9f9; }
 
   .view-section { flex: 1; display: none; flex-direction: column; overflow: hidden; min-height: 0; }
   .view-section.active { display: flex; }
@@ -282,7 +276,6 @@
   .routes-empty { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 40px 20px; }
   .carriers-wrap { flex: 1; overflow-y: auto; padding: 20px; }
   .carriers-wrap .users-table { margin-top: 0; }
-  .carrier-note { min-width: 160px; }
   .name-link { color: var(--primary); font-weight: 700; cursor: pointer; }
   .name-link:hover { text-decoration: underline; }
   .log-link { color: var(--primary); cursor: pointer; font-weight: 600; font-size: 13px; }
@@ -344,7 +337,6 @@
   html[data-theme="dark"] .login-card,
   html[data-theme="dark"] .modal,
   html[data-theme="dark"] .search-drop,
-  html[data-theme="dark"] .dropdown-menu,
   html[data-theme="dark"] .users-table,
   html[data-theme="dark"] .card,
   html[data-theme="dark"] .route-card { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
@@ -424,8 +416,6 @@
   html[data-theme="dark"] .search-item.emp:hover { background: #463a43; }
   html[data-theme="dark"] .search-item-warn { color: #e2b36a; }
   html[data-theme="dark"] .view-user-banner { background: #463a43; color: #e6d3e0; }
-  html[data-theme="dark"] .dropdown-item { border-bottom-color: var(--border); color: var(--text); }
-  html[data-theme="dark"] .dropdown-item:hover { background: var(--hover); }
   html[data-theme="dark"] .form-label,
   html[data-theme="dark"] .section-title,
   html[data-theme="dark"] .lead-nav-pos,
