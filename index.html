@@ -7,7 +7,7 @@
 <script src="js/theme.js"></script>
 <title>CRM — Детроид</title>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="app.css?v=fix19">
+<link rel="stylesheet" href="app.css?v=fix20">
 
 </head>
 <body class="booting">
@@ -25,7 +25,13 @@
 
 <header>
   <div class="header-left">
-    <button type="button" class="dashboard-icon" id="nav-dashboard" data-action="go-dashboard" title="Главное меню">⊞</button>
+    <button type="button" class="dashboard-icon" id="nav-dashboard" data-action="go-dashboard" title="Главное меню" aria-label="Главное меню">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="4" y="3.5" width="16" height="4.6" rx="2.3"/>
+        <rect x="4" y="9.7" width="16" height="4.6" rx="2.3"/>
+        <rect x="4" y="15.9" width="16" height="4.6" rx="2.3"/>
+      </svg>
+    </button>
     <span class="brand" data-action="go-home">CRM Детроид</span>
     <div class="nav-menu" id="main-nav">
       <span class="nav-item active" data-action="go-home" id="nav-leads">Лиды</span>
@@ -66,6 +72,6 @@
   <div class="loading-spinner" role="status"><span class="sr-only">Загрузка…</span></div>
 </div>
 
-<script src="js/app.js?v=fix19" defer></script>
+<script src="js/app.js?v=fix20" defer></script>
 </body>
 </html>

@@ -61,6 +61,7 @@
     cursor: pointer;
     padding: 0;
   }
+  .dashboard-icon svg { width: 18px; height: 18px; display: block; }
   .dashboard-icon:hover, .dashboard-icon.active {
     opacity: 1;
     background: rgba(255,255,255,.1);
