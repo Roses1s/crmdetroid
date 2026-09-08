@@ -27,8 +27,7 @@ jobs:
       - name: node --check
         run: |
           set -e
-          node --check js/app.js
-          node --check js/theme.js
+          for f in js/*.js; do node --check "$f"; done
           node --check tests/e2e-jsdom.mjs
       - name: bash -n
         run: bash -n tests/api-smoke.sh
