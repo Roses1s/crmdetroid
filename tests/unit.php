@@ -122,6 +122,12 @@ t('city: обычный город', crm_norm_city('Москва'), 'Москв�
 // preg_replace с /u на невалидном UTF-8 возвращает null — раньше trim(null) кидал TypeError (500)
 t('city: битый UTF-8 не роняет запрос', crm_norm_city("\xFF\xFEbad"), "\xFF\xFEbad");
 
+// --- CrmError (TODO #20): доменная ошибка слоя данных ----------------------------
+t('CrmError: сообщение сохраняется', (new CrmError('Нет прав'))->getMessage(), 'Нет прав');
+t('CrmError: needLogin по умолчанию false', (new CrmError('x'))->needLogin, false);
+t('CrmError: needLogin=true переносится', (new CrmError('Сессия истекла', true))->needLogin, true);
+t('CrmError: это RuntimeException (ловится общим catch)', new CrmError('x') instanceof RuntimeException, true);
+
 // --- crm_is_sys_comment --------------------------------------------------------
 t('sys: user_id=0 + Система', crm_is_sys_comment(['user_id' => 0, 'author' => 'Система']), true);
 t('sys: user_id=0 но не Система', crm_is_sys_comment(['user_id' => 0, 'author' => 'Иван']), false);

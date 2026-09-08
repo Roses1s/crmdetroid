@@ -30,9 +30,9 @@
  *   3) README, раздел «Обновление работающего сайта»: добавить actions/ в список заливаемого.
  *   4) Выносить по одному файлу за коммит, после каждого — полный прогон CI (smoke на MySQL).
  *
- * TODO(архитектура #20): вынести out/ok/err в http.php — функции HTTP-ответа не принадлежат
- * слою данных (db.php). При этом crm_pdo() и crm_view_uid() должны бросать исключения,
- * а не вызывать err(). Выполнять ПЕРЕД или вместе с #18 (см. шапку db.php).
+ * TODO(архитектура #20) — ВЫПОЛНЕНО: out/ok/err/now_ms/crm_log_fail вынесены в http.php
+ * (его подключает db.php через require_once); crm_pdo() и crm_view_uid() бросают CrmError,
+ * который ловится в конце этого файла и превращается в прежний JSON-ответ через err().
  */
 declare(strict_types=1);
 
@@ -1410,6 +1410,14 @@ switch ($action) {
     default:
         err('Неизвестное действие');
 }
+} catch (CrmError $e) {
+    // Доменная ошибка из слоя данных (crm_pdo, crm_view_uid — TODO #20): сообщение
+    // безопасно для пользователя, HTTP-статус подберёт crm_err_status — ответ байт в байт
+    // такой же, как раньше давал прямой err() из db.php.
+    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+        try { $pdo->rollBack(); } catch (Throwable $ignored) { /* соединение уже могло закрыться */ }
+    }
+    err($e->getMessage(), $e->needLogin);
 } catch (Throwable $e) {
     // В ответ — общая фраза, в лог сервера — что именно и где (иначе сбои на проде невидимы).
     error_log(sprintf('CRM api action=%s uid=%s: %s: %s in %s:%d',

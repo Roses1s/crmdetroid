@@ -3,15 +3,15 @@ declare(strict_types=1);
 
 /*
  * Слой данных CRM: подключение к MySQL, миграции схемы, SQL-хелперы.
- * Подключается из api.php после config.php. Ниже — общие примитивы ответа и времени,
- * которыми пользуются и этот файл, и api.php (раньше они жили в api.php, и db.php
- * зависел от подключающего файла).
+ * Подключается из api.php после config.php. HTTP-примитивы (out/ok/err/now_ms/crm_log_fail)
+ * вынесены в http.php (TODO #20 — выполнено): db.php их использует, но сам HTTP-запрос
+ * не завершает — crm_pdo() и crm_view_uid() бросают CrmError, который api.php превращает
+ * в JSON-ответ. Поэтому db.php пригоден в CLI (cron-бэкапы, CLI-миграции).
  *
  * TODO(архитектура #18): при следующем крупном рефакторинге разделить на файлы
  * (ревизия 2026-09-08; перечислены функции ИЗ ЭТОГО файла — крипто/CSRF-хелперы
  * crm_csrf_secret, crm_pass_ok, crm_pw_fingerprint и т.п. живут в api.php и при
  * распиле по TODO #15 уходят в его слой, не сюда):
- *   http.php     — out/ok/err/crm_err_status/now_ms/crm_log_fail (HTTP-ответы, не уровень данных)
  *   security.php — crm_client_ip, crm_ip_in_list, crm_trusted_proxies, crm_behind_trusted_proxy,
  *                  crm_allowed_upload, crm_upload_magic_ok, crm_login_throttled, crm_login_fail,
  *                  crm_login_attempts_gc, crm_anon_throttled
@@ -21,60 +21,13 @@ declare(strict_types=1);
  *                  crm_schema_version (диапазон версий не фиксировать в комментариях —
  *                  на момент ревизии уже v14, список растёт)
  *   db.php       — только crm_pdo, SQL-хелперы (crm_*_by_id, crm_*_list, crm_touch_*)
- * Это уменьшит каждый файл до 200–400 строк и позволит использовать db.php в CLI (cron).
- * ЗАВИСИМОСТЬ: сначала (или тем же заходом) выполнить #20 — пока crm_pdo() и crm_view_uid()
- * зовут err() (header + exit), db.php в CLI непригоден, и распил цели не достигает.
- * Порядок безопасного выполнения: #20 → #18 → #15 (или #15 первым, он от этих двух не зависит).
+ * Это уменьшит каждый файл до 200–400 строк.
+ * Порядок безопасного выполнения: #18 → #15 (#20 выполнен; #15 независим, можно первым).
  * После распила: новые файлы закрыть в .htaccess (FilesMatch рядом с db.php), добавить в
  * php -l в CI и в список заливаемого в README — как расписано в шапке api.php для #15.
- *
- * TODO(архитектура #20): out/ok/err вызывают header() и exit — это HTTP-уровень.
- * crm_pdo() должен бросать RuntimeException при ошибке подключения (сообщение-подсказку
- * crm_mysql_connect_hint сохранить в тексте исключения), crm_view_uid() — доменное
- * исключение вместо err('Нет прав'/'Сотрудник не найден'), а api.php — ловить и отдавать
- * JSON-ответ. Это позволит использовать db.php без HTTP-контекста (cron-бэкапы, CLI-миграции).
  */
 
-/** Отправить JSON и завершить запрос. */
-function out(array $data): never {
-    header('Content-Type: application/json; charset=utf-8');
-    // JSON_INVALID_UTF8_SUBSTITUTE — страховка от битого UTF-8, уже лежащего в БД (старые данные,
-    // прямые правки в MySQL): без флага json_encode возвращал false, и клиент получал пустое тело.
-    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
-    exit;
-}
-function ok(array $extra = []): never { out(['success' => true] + $extra); }
-/**
- * HTTP-статус для ошибки. Раньше все ошибки уходили с кодом 200 — в логах хостинга/прокси
- * и мониторинге всё выглядело успехом. Клиент на статус не завязан (парсит JSON при любом коде),
- * поэтому смена кодов обратно-совместима. Явный $status в err() имеет приоритет; иначе —
- * маппинг по типовым сообщениям (в однофайловой архитектуре это дешевле, чем править все вызовы).
- */
-function crm_err_status(string $message, bool $needLogin): int {
-    if ($needLogin) return 401;
-    if ($message === 'Нет прав' || $message === 'CSRF') return 403;
-    if (str_contains($message, 'не найден')) return 404; // «не найден/не найдена/не найдено»
-    if (str_starts_with($message, 'Метод не поддерживается')) return 405;
-    if (str_contains($message, 'в другом месте')) return 409; // оптимистическая блокировка
-    if (str_starts_with($message, 'Слишком много')) return 429;
-    // Ошибки конфигурации/подключения к БД — проблема сервера, не клиента
-    if (str_contains($message, 'config.php') || str_contains($message, 'pdo_mysql')
-        || str_contains($message, 'подключиться к базе')) return 500;
-    return 400;
-}
-function err(string $message, bool $needLogin = false, int $status = 0): never {
-    if ($status <= 0) $status = crm_err_status($message, $needLogin);
-    if (!headers_sent()) http_response_code($status);
-    $r = ['success' => false, 'error' => $message];
-    if ($needLogin) $r['need_login'] = true;
-    out($r);
-}
-function now_ms(): int { return (int) round(microtime(true) * 1000); }
-
-/** Записать причину сбоя в лог сервера перед тем, как отдать пользователю общую фразу. */
-function crm_log_fail(string $where, Throwable $e): void {
-    error_log(sprintf('CRM %s: %s: %s in %s:%d', $where, get_class($e), $e->getMessage(), $e->getFile(), $e->getLine()));
-}
+require_once __DIR__ . '/http.php';
 
 /** @return list<array{0:string,1:int}> */
 function crm_mysql_targets(string $host, int $port, bool $allowFallback = false): array {
@@ -109,14 +62,17 @@ function crm_mysql_connect_hint(PDOException $e): string {
     return 'Не удалось подключиться к базе. Проверьте CRM_DB_HOST, порт, имя, логин и пароль в config.php.';
 }
 
+/** @throws CrmError при отсутствии пароля/расширения или недоступности MySQL (TODO #20) */
 function crm_pdo(): PDO {
     static $pdo = null;
     if ($pdo instanceof PDO) return $pdo;
+    // CrmError вместо err() (TODO #20): db.php не завершает HTTP-запрос сам —
+    // api.php ловит CrmError и отвечает JSON; в CLI исключение видно как обычная ошибка.
     if (!defined('CRM_DB_PASS') || CRM_DB_PASS === '' || CRM_DB_PASS === 'CHANGE_ME' || CRM_DB_PASS === 'ВПИШИТЕ_ПАРОЛЬ') {
-        err('В config.php не задан пароль базы (CRM_DB_PASS). Это не пароль от панели SpaceWeb, а пароль MySQL.');
+        throw new CrmError('В config.php не задан пароль базы (CRM_DB_PASS). Это не пароль от панели SpaceWeb, а пароль MySQL.');
     }
     if (!extension_loaded('pdo_mysql')) {
-        err('На хостинге нет расширения PHP pdo_mysql. Включите PHP 8.1+ с MySQL в панели сайта.');
+        throw new CrmError('На хостинге нет расширения PHP pdo_mysql. Включите PHP 8.1+ с MySQL в панели сайта.');
     }
     $opts = [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -148,7 +104,7 @@ function crm_pdo(): PDO {
         }
     }
     if (!$pdo instanceof PDO) {
-        err(crm_mysql_connect_hint($last ?? new PDOException('unknown')));
+        throw new CrmError(crm_mysql_connect_hint($last ?? new PDOException('unknown')));
     }
     // Если подключились не к сконфигурированному хосту — логируем (помогает найти проблемы конфигурации)
     $configured = trim(CRM_DB_HOST) . ':' . ($port ?: 3306);
@@ -1320,12 +1276,14 @@ function crm_user_public(array $u): array {
     return ['id' => (int) $u['id'], 'name' => $u['name'], 'email' => $u['email'], 'role' => $u['role']];
 }
 
+/** @throws CrmError если ?as= использует не-админ или сотрудник не существует (TODO #20) */
 function crm_view_uid(PDO $pdo, array $user): int {
     $as = is_scalar($_GET['as'] ?? null) ? (int) $_GET['as'] : 0;
     if ($as <= 0) return (int) $user['id'];
-    if (($user['role'] ?? '') !== 'admin') err('Нет прав');
+    // CrmError вместо err() (TODO #20) — тексты те же, crm_err_status даст те же 403/404
+    if (($user['role'] ?? '') !== 'admin') throw new CrmError('Нет прав');
     if ($as === (int) $user['id']) return $as;
-    if (!crm_user_by_id($pdo, $as)) err('Сотрудник не найден');
+    if (!crm_user_by_id($pdo, $as)) throw new CrmError('Сотрудник не найден');
     return $as;
 }
 

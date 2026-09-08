@@ -7,6 +7,7 @@ parameters:
     paths:
         - api.php
         - db.php
+        - http.php
     bootstrapFiles:
         - tests/phpstan-bootstrap.php
     # Константы из config.php различаются между инсталляциями — их значения из bootstrap

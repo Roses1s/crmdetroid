@@ -37,7 +37,7 @@ CRM для логистической компании: канбан лидов,
    Таблицы создадутся **сами** при первом запросе к `api.php`; импорт `schema.sql` не нужен.
 4. Первый вход: `admin@detroid.local` / `admin123`. CRM сразу потребует задать свой пароль (8–64 символа).
 
-**Обновление работающего сайта:** заливайте `api.php`, `db.php`, `index.html`, `ui.html`, `app.css`,
+**Обновление работающего сайта:** заливайте `api.php`, `db.php`, `http.php`, `index.html`, `ui.html`, `app.css`,
 `noscript.css`, `icon.svg`, `js/`, `.htaccess` (и при необходимости `uploads/.htaccess`, `data/.htaccess`).
 **Не перезаписывайте** живой `config.php` и содержимое `uploads/`, `data/`.
 

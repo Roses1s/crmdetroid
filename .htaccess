@@ -10,12 +10,12 @@ ServerSignature Off
 # Служебные файлы наружу не отдаём. Apache 2.4 (mod_authz_core) и 2.2 (mod_access_compat) —
 # обе ветки, чтобы на любом хостинге config.php / db.php / schema.sql не открывались по URL.
 <IfModule mod_authz_core.c>
-  <FilesMatch "^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$">
+  <FilesMatch "^(config\.php|config\.example\.php|db\.php|http\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$">
     Require all denied
   </FilesMatch>
 </IfModule>
 <IfModule !mod_authz_core.c>
-  <FilesMatch "^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$">
+  <FilesMatch "^(config\.php|config\.example\.php|db\.php|http\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$">
     Order allow,deny
     Deny from all
   </FilesMatch>
@@ -37,7 +37,7 @@ ServerSignature Off
   # actions/ закрыт заранее: план распила api.php (TODO #15) создаст его позже, и правило,
   # добавленное «потом», однажды забыли бы — прямой запрос actions/lead.php исполнял бы код вне api.php.
   RewriteRule ^(data|uploads|tests|actions|\.git)(/|$) - [F]
-  RewriteRule ^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$ - [F]
+  RewriteRule ^(config\.php|config\.example\.php|db\.php|http\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$ - [F]
 </IfModule>
 
 # Сжатие текстовых ответов (код-ревью п. 6.4): app.js ~90 КБ и app.css ~39 КБ ужимаются в 3–4 раза
