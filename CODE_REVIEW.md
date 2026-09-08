@@ -292,6 +292,11 @@ Content-Type: application/json» (400) вместо общего «CSRF». Ни�
    `lint` (php -l, node --check, bash -n), `unit` (`tests/unit.php`),
    `static` (PHPStan level 6 + ESLint), `smoke` (`services: mysql:8` + `php -S` +
    все ~50 проверок `tests/api-smoke.sh` против настоящей БД).
+   Уже окупился первым же прогоном: smoke в CI поймал регрессию передачи лида —
+   `save_lead` передавал в `crm_transfer_lead` старый `updated_at`, хотя UPDATE выше
+   уже поставил новый, и передача существующего лида всегда падала
+   «Карточка изменена в другом месте» (исправлено; заодно «Сотрудник не найден»
+   теперь проверяется явно, а не угадывается по $row).
 2. ✅ **Юнит-тесты чистых функций** — сделано: `tests/unit.php` (без PHPUnit — обычный
    PHP-скрипт с табличными кейсами, exit code 1 при провале; 80+ проверок). Покрыты
    `crm_parse_money`, `crm_legacy_money`, `crm_money_out`, `crm_ip_in_list`,

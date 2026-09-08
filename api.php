@@ -1069,14 +1069,21 @@ switch ($action) {
             // «Продавец», и совпадение по имени могло отдать лид не тому человеку.
             $toId = intv($in['transferTo'] ?? 0);
             if ($toId > 0 && $toId !== $uid) {
+                // Несуществующий получатель проверяется отдельно: раньше null из crm_transfer_lead
+                // означал и «сотрудник не найден», и «конфликт версии» — сообщение выбиралось наугад.
+                if (!crm_user_by_id($pdo, $toId)) {
+                    $pdo->rollBack();
+                    err('Сотрудник не найден');
+                }
                 $via = $uid === (int) $user['id'] ? '' : (string) $user['name'];
-                // $row === null для только что созданного лида: его updated_at = $now (INSERT выше).
-                // Раньше здесь было «(int) $row['updated_at'] ?? $now» — из-за приоритета операторов
-                // ?? был мёртвым кодом, а при $row = null warning превращался обработчиком ошибок в 500.
-                $toName = crm_transfer_lead($pdo, $id, $uid, $toId, $ownerName, $stage, $via, $row !== null ? (int) $row['updated_at'] : $now);
+                // К этому моменту updated_at лида равен $now и для нового (INSERT выше), и для
+                // существующего (UPDATE выше ставит updated_at = $now). Раньше сюда передавался
+                // старый $row['updated_at'] — WHERE не находил строку, и передача существующего
+                // лида всегда падала «Карточка изменена в другом месте» (поймано smoke-тестами в CI).
+                $toName = crm_transfer_lead($pdo, $id, $uid, $toId, $ownerName, $stage, $via, $now);
                 if ($toName === null) {
                     $pdo->rollBack();
-                    err($row ? 'Карточка изменена в другом месте' : 'Сотрудник не найден');
+                    err('Карточка изменена в другом месте');
                 }
                 $transferredTo = $toName;
                 $now = now_ms();
