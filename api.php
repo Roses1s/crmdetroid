@@ -17,7 +17,7 @@
  *                         get_carriers, get_carrier, add_carrier_comment, edit_carrier_comment, delete_carrier_comment
  *   actions/search.php  — search_leads
  *   actions/admin.php   — whoami, sweep_uploads, integrity_check, get_audit [ВЫПОЛНЕНО]
- *   actions/stages.php  — save_stages
+ *   actions/stages.php  — save_stages [ВЫПОЛНЕНО]
  *   'ui' остаётся в api.php: это выдача интерфейса (readfile ui.html), а не доменное действие.
  * Действия после middleware экспортируют crm_action_xxx(PDO $pdo, array $user, int $viewUid): never.
  * В api.php остаётся: require actions/*.php, middleware (auth/csrf/throttle), роутинг switch.
@@ -53,6 +53,7 @@ require __DIR__ . '/db.php';
 // (см. `defined('CRM_API') || exit;` первой строкой каждого action-файла).
 const CRM_API = true;
 require __DIR__ . '/actions/admin.php';
+require __DIR__ . '/actions/stages.php';
 
 // Старые config.php без новых констант
 if (!defined('CRM_TRUSTED_PROXIES')) define('CRM_TRUSTED_PROXIES', getenv('CRM_TRUSTED_PROXIES') ?: '');
@@ -1199,37 +1200,7 @@ switch ($action) {
         ok(['updatedAt' => $rev]);
     }
 
-    case 'save_stages': {
-        $in = body_json();
-        $ns = $in['stages'] ?? null;
-        if (!is_array($ns) || !$ns) err('Пустой список этапов');
-        $ns = array_values(array_filter(array_map(fn($s) => strv($s, 80), $ns)));
-        if (!$ns) err('Пустой список этапов');
-        if (count($ns) > CRM_MAX_STAGES) err('Не больше ' . CRM_MAX_STAGES . ' этапов');
-        // Дубликаты с разным регистром («Новый»/«новый») упали бы на UNIQUE-индексе с невнятной ошибкой
-        $keys = array_map(fn($s) => mb_strtolower($s, 'UTF-8'), $ns);
-        if (count($keys) !== count(array_unique($keys))) err('Имя занято');
-        $uid = $viewUid;
-        $old = crm_stages($pdo, $uid);
-        $pdo->beginTransaction();
-        try {
-            $updL = $pdo->prepare('UPDATE crm_leads SET stage = ? WHERE stage = ? AND user_id = ?');
-            foreach (crm_stage_renames($old, $ns) as [$from, $to]) {
-                $updL->execute([$to, $from, $uid]);
-            }
-            $pdo->prepare('DELETE FROM crm_stages WHERE user_id = ?')->execute([$uid]);
-            $ins = $pdo->prepare('INSERT INTO crm_stages (user_id, name, position) VALUES (?,?,?)');
-            foreach ($ns as $i => $name) $ins->execute([$uid, $name, $i]);
-            $inQ = implode(',', array_fill(0, count($ns), '?'));
-            $pdo->prepare("UPDATE crm_leads SET stage = ? WHERE user_id = ? AND stage NOT IN ($inQ)")->execute(array_merge([$ns[0], $uid], $ns));
-            $pdo->commit();
-        } catch (Throwable $e) {
-            $pdo->rollBack();
-            crm_log_fail('save_stages', $e);
-            err('Не удалось сохранить этапы');
-        }
-        ok();
-    }
+    case 'save_stages': crm_action_save_stages($pdo, $user, $viewUid);
 
     case 'get_users': {
         require_admin($user);
