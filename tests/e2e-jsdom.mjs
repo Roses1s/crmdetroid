@@ -17,7 +17,7 @@ const SESS_DIR = process.env.CRM_SESSION_DIR || path.join(ROOT, 'data', 'session
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@detroid.local';
 const ADMIN_PASS = process.env.ADMIN_PASS || '';
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').replace(/<script[^>]*src="[^"]*"[^>]*><\/script>/g, '');
-const appJs = ['util.js', 'net.js', 'lead.js', 'routes.js', 'app.js'].map(f => fs.readFileSync(path.join(ROOT, 'js', f), 'utf8')).join('\n;\n')
+const appJs = ['util.js', 'net.js', 'lead.js', 'admin.js', 'routes.js', 'app.js'].map(f => fs.readFileSync(path.join(ROOT, 'js', f), 'utf8')).join('\n;\n')
   + "\n;window.Store=Store;window.Net=Net;window.UI=UI;window.openLead=openLead;window.loadUsers=loadUsers;window.stopPolling=stopPolling;window.__pollActive=()=>!!pollTimer;";
 const themeJs = fs.readFileSync(path.join(ROOT, 'js', 'theme.js'), 'utf8');
 
