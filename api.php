@@ -522,7 +522,9 @@ if ($action === 'login') {
     if ($email === '' || $password === '') err('Заполните поля');
     if (crm_login_throttled($pdo, $email, $ip)) err('Слишком много попыток. Подождите 15 минут');
     $u = crm_user_by_email($pdo, $email);
-    $dummy = '$2y$10$ykv1D8WgrA05XNmayGz9Zed0GAmu7FJlclV24IoQpA8sgvCYrPxoK';
+    // Dummy тем же алгоритмом, что боевые хэши (crm_dummy_hash): bcrypt-константа после
+    // миграции на Argon2id снова выдавала бы существование e-mail по времени ответа.
+    $dummy = crm_dummy_hash();
     $hash = is_array($u) ? (string) ($u['password'] ?? $dummy) : $dummy;
     if ($hash === '' || !crm_hash_looks_valid($hash)) $hash = $dummy;
     $okPass = password_verify($password, $hash);
@@ -562,7 +564,8 @@ if ($action === 'login') {
 
 if ($action === 'logout') {
     if (!$hasSess) ok();
-    if ($method !== 'POST') err('CSRF');
+    // Как в login: неверный метод — не «CSRF» (ревью, п. 12.3)
+    if ($method !== 'POST') err('Метод не поддерживается: нужен POST');
     $sent = (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     $have = (string) ($_SESSION['csrf'] ?? '');
     // Строгая проверка: раньше пустой $_SESSION['csrf'] пропускал запрос без токена —
@@ -571,6 +574,12 @@ if ($action === 'logout') {
     // для авторизованной сессии токен обязан быть.
     if ((int) ($_SESSION['user_id'] ?? 0) > 0
         && ($have === '' || $sent === '' || strlen($sent) !== strlen($have) || !hash_equals($have, $sent))) err('CSRF');
+    // Выход — в аудит (входы уже пишутся; ревью, п. 12.6). До очистки сессии, пока известен user_id.
+    $outUid = (int) ($_SESSION['user_id'] ?? 0);
+    if ($outUid > 0) {
+        $outUser = crm_user_by_id($pdo, $outUid);
+        if ($outUser) crm_audit($pdo, $outUser, 'logout', (string) $outUser['email']);
+    }
     // Regenerate ID перед уничтожением: старый session ID больше не действителен,
     // и даже если файл сессии ещё не удалён сборщиком мусора — предъявить его нельзя.
     session_regenerate_id(true);

@@ -1286,6 +1286,19 @@ function crm_password_hash(string $pass): string {
 function crm_hash_looks_valid(string $hash): bool {
     return (bool) preg_match('/^\$(2[aby]|argon2id?)\$/', $hash);
 }
+/**
+ * Dummy-хэш для защиты от перечисления пользователей по таймингу (ревью, п. 12.2).
+ * Обязан быть создан ТЕМ ЖЕ алгоритмом, что и боевые хэши (crm_password_algo):
+ * раньше это была bcrypt-константа, и после миграции паролей на Argon2id время
+ * password_verify() для несуществующего e-mail (bcrypt, ~100 мс) отличалось от
+ * существующего (argon2id) — e-mail снова можно было перечислять по времени ответа.
+ * Считается один раз на процесс; пароль в нём случайный — verify всегда провалится.
+ */
+function crm_dummy_hash(): string {
+    static $dummy = null;
+    if ($dummy === null) $dummy = crm_password_hash(bin2hex(random_bytes(16)));
+    return $dummy;
+}
 
 function crm_user_public(array $u): array {
     return ['id' => (int) $u['id'], 'name' => $u['name'], 'email' => $u['email'], 'role' => $u['role']];

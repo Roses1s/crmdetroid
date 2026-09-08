@@ -237,8 +237,10 @@ const Net = {
       if (extra.keepalive) opts.keepalive = true;
       // Таймаут: зависший запрос раньше держал withLock-блокировку бесконечно, и UI
       // молча переставал реагировать. keepalive-запросы (beforeunload) не абортим.
+      // FormData (загрузка до 8 файлов × 5 МБ) на медленном канале легально идёт минуты —
+      // для неё таймаут щедрее (ревью, п. 12.1: 20 с обрывали большие загрузки).
       if (!extra.keepalive && typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
-        opts.signal = AbortSignal.timeout(20000);
+        opts.signal = AbortSignal.timeout(isFormData ? 180000 : 20000);
       }
       if (this.csrf) opts.headers['X-CSRF-Token'] = this.csrf;
       if (isFormData) opts.body = data; else if (data) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(data); }
@@ -1837,7 +1839,7 @@ function initAppEvents() {
       case 'set-stage':
         const lead = Store.getLead(UI.leadId); if (!lead) return;
         if (UI.formDirty) await saveLeadForm(true);
-        const resMS = await Net.req('move_lead', { id: UI.leadId, stage: actEl.dataset.stage, from: lead.stage, updatedAt: lead._editRev ?? lead.updatedAt });
+        const resMS = await Net.req('move_lead', { id: UI.leadId, stage: actEl.dataset.stage, updatedAt: lead._editRev ?? lead.updatedAt });
         if (resMS?.success) await Store.load(true);
         else if (resMS?.error === 'Карточка изменена в другом месте') { Toast.error('Карточку изменили в другой вкладке — обновляю'); await Store.load(true); }
         else Toast.error(resMS?.error || 'Ошибка');
@@ -2018,7 +2020,7 @@ function initDragDrop() {
     const c = e.target.closest('.column'); if (!c) return; e.preventDefault(); const tgt = c.dataset.stage;
     if (UI.drag.t === 'card') {
       const lead = Store.getLead(UI.drag.id); if (!lead || lead.stage === tgt) return;
-      const res = await Net.req('move_lead', { id: UI.drag.id, stage: tgt, from: lead.stage, updatedAt: lead.updatedAt });
+      const res = await Net.req('move_lead', { id: UI.drag.id, stage: tgt, updatedAt: lead.updatedAt });
       if (res?.success) Store.load(true);
       else { Toast.error(res?.error || 'Не удалось переместить'); Store.load(true); }
     } else if (UI.drag.t === 'col') {

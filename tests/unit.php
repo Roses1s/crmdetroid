@@ -111,6 +111,11 @@ t('reserved: Система', crm_reserved_user_name('  СИСТЕМА '), true)
 t('reserved: system', crm_reserved_user_name('System'), true);
 t('reserved: обычное имя', crm_reserved_user_name('Иван'), false);
 
+// --- crm_dummy_hash: защита от перечисления по таймингу --------------------------
+t('dummy: тот же алгоритм, что боевые хэши', password_needs_rehash(crm_dummy_hash(), crm_password_algo()), false);
+t('dummy: стабилен в рамках процесса', crm_dummy_hash() === crm_dummy_hash(), true);
+t('dummy: выглядит валидным', crm_hash_looks_valid(crm_dummy_hash()), true);
+
 // --- crm_is_sys_comment --------------------------------------------------------
 t('sys: user_id=0 + Система', crm_is_sys_comment(['user_id' => 0, 'author' => 'Система']), true);
 t('sys: user_id=0 но не Система', crm_is_sys_comment(['user_id' => 0, 'author' => 'Иван']), false);

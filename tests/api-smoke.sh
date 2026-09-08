@@ -153,6 +153,15 @@ post "$JI" "$TI" delete_direction "{\"id\":\"$DID\"}" >/dev/null
 R=$(post "$JI" "$TI" sweep_uploads '{}'); check "sweep_uploads недоступен сотруднику" "r.get('error')=='Нет прав'" "$R"
 R=$(post "$JA" "$TA" sweep_uploads '{}'); check "sweep_uploads доступен админу" "r.get('success') is True and 'checked' in r" "$R"
 
+# --- 13. HTTP-статусы ошибок (ревью, пп. 2.5 / 12.8) ------------------------
+# err() отдаёт честные коды: 401 need_login, 403 права, 404 не найдено, 405 метод, 200 успех.
+scode() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+C=$(scode "$B?action=get_data"); check "без сессии → 401" "'$C'=='401'" "{\"_raw\":\"$C\"}"
+C=$(scode -b "$JI" "$B?action=get_data&as=$UB"); check "чужая доска не-админом → 403" "'$C'=='403'" "{\"_raw\":\"$C\"}"
+C=$(scode -b "$JI" "$B?action=get_lead&id=l_000000000000"); check "несуществующий лид → 404" "'$C'=='404'" "{\"_raw\":\"$C\"}"
+C=$(scode -b "$JI" -H "X-CSRF-Token: $TI" "$B?action=save_lead"); check "GET-мутация → 405" "'$C'=='405'" "{\"_raw\":\"$C\"}"
+C=$(scode -b "$JI" "$B?action=get_data"); check "успешный запрос → 200" "'$C'=='200'" "{\"_raw\":\"$C\"}"
+
 # --- уборка ---------------------------------------------------------------
 post "$JI" "$TI" delete_lead "{\"id\":\"$LADM\"}" >/dev/null
 TP=$(login "$JP" "$B_EMAIL" "$B_PASS"); post "$JP" "$TP" delete_lead "{\"id\":\"$LA1\"}" >/dev/null; post "$JP" "$TP" delete_lead "{\"id\":\"$LB1\"}" >/dev/null
