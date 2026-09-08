@@ -225,9 +225,21 @@ const Net = {
         url += `&id=${encodeURIComponent((data && data.id) || '')}`;
         data = null;
       }
+      if (action === 'get_activity') {
+        // year обязателен; as — локальный выбор сотрудника на вкладке «Активность»
+        // (не Store.viewUserId, чтобы не влиять на «Лиды»)
+        url += `&year=${encodeURIComponent((data && data.year) || '')}`;
+        if (data && data.as) url += `&as=${encodeURIComponent(data.as)}`;
+        data = null;
+      }
       const extra = arguments[3] || {};
       const opts = { method: data ? 'POST' : 'GET', headers: {} };
       if (extra.keepalive) opts.keepalive = true;
+      // Таймаут: зависший запрос раньше держал withLock-блокировку бесконечно, и UI
+      // молча переставал реагировать. keepalive-запросы (beforeunload) не абортим.
+      if (!extra.keepalive && typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+        opts.signal = AbortSignal.timeout(20000);
+      }
       if (this.csrf) opts.headers['X-CSRF-Token'] = this.csrf;
       if (isFormData) opts.body = data; else if (data) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(data); }
       const res = await fetch(url, opts);
@@ -2061,14 +2073,14 @@ async function loadActivity(year) {
   if (year != null) _activityYear = year;
   Loading.show();
   try {
-    // Передаём as напрямую, минуя Store.viewUserId (чтобы не влиять на «Лиды»)
-    let url = `api.php?action=get_activity&year=${encodeURIComponent(_activityYear)}`;
-    if (_activityUserId) url += `&as=${encodeURIComponent(_activityUserId)}`;
-    const opts = { method: 'GET', headers: {} };
-    if (Net.csrf) opts.headers['X-CSRF-Token'] = Net.csrf;
-    const res = await fetch(url, opts).then(r => r.json()).catch(() => null);
-    if (!res || !res.success) return;
+    // Через Net.req: раньше здесь был голый fetch — need_login не разлогинивал,
+    // ошибки терялись молча (см. код-ревью, п. 2.9)
+    const res = await Net.req('get_activity', { year: _activityYear, as: _activityUserId || 0 });
+    if (!res || !res.success) { if (res?.error) Toast.error(res.error); return; }
     _activityYear = res.year || _activityYear;
+    // Кэш ограничен: старые годы/сотрудники вытесняются (раньше рос без предела всю сессию)
+    const keys = Object.keys(_activityCache);
+    if (keys.length > 24) delete _activityCache[keys[0]];
     _activityCache[_activityYear + ':' + (_activityUserId || 'me')] = res.clients || [];
     renderActivity();
   } finally {

@@ -1,6 +1,6 @@
 -- CRM «Детроид» — схема MySQL (utf8mb4 / InnoDB)
 -- На SpaceWeb таблицы создаются сами при первом запросе к api.php.
--- Этот файл совпадает с миграциями в db.php (schema version 13).
+-- Этот файл совпадает с миграциями в db.php (schema version 14).
 -- Импорт вручную не обязателен.
 
 SET NAMES utf8mb4;
@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS crm_comments (
   edited_at BIGINT NULL,
   PRIMARY KEY (id),
   KEY idx_lead (lead_id),
+  KEY idx_lead_time (lead_id, time),
   KEY idx_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -128,6 +129,7 @@ CREATE TABLE IF NOT EXISTS crm_carrier_comments (
   edited_at BIGINT NULL,
   PRIMARY KEY (id),
   KEY idx_carrier (carrier_id),
+  KEY idx_carrier_time (carrier_id, time),
   KEY idx_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -166,7 +168,23 @@ CREATE TABLE IF NOT EXISTS crm_lead_apps (
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
-  KEY idx_lead (lead_id)
+  KEY idx_lead (lead_id),
+  KEY idx_lead_created (lead_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v14: аудит-лог чувствительных действий (входы, управление сотрудниками, передачи лидов)
+CREATE TABLE IF NOT EXISTS crm_audit (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  actor_id INT UNSIGNED NOT NULL DEFAULT 0,
+  actor_name VARCHAR(80) NOT NULL DEFAULT '',
+  action VARCHAR(40) NOT NULL,
+  target VARCHAR(200) NOT NULL DEFAULT '',
+  details VARCHAR(500) NOT NULL DEFAULT '',
+  ip VARCHAR(45) NOT NULL DEFAULT '',
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_created (created_at),
+  KEY idx_actor (actor_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- TODO(целостность): добавить внешние ключи после стабилизации схемы.

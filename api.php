@@ -124,7 +124,9 @@ function crm_session_gc(): void {
     if ($dir === null || random_int(1, 100) !== 1) return;
     $limit = time() - CRM_IDLE_SEC - 60;
     foreach (glob($dir . '/sess_*') ?: [] as $f) {
-        if (@filemtime($f) < $limit) @unlink($f);
+        // filemtime может вернуть false (гонка с параллельным удалением) — такой файл не трогаем
+        $mt = @filemtime($f);
+        if ($mt !== false && $mt < $limit) @unlink($f);
     }
 }
 function crm_session_kill(string $msg = 'Сессия истекла'): never {
@@ -376,6 +378,75 @@ function crm_edit_comment_input(): array {
     }
     return [strv($_POST['id'] ?? '', 80), strv($_POST['text'] ?? '', 20000)];
 }
+/*
+ * Общие тела add/edit/delete для комментариев лидов и перевозчиков.
+ * Раньше case-блоки add_comment/add_carrier_comment, edit_comment/edit_carrier_comment,
+ * delete_comment/delete_carrier_comment дублировали друг друга почти построчно (~70 строк),
+ * и фиксы приходилось вносить дважды (см. ревью, п. 7.1). Различия — только имена таблиц,
+ * колонка владельца и функция touch, они передаются параметрами. Имена таблиц приходят
+ * литералами из call-site'ов (не из ввода пользователя), поэтому интерполяция безопасна.
+ */
+/** Добавить комментарий с вложениями. При ошибке завершает запрос через err(). */
+function crm_apply_comment_add(PDO $pdo, string $table, string $attTable, string $ownerCol, string $ownerId, string $text, array $user, string $prefix, string $logTag): void {
+    $atts = crm_take_uploads(8);
+    if ($text === '' && !$atts) err('Пусто');
+    try {
+        $pdo->beginTransaction();
+        crm_insert_comment($pdo, $table, $attTable, $ownerCol, $ownerId, $text, $user, $atts, $prefix);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        crm_discard_uploads($atts);
+        crm_log_fail($logTag, $e);
+        err('Не удалось сохранить');
+    }
+}
+/** Обновить текст комментария и дописать вложения (суммарно не более 8). */
+function crm_apply_comment_edit(PDO $pdo, string $cid, string $text, string $table, string $attTable, string $logTag): void {
+    $have = 0;
+    try {
+        $stN = $pdo->prepare("SELECT COUNT(*) FROM {$attTable} WHERE comment_id = ?");
+        $stN->execute([$cid]);
+        $have = (int) $stN->fetchColumn();
+    } catch (PDOException $e) { $have = 0; }
+    $atts = crm_take_uploads(max(0, 8 - $have));
+    if ($text === '' && $have === 0 && !$atts) { crm_discard_uploads($atts); err('Пусто'); }
+    try {
+        $pdo->beginTransaction();
+        $pdo->prepare("UPDATE {$table} SET text = ?, edited_at = ? WHERE id = ?")->execute([$text, now_ms(), $cid]);
+        if ($atts) {
+            $insA = $pdo->prepare("INSERT INTO {$attTable} (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)");
+            foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        crm_discard_uploads($atts);
+        crm_log_fail($logTag, $e);
+        err('Не удалось сохранить');
+    }
+}
+/**
+ * Удалить комментарий с вложениями. $touch — обновление ревизии карточки внутри транзакции;
+ * возвращает её результат (updatedAt). Файлы с диска стираются после успешного коммита.
+ */
+function crm_apply_comment_delete(PDO $pdo, string $cid, string $table, string $attTable, string $logTag, callable $touch): int {
+    $urls = crm_att_urls($pdo, $attTable, [$cid]);
+    $rev = 0;
+    $pdo->beginTransaction();
+    try {
+        crm_delete_att_rows($pdo, $attTable, [$cid]);
+        $pdo->prepare("DELETE FROM {$table} WHERE id = ?")->execute([$cid]);
+        $rev = (int) $touch();
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        crm_log_fail($logTag, $e);
+        err('Не удалось удалить');
+    }
+    crm_unlink_urls($urls);
+    return $rev;
+}
 
 $action = is_string($_GET['action'] ?? null) ? $_GET['action'] : '';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -439,7 +510,9 @@ if ($action === 'check_auth') {
 }
 
 if ($action === 'login') {
-    if ($method !== 'POST' || !crm_want_json()) err('CSRF');
+    // Раньше и неверный метод, и неверный Content-Type отвечали «CSRF» — дезориентировало при отладке
+    if ($method !== 'POST') err('Метод не поддерживается: нужен POST');
+    if (!crm_want_json()) err('Ожидается Content-Type: application/json');
     $sent = (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     if ($sent === '' || !crm_login_csrf_ok($pdo, $sent)) err('CSRF');
     $in = body_json();
@@ -451,13 +524,27 @@ if ($action === 'login') {
     $u = crm_user_by_email($pdo, $email);
     $dummy = '$2y$10$ykv1D8WgrA05XNmayGz9Zed0GAmu7FJlclV24IoQpA8sgvCYrPxoK';
     $hash = is_array($u) ? (string) ($u['password'] ?? $dummy) : $dummy;
-    if ($hash === '' || !preg_match('/^\$2[aby]\$/', $hash)) $hash = $dummy;
+    if ($hash === '' || !crm_hash_looks_valid($hash)) $hash = $dummy;
     $okPass = password_verify($password, $hash);
     if (!$u || !$okPass) {
         crm_login_fail($pdo, $email, $ip);
         err('Неверный e-mail или пароль');
     }
+    // Плавная миграция хэшей на актуальный алгоритм (Argon2id при наличии): пароль
+    // сейчас в открытом виде — единственный момент, когда можно перехэшировать.
+    // Побочный эффект (одноразовый, при первом входе после обновления): отпечаток в
+    // crm_pw_fingerprint включает хэш, поэтому другие открытые сессии этого пользователя
+    // попросят войти заново — как при смене пароля. $u обновляем, чтобы новая сессия
+    // получила отпечаток от нового хэша.
+    if (password_needs_rehash($hash, crm_password_algo())) {
+        try {
+            $newHash = crm_password_hash($password);
+            $pdo->prepare('UPDATE crm_users SET password = ? WHERE id = ?')->execute([$newHash, (int) $u['id']]);
+            $u['password'] = $newHash;
+        } catch (Throwable $e) { crm_log_fail('rehash', $e); }
+    }
     crm_login_ok($pdo, $email, $ip);
+    crm_audit($pdo, $u, 'login', $email);
     crm_session_boot();
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int) $u['id'];
@@ -478,7 +565,12 @@ if ($action === 'logout') {
     if ($method !== 'POST') err('CSRF');
     $sent = (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     $have = (string) ($_SESSION['csrf'] ?? '');
-    if ($have !== '' && ($sent === '' || strlen($sent) !== strlen($have) || !hash_equals($have, $sent))) err('CSRF');
+    // Строгая проверка: раньше пустой $_SESSION['csrf'] пропускал запрос без токена —
+    // сторонний сайт мог насильно разлогинить пользователя (logout-CSRF). Токена нет
+    // только у неавторизованной сессии, а такой logout и так отвечает ok() выше по $hasSess;
+    // для авторизованной сессии токен обязан быть.
+    if ((int) ($_SESSION['user_id'] ?? 0) > 0
+        && ($have === '' || $sent === '' || strlen($sent) !== strlen($have) || !hash_equals($have, $sent))) err('CSRF');
     // Regenerate ID перед уничтожением: старый session ID больше не действителен,
     // и даже если файл сессии ещё не удалён сборщиком мусора — предъявить его нельзя.
     session_regenerate_id(true);
@@ -500,7 +592,7 @@ if (crm_session_throttled()) err('Слишком много запросов. П
 
 // Только чтение — разрешён GET. Всё остальное меняет данные: строго POST + CSRF-токен.
 // (Раньше мутация проходила и по GET без CSRF — например, GET save_lead создавал пустой лид.)
-$readActions = ['ui', 'me', 'whoami', 'get_data', 'get_lead', 'get_comments', 'search_leads', 'get_directions', 'get_carriers', 'get_carrier', 'get_users', 'integrity_check', 'get_activity'];
+$readActions = ['ui', 'me', 'whoami', 'get_data', 'get_lead', 'get_comments', 'search_leads', 'get_directions', 'get_carriers', 'get_carrier', 'get_users', 'integrity_check', 'get_activity', 'get_audit'];
 if (!in_array($action, $readActions, true)) {
     if ($method !== 'POST') err('Метод не поддерживается: нужен POST');
     require_csrf();
@@ -539,6 +631,29 @@ switch ($action) {
         require_admin($user);
         [$checked, $removed] = crm_sweep_uploads($pdo);
         ok(['checked' => $checked, 'removed' => $removed]);
+    }
+
+    case 'get_audit': {
+        // Последние события аудит-лога (только админ). limit ≤ 500.
+        require_admin($user);
+        $limit = max(1, min(500, intv($_GET['limit'] ?? 100)));
+        $rows = [];
+        try {
+            $st = $pdo->prepare("SELECT actor_id, actor_name, action, target, details, ip, created_at FROM crm_audit ORDER BY id DESC LIMIT $limit");
+            $st->execute();
+            foreach ($st as $r) {
+                $rows[] = [
+                    'actorId' => (int) $r['actor_id'],
+                    'actorName' => $r['actor_name'],
+                    'action' => $r['action'],
+                    'target' => $r['target'],
+                    'details' => $r['details'],
+                    'ip' => $r['ip'],
+                    'time' => (int) $r['created_at'],
+                ];
+            }
+        } catch (PDOException $e) { /* таблица появится после миграции v14 */ }
+        ok(['events' => $rows]);
     }
 
     case 'integrity_check': {
@@ -613,7 +728,7 @@ switch ($action) {
         $existing = $id !== '' ? crm_lead_app_by_id($pdo, $id) : null;
         if ($id !== '' && (!$existing || (string) $existing['lead_id'] !== $leadId)) err('Заявка не найдена');
         if ($id === '') {
-            $id = 'a_' . bin2hex(random_bytes(6));
+            $id = crm_new_id($pdo, 'a_', 'crm_lead_apps');
             if (crm_sync_lead_apps_count($pdo, $leadId) >= CRM_MAX_APPS_PER_LEAD) err('Слишком много заявок в одном лиде');
         }
         // Оптимистическая блокировка: если заявку изменили в другой вкладке — не перезаписывать молча.
@@ -697,7 +812,7 @@ switch ($action) {
             $dup = $pdo->prepare('SELECT id FROM crm_directions WHERE city_from = ? AND city_to = ?');
             $dup->execute([$from, $to]);
             if ($dup->fetch()) err('Такое направление уже есть');
-            $id = 'd_' . bin2hex(random_bytes(6));
+            $id = crm_new_id($pdo, 'd_', 'crm_directions');
             $pdo->prepare('INSERT INTO crm_directions (id, city_from, city_to, created_by, created_at) VALUES (?,?,?,?,?)')
                 ->execute([$id, $from, $to, $uid, now_ms()]);
         } else {
@@ -768,7 +883,7 @@ switch ($action) {
         $now = now_ms();
         if ($id === '') {
             $note = strv($in['note'] ?? '', 2000);
-            $id = 'k_' . bin2hex(random_bytes(6));
+            $id = crm_new_id($pdo, 'k_', 'crm_carriers');
             $pdo->prepare('INSERT INTO crm_carriers (id, direction_id, name, phone, company, note, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
                 ->execute([$id, $dirId, $name, $phone, $company, $note, $uid, $now, $now]);
         } else {
@@ -837,18 +952,7 @@ switch ($action) {
         $carrierId = strv($_POST['carrier_id'] ?? '', 80);
         $text = strv($_POST['text'] ?? '', 20000);
         if (!crm_carrier_by_id($pdo, $carrierId)) err('Контакт не найден');
-        $atts = crm_take_uploads(8);
-        if ($text === '' && !$atts) err('Пусто');
-        try {
-            $pdo->beginTransaction();
-            crm_insert_comment($pdo, 'crm_carrier_comments', 'crm_carrier_attachments', 'carrier_id', $carrierId, $text, $user, $atts, 'cc_');
-            $pdo->commit();
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            crm_discard_uploads($atts);
-            crm_log_fail('add_carrier_comment', $e);
-            err('Не удалось сохранить');
-        }
+        crm_apply_comment_add($pdo, 'crm_carrier_comments', 'crm_carrier_attachments', 'carrier_id', $carrierId, $text, $user, 'cc_', 'add_carrier_comment');
         $rev = crm_touch_carrier($pdo, $carrierId);
         crm_meta_bump($pdo, 'routes');
         ok(['updatedAt' => $rev]);
@@ -859,28 +963,7 @@ switch ($action) {
         $c = crm_carrier_comment_by_id($pdo, $cid);
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
-        $have = 0;
-        try {
-            $stN = $pdo->prepare('SELECT COUNT(*) FROM crm_carrier_attachments WHERE comment_id = ?');
-            $stN->execute([$cid]);
-            $have = (int) $stN->fetchColumn();
-        } catch (PDOException $e) { $have = 0; }
-        $atts = crm_take_uploads(max(0, 8 - $have));
-        if ($text === '' && $have === 0 && !$atts) { crm_discard_uploads($atts); err('Пусто'); }
-        try {
-            $pdo->beginTransaction();
-            $pdo->prepare('UPDATE crm_carrier_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
-            if ($atts) {
-                $insA = $pdo->prepare('INSERT INTO crm_carrier_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
-                foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
-            }
-            $pdo->commit();
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            crm_discard_uploads($atts);
-            crm_log_fail('edit_carrier_comment', $e);
-            err('Не удалось сохранить');
-        }
+        crm_apply_comment_edit($pdo, $cid, $text, 'crm_carrier_comments', 'crm_carrier_attachments', 'edit_carrier_comment');
         $rev = crm_touch_carrier($pdo, (string) $c['carrier_id']);
         crm_meta_bump($pdo, 'routes');
         ok(['updatedAt' => $rev]);
@@ -892,19 +975,8 @@ switch ($action) {
         $c = crm_carrier_comment_by_id($pdo, $cid);
         if (!$c) err('Комментарий не найден');
         if (!can_delete_comment($user, $c)) err('Нет прав');
-        $urls = crm_att_urls($pdo, 'crm_carrier_attachments', [$cid]);
-        $pdo->beginTransaction();
-        try {
-            crm_delete_att_rows($pdo, 'crm_carrier_attachments', [$cid]);
-            $pdo->prepare('DELETE FROM crm_carrier_comments WHERE id = ?')->execute([$cid]);
-            $rev = crm_touch_carrier($pdo, (string) $c['carrier_id']);
-            $pdo->commit();
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            crm_log_fail('delete_carrier_comment', $e);
-            err('Не удалось удалить');
-        }
-        crm_unlink_urls($urls);
+        $rev = crm_apply_comment_delete($pdo, $cid, 'crm_carrier_comments', 'crm_carrier_attachments', 'delete_carrier_comment',
+            static fn () => crm_touch_carrier($pdo, (string) $c['carrier_id']));
         crm_meta_bump($pdo, 'routes');
         ok(['updatedAt' => $rev]);
     }
@@ -944,7 +1016,7 @@ switch ($action) {
                 $any->execute([$id]);
                 if ($any->fetch()) err('Лид не найден');
             }
-            $id = 'l_' . bin2hex(random_bytes(6));
+            $id = crm_new_id($pdo, 'l_', 'crm_leads');
         }
 
         $title = strv($in['title'] ?? ($row['title'] ?? ''), 200, 'Без названия');
@@ -1006,7 +1078,10 @@ switch ($action) {
             crm_log_fail('save_lead', $e);
             err('Не удалось сохранить');
         }
-        if ($transferredTo !== null) ok(['id' => $id, 'transferred' => true, 'to' => $transferredTo, 'updatedAt' => $now]);
+        if ($transferredTo !== null) {
+            crm_audit($pdo, $user, 'lead_transfer', $id, 'to: ' . $transferredTo);
+            ok(['id' => $id, 'transferred' => true, 'to' => $transferredTo, 'updatedAt' => $now]);
+        }
         ok(['id' => $id, 'updatedAt' => $now]);
     }
 
@@ -1069,18 +1144,7 @@ switch ($action) {
         $leadId = strv($_POST['lead_id'] ?? '', 80);
         $text = strv($_POST['text'] ?? '', 20000);
         if (!crm_lead_for_user($pdo, $leadId, $viewUid)) err('Лид не найден');
-        $atts = crm_take_uploads(8);
-        if ($text === '' && !$atts) err('Пусто');
-        try {
-            $pdo->beginTransaction();
-            crm_insert_comment($pdo, 'crm_comments', 'crm_attachments', 'lead_id', $leadId, $text, $user, $atts, 'c_');
-            $pdo->commit();
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            crm_discard_uploads($atts);
-            crm_log_fail('add_comment', $e);
-            err('Не удалось сохранить');
-        }
+        crm_apply_comment_add($pdo, 'crm_comments', 'crm_attachments', 'lead_id', $leadId, $text, $user, 'c_', 'add_comment');
         $rev = crm_touch_lead($pdo, $leadId);
         ok(['updatedAt' => $rev]);
     }
@@ -1090,28 +1154,7 @@ switch ($action) {
         $c = crm_comment_for_user($pdo, $cid, $viewUid);
         if (!$c) err('Комментарий не найден');
         if (!can_edit_comment($user, $c)) err('Нет прав');
-        $have = 0;
-        try {
-            $stN = $pdo->prepare('SELECT COUNT(*) FROM crm_attachments WHERE comment_id = ?');
-            $stN->execute([$cid]);
-            $have = (int) $stN->fetchColumn();
-        } catch (PDOException $e) { $have = 0; }
-        $atts = crm_take_uploads(max(0, 8 - $have));
-        if ($text === '' && $have === 0 && !$atts) { crm_discard_uploads($atts); err('Пусто'); }
-        try {
-            $pdo->beginTransaction();
-            $pdo->prepare('UPDATE crm_comments SET text = ?, edited_at = ? WHERE id = ?')->execute([$text, now_ms(), $cid]);
-            if ($atts) {
-                $insA = $pdo->prepare('INSERT INTO crm_attachments (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)');
-                foreach ($atts as $a) $insA->execute([$cid, $a['name'], $a['size'], $a['type'], $a['dataUrl']]);
-            }
-            $pdo->commit();
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            crm_discard_uploads($atts);
-            crm_log_fail('edit_comment', $e);
-            err('Не удалось сохранить');
-        }
+        crm_apply_comment_edit($pdo, $cid, $text, 'crm_comments', 'crm_attachments', 'edit_comment');
         $rev = crm_touch_lead($pdo, (string) $c['lead_id']);
         ok(['updatedAt' => $rev]);
     }
@@ -1122,19 +1165,8 @@ switch ($action) {
         $c = crm_comment_for_user($pdo, $cid, $viewUid);
         if (!$c) err('Комментарий не найден');
         if (!can_delete_comment($user, $c)) err('Нет прав');
-        $urls = crm_att_urls($pdo, 'crm_attachments', [$cid]);
-        $pdo->beginTransaction();
-        try {
-            crm_delete_att_rows($pdo, 'crm_attachments', [$cid]);
-            $pdo->prepare('DELETE FROM crm_comments WHERE id = ?')->execute([$cid]);
-            $rev = crm_touch_lead($pdo, (string) $c['lead_id']);
-            $pdo->commit();
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            crm_log_fail('delete_comment', $e);
-            err('Не удалось удалить');
-        }
-        crm_unlink_urls($urls);
+        $rev = crm_apply_comment_delete($pdo, $cid, 'crm_comments', 'crm_attachments', 'delete_comment',
+            static fn () => crm_touch_lead($pdo, (string) $c['lead_id']));
         ok(['updatedAt' => $rev]);
     }
 
@@ -1226,10 +1258,11 @@ switch ($action) {
         $role = strv($in['role'] ?? 'user', 16);
         if ($role !== 'admin') $role = 'user';
         $pdo->prepare('INSERT INTO crm_users (name, email, password, role, created_at) VALUES (?,?,?,?,?)')
-            ->execute([$name, $email, password_hash($pass, PASSWORD_DEFAULT), $role, now_ms()]);
+            ->execute([$name, $email, crm_password_hash($pass), $role, now_ms()]);
         $newId = (int) $pdo->lastInsertId();
         crm_ensure_user_stages($pdo, $newId);
         crm_meta_bump($pdo, 'users');
+        crm_audit($pdo, $user, 'user_create', $email, 'id=' . $newId . ' role=' . $role);
         ok(['id' => $newId]);
     }
 
@@ -1281,13 +1314,18 @@ switch ($action) {
             // пользователя инвалидируются. Раньше это работало неявно (хэш пароля входит в
             // crm_pw_fingerprint), но явная инвалидация надёжнее — не зависит от состава fingerprint.
             $pdo->prepare('UPDATE crm_users SET password = ?, token_version = token_version + 1 WHERE id = ?')
-                ->execute([password_hash($pass, PASSWORD_DEFAULT), $id]);
+                ->execute([crm_password_hash($pass), $id]);
             if ($id === (int) $user['id']) {
                 $fresh = crm_user_by_id($pdo, $id);
                 if ($fresh) $_SESSION['pw'] = crm_pw_fingerprint($fresh);
             }
         }
         crm_meta_bump($pdo, 'users');
+        $audit = [];
+        if ($roleChanged) $audit[] = 'role: ' . ($target['role'] ?? '') . '→' . $role;
+        if ($pass !== '') $audit[] = 'password changed';
+        if ($name !== (string) $target['name']) $audit[] = 'renamed';
+        if ($audit) crm_audit($pdo, $user, 'user_update', (string) $target['email'], implode('; ', $audit));
         ok();
     }
 
@@ -1307,6 +1345,7 @@ switch ($action) {
         }
         $moved = crm_purge_user($pdo, $id, $transferTo);
         crm_meta_bump($pdo, 'users');
+        crm_audit($pdo, $user, 'user_delete', (string) $target['email'], $transferTo > 0 ? "leads→$transferTo ($moved)" : 'leads purged');
         ok(['transferred' => $moved]);
     }
 
@@ -1322,12 +1361,13 @@ switch ($action) {
         // token_version инкрементируется для консистентности с update_user: явная инвалидация
         // сессий не зависит от состава crm_pw_fingerprint (хэш пароля может из него уйти).
         $pdo->prepare('UPDATE crm_users SET password = ?, token_version = token_version + 1 WHERE id = ?')
-            ->execute([password_hash($new, PASSWORD_DEFAULT), (int) $user['id']]);
+            ->execute([crm_password_hash($new), (int) $user['id']]);
         unset($_SESSION['must_change']);
         // Своя сессия остаётся; все остальные сессии этого пользователя отвалятся на следующем запросе
         // (id сессии не меняем: параллельный запрос вкладки — опрос доски — со старым id вылетел бы на вход)
         $fresh = crm_user_by_id($pdo, (int) $user['id']);
         if ($fresh) $_SESSION['pw'] = crm_pw_fingerprint($fresh);
+        crm_audit($pdo, $user, 'password_change', (string) $user['email']);
         ok();
     }
 

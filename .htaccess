@@ -38,6 +38,21 @@ ServerSignature Off
   RewriteRule ^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$ - [F]
 </IfModule>
 
+# Сжатие текстовых ответов (код-ревью п. 6.4): app.js ~90 КБ и app.css ~39 КБ ужимаются в 3–4 раза
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css text/csv application/json application/javascript image/svg+xml
+</IfModule>
+
+# Кэш статики (код-ревью п. 6.4). Неделя, а не год: версия ?v=fixNN поднимается вручную,
+# и забытая версия при годовом кэше означала бы неделю/месяцы устаревшего JS у клиентов.
+# После перехода на hash в имени файла можно поднять до года с immutable.
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 7 days"
+  ExpiresByType application/javascript "access plus 7 days"
+  ExpiresByType image/svg+xml "access plus 7 days"
+</IfModule>
+
 <IfModule mod_headers.c>
   <FilesMatch "\.css$">
     Header set Content-Type "text/css; charset=utf-8"
@@ -49,6 +64,8 @@ ServerSignature Off
   Header always set X-Frame-Options "SAMEORIGIN"
   Header always set X-Content-Type-Options "nosniff"
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+  Header always set Cross-Origin-Resource-Policy "same-origin"
   Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
   Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
 </IfModule>

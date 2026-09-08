@@ -28,7 +28,27 @@ function out(array $data): never {
     exit;
 }
 function ok(array $extra = []): never { out(['success' => true] + $extra); }
-function err(string $message, bool $needLogin = false): never {
+/**
+ * HTTP-статус для ошибки. Раньше все ошибки уходили с кодом 200 — в логах хостинга/прокси
+ * и мониторинге всё выглядело успехом. Клиент на статус не завязан (парсит JSON при любом коде),
+ * поэтому смена кодов обратно-совместима. Явный $status в err() имеет приоритет; иначе —
+ * маппинг по типовым сообщениям (в однофайловой архитектуре это дешевле, чем править все вызовы).
+ */
+function crm_err_status(string $message, bool $needLogin): int {
+    if ($needLogin) return 401;
+    if ($message === 'Нет прав' || $message === 'CSRF') return 403;
+    if (str_contains($message, 'не найден')) return 404; // «не найден/не найдена/не найдено»
+    if (str_starts_with($message, 'Метод не поддерживается')) return 405;
+    if (str_contains($message, 'в другом месте')) return 409; // оптимистическая блокировка
+    if (str_starts_with($message, 'Слишком много')) return 429;
+    // Ошибки конфигурации/подключения к БД — проблема сервера, не клиента
+    if (str_contains($message, 'config.php') || str_contains($message, 'pdo_mysql')
+        || str_contains($message, 'подключиться к базе')) return 500;
+    return 400;
+}
+function err(string $message, bool $needLogin = false, int $status = 0): never {
+    if ($status <= 0) $status = crm_err_status($message, $needLogin);
+    if (!headers_sent()) http_response_code($status);
     $r = ['success' => false, 'error' => $message];
     if ($needLogin) $r['need_login'] = true;
     out($r);
@@ -123,7 +143,7 @@ function crm_pdo(): PDO {
     return $pdo;
 }
 
-const CRM_SCHEMA_VERSION = 13;
+const CRM_SCHEMA_VERSION = 14;
 /** Минимальная длина запроса (символов названия или цифр ИНН), при которой ищем пересечения с чужими лидами. */
 const CRM_SEARCH_MIN_CHARS = 4;
 
@@ -169,6 +189,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v11($pdo);
     crm_migrate_v12($pdo);
     crm_migrate_v13($pdo);
+    crm_migrate_v14($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -460,6 +481,50 @@ function crm_migrate_v13(PDO $pdo): void {
 }
 
 /**
+ * v14: аудит-лог чувствительных действий (код-ревью п. 3.5).
+ * Пишутся события управления пользователями (создание, смена роли/пароля, удаление),
+ * входы и передачи лидов — раньше при разборах инцидентов не было никакого следа.
+ * Только запись; чтение — через ?action=get_audit (админ) или напрямую из БД.
+ */
+function crm_migrate_v14(PDO $pdo): void {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_audit (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      actor_id INT UNSIGNED NOT NULL DEFAULT 0,
+      actor_name VARCHAR(80) NOT NULL DEFAULT '',
+      action VARCHAR(40) NOT NULL,
+      target VARCHAR(200) NOT NULL DEFAULT '',
+      details VARCHAR(500) NOT NULL DEFAULT '',
+      ip VARCHAR(45) NOT NULL DEFAULT '',
+      created_at BIGINT NOT NULL,
+      PRIMARY KEY (id),
+      KEY idx_created (created_at),
+      KEY idx_actor (actor_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+/**
+ * Записать событие в аудит-лог. Никогда не роняет основной запрос: аудит — вторичен.
+ * Заодно раз в ~200 записей чистит события старше года.
+ */
+function crm_audit(PDO $pdo, array $actor, string $action, string $target = '', string $details = ''): void {
+    try {
+        $pdo->prepare('INSERT INTO crm_audit (actor_id, actor_name, action, target, details, ip, created_at) VALUES (?,?,?,?,?,?,?)')
+            ->execute([
+                (int) ($actor['id'] ?? 0),
+                mb_substr((string) ($actor['name'] ?? ''), 0, 80),
+                mb_substr($action, 0, 40),
+                mb_substr($target, 0, 200),
+                mb_substr($details, 0, 500),
+                crm_client_ip(),
+                now_ms(),
+            ]);
+        if (random_int(1, 200) === 1) {
+            $pdo->prepare('DELETE FROM crm_audit WHERE created_at < ?')->execute([now_ms() - 365 * 86400 * 1000]);
+        }
+    } catch (Throwable $e) { crm_log_fail('audit', $e); }
+}
+
+/**
  * Проверка ссылочной целостности (замена FOREIGN KEY, которых нет в схеме).
  * Возвращает список найденных orphan-записей: [таблица, id, описание].
  * Вызывается из ?action=integrity_check (только для админа) или из cron-скрипта.
@@ -708,6 +773,29 @@ function crm_migrate_routes(PDO $pdo): void {
       PRIMARY KEY (id),
       KEY idx_comment (comment_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+/**
+ * Новый id с префиксом ('l_', 'a_', 'd_', 'k_', 'c_', 'cc_') с проверкой на коллизию.
+ * 48 бит случайности — коллизия почти невероятна, но раньше при её наступлении INSERT
+ * падал duplicate key → пользователь получал «Не удалось сохранить» без повтора.
+ * Проверка по PK дешёвая; гонка двух одновременных вставок с одинаковым id прикрыта
+ * самим PK (вторая упадёт), вероятность этого пренебрежима.
+ */
+function crm_new_id(PDO $pdo, string $prefix, string $table): string {
+    static $tables = ['crm_leads', 'crm_lead_apps', 'crm_directions', 'crm_carriers', 'crm_comments', 'crm_carrier_comments'];
+    if (!in_array($table, $tables, true)) return $prefix . bin2hex(random_bytes(6));
+    for ($i = 0; $i < 3; $i++) {
+        $id = $prefix . bin2hex(random_bytes(6));
+        try {
+            $st = $pdo->prepare("SELECT 1 FROM {$table} WHERE id = ?");
+            $st->execute([$id]);
+            if ($st->fetch() === false) return $id;
+        } catch (PDOException $e) {
+            return $id; // таблицы ещё нет (первый boot) — id заведомо свободен
+        }
+    }
+    return $prefix . bin2hex(random_bytes(6));
 }
 
 function crm_norm_city(string $s): string {
@@ -1172,7 +1260,7 @@ function crm_seed(PDO $pdo): void {
         $st->execute([
             CRM_DEFAULT_ADMIN_NAME,
             mb_strtolower(CRM_DEFAULT_ADMIN_EMAIL),
-            password_hash(CRM_DEFAULT_ADMIN_PASS, PASSWORD_DEFAULT),
+            crm_password_hash(CRM_DEFAULT_ADMIN_PASS),
             'admin',
             now_ms(),
         ]);
@@ -1180,6 +1268,23 @@ function crm_seed(PDO $pdo): void {
     }
     $miss = $pdo->query('SELECT u.id FROM crm_users u LEFT JOIN crm_stages s ON s.user_id = u.id WHERE s.id IS NULL');
     foreach ($miss as $u) crm_ensure_user_stages($pdo, (int) $u['id']);
+}
+
+/**
+ * Алгоритм хэширования паролей (код-ревью п. 3.4): Argon2id, если PHP собран с ним
+ * (на SpaceWeb PHP 8.1+ обычно да), иначе bcrypt. Существующие bcrypt-хэши продолжают
+ * работать; при успешном входе password_needs_rehash() перекладывает их на новый
+ * алгоритм — плавная миграция без сброса паролей.
+ */
+function crm_password_algo(): string {
+    return defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT;
+}
+function crm_password_hash(string $pass): string {
+    return password_hash($pass, crm_password_algo());
+}
+/** Хэш выглядит как валидный (bcrypt или argon2) — для подмены на dummy при защите от тайминга. */
+function crm_hash_looks_valid(string $hash): bool {
+    return (bool) preg_match('/^\$(2[aby]|argon2id?)\$/', $hash);
 }
 
 function crm_user_public(array $u): array {
@@ -1416,7 +1521,7 @@ function crm_lead_comments(PDO $pdo, string $leadId): array {
 
 function crm_sys_comment(PDO $pdo, string $leadId, string $text): void {
     $st = $pdo->prepare('INSERT INTO crm_comments (id, lead_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,0,?,NULL)');
-    $st->execute(['c_' . bin2hex(random_bytes(6)), $leadId, $text, 'Система', now_ms()]);
+    $st->execute([crm_new_id($pdo, 'c_', 'crm_comments'), $leadId, $text, 'Система', now_ms()]);
 }
 
 /**
@@ -1428,7 +1533,7 @@ function crm_sys_comment(PDO $pdo, string $leadId, string $text): void {
  * Возвращает id созданного комментария.
  */
 function crm_insert_comment(PDO $pdo, string $commentTable, string $attTable, string $fkColumn, string $fkId, string $text, array $user, array $atts, string $prefix = 'c_'): string {
-    $cid = $prefix . bin2hex(random_bytes(6));
+    $cid = crm_new_id($pdo, $prefix, $commentTable);
     $pdo->prepare("INSERT INTO {$commentTable} (id, {$fkColumn}, text, author, user_id, time, edited_at) VALUES (?,?,?,?,?,?,NULL)")
         ->execute([$cid, $fkId, $text, $user['name'], (int) $user['id'], now_ms()]);
     if ($atts) {
@@ -1620,15 +1725,19 @@ function crm_client_activity(PDO $pdo, int $userId, int $year): array {
         $clients[$inn] = ['inn' => $inn, 'title' => $r['title'], 'months' => []];
     }
     if (!$clients) return [];
-    // 2) Заявки за год — добавляем месяцы к существующим клиентам
+    // 2) Заявки за год — добавляем месяцы к существующим клиентам.
+    // Год фильтруем диапазоном по created_at (миллисекунды), а не YEAR(FROM_UNIXTIME(...)):
+    // функция от колонки не даёт использовать индекс и заставляла считать её для каждой строки.
+    $from = (new DateTimeImmutable("$year-01-01 00:00:00"))->getTimestamp() * 1000;
+    $to = (new DateTimeImmutable(($year + 1) . "-01-01 00:00:00"))->getTimestamp() * 1000;
     $stTrips = $pdo->prepare("SELECT l.inn, MONTH(FROM_UNIXTIME(a.created_at / 1000)) AS month, COUNT(*) AS trips
             FROM crm_lead_apps a
             INNER JOIN crm_leads l ON l.id = a.lead_id
             WHERE l.user_id = ?
-              AND YEAR(FROM_UNIXTIME(a.created_at / 1000)) = ?
+              AND a.created_at >= ? AND a.created_at < ?
               AND l.inn <> ''
             GROUP BY l.inn, month");
-    $stTrips->execute([$userId, $year]);
+    $stTrips->execute([$userId, $from, $to]);
     foreach ($stTrips->fetchAll() as $r) {
         $inn = (string) $r['inn'];
         if (isset($clients[$inn])) {
