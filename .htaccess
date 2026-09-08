@@ -36,7 +36,7 @@ ServerSignature Off
   # Служебные каталоги и файлы наружу не отдаём (третья линия — на случай, если FilesMatch не сработал).
   # actions/ закрыт заранее: план распила api.php (TODO #15) создаст его позже, и правило,
   # добавленное «потом», однажды забыли бы — прямой запрос actions/lead.php исполнял бы код вне api.php.
-  RewriteRule ^(data|uploads|tests|actions|\.git)(/|$) - [F]
+  RewriteRule ^(data|uploads|tests|actions|tools|\.git)(/|$) - [F]
   RewriteRule ^(config\.php|config\.example\.php|db\.php|http\.php|security\.php|files\.php|migrations\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$ - [F]
 </IfModule>
 

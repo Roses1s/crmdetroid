@@ -1,6 +1,7 @@
 # Секреты — никогда не коммитить
 config.php
 data/.csrf_secret
+tools/.deploy.env
 
 # Пользовательские файлы (вложения из логов)
 uploads/*

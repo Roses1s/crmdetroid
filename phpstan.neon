@@ -12,6 +12,7 @@ parameters:
         - files.php
         - migrations.php
         - actions
+        - tools/backup.php
     bootstrapFiles:
         - tests/phpstan-bootstrap.php
     # Константы из config.php различаются между инсталляциями — их значения из bootstrap
