@@ -122,8 +122,18 @@ jobs:
           curl -s -b /tmp/ci-jar -H "X-CSRF-Token: $T2" -H 'Content-Type: application/json' \
             -d '{"old":"CiAdminPass123","password":"CiAdminPass123X"}' \
             "http://127.0.0.1:8089/api.php?action=change_password" >/dev/null
+          set +e
           CRM_URL=http://127.0.0.1:8089 ADMIN_EMAIL=admin@ci.local ADMIN_PASS='CiAdminPass123X' \
-            bash tests/api-smoke.sh
+            bash tests/api-smoke.sh | tee smoke.log
+          RC=${PIPESTATUS[0]}
+          if [ "$RC" != "0" ]; then
+            # Провалы — в annotations (видны в UI и через API без скачивания логов)
+            grep -m 10 '^FAIL' smoke.log | while IFS= read -r l; do echo "::error::$l"; done
+            tail -n 5 smoke.log | while IFS= read -r l; do echo "::warning::smoke tail: $l"; done
+          fi
+          exit "$RC"
       - name: Лог PHP-сервера при провале
         if: failure()
-        run: cat php-server.log || true
+        run: |
+          cat php-server.log || true
+          tail -n 8 php-server.log 2>/dev/null | while IFS= read -r l; do echo "::warning::php -S: $l"; done
