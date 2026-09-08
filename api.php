@@ -247,7 +247,7 @@ function crm_want_json(): bool {
     return str_starts_with($ct, 'application/json');
 }
 
-// out() / ok() / err() / now_ms() объявлены в db.php (он подключается первым и сам ими пользуется).
+// out() / ok() / err() / now_ms() объявлены в http.php (его подключает db.php первым делом).
 function body_json(): array {
     $raw = file_get_contents('php://input') ?: '';
     if ($raw === '') return [];

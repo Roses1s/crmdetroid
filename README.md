@@ -12,9 +12,13 @@ CRM для логистической компании: канбан лидов,
 |---|---|
 | `index.html`, `app.css`, `noscript.css`, `js/` | Фронт. `ui.html` — разметка приложения, отдаётся только после входа |
 | `api.php` | Все действия API: `api.php?action=…` |
-| `db.php` | Подключение к MySQL, миграции схемы, SQL-хелперы |
+| `db.php` | Подключение к MySQL, SQL-хелперы; подключает остальные слои |
+| `http.php` | JSON-ответы (out/ok/err), HTTP-статусы ошибок, CrmError |
+| `security.php` | IP клиента и доверенные прокси, лимиты входа, валидация загрузок |
+| `files.php` | Вложения `uploads/`: имена, выдача с проверкой прав, уборка |
+| `migrations.php` | Миграции схемы (v4…v14), запускаются сами при первом запросе |
 | `config.php` | **Не в git.** Доступы к БД. Создаётся из `config.example.php` |
-| `schema.sql` | Справочная копия схемы (совпадает с миграциями в `db.php`) |
+| `schema.sql` | Справочная копия схемы (совпадает с миграциями в `migrations.php`) |
 | `uploads/` | Вложения из логов. Закрыт для веба, файлы отдаёт `api.php?action=file` |
 | `data/` | Секрет для login-CSRF (`data/.csrf_secret`, права 0600) и файлы PHP-сессий (`data/sessions/`), создаётся сам |
 | `tests/` | Регрессионные проверки для тестового стенда (см. «Тесты»). На прод не заливать |
@@ -37,7 +41,8 @@ CRM для логистической компании: канбан лидов,
    Таблицы создадутся **сами** при первом запросе к `api.php`; импорт `schema.sql` не нужен.
 4. Первый вход: `admin@detroid.local` / `admin123`. CRM сразу потребует задать свой пароль (8–64 символа).
 
-**Обновление работающего сайта:** заливайте `api.php`, `db.php`, `http.php`, `index.html`, `ui.html`, `app.css`,
+**Обновление работающего сайта:** заливайте `api.php`, `db.php`, `http.php`, `security.php`,
+`files.php`, `migrations.php`, `index.html`, `ui.html`, `app.css`,
 `noscript.css`, `icon.svg`, `js/`, `.htaccess` (и при необходимости `uploads/.htaccess`, `data/.htaccess`).
 **Не перезаписывайте** живой `config.php` и содержимое `uploads/`, `data/`.
 

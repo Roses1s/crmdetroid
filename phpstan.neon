@@ -8,6 +8,9 @@ parameters:
         - api.php
         - db.php
         - http.php
+        - security.php
+        - files.php
+        - migrations.php
     bootstrapFiles:
         - tests/phpstan-bootstrap.php
     # Константы из config.php различаются между инсталляциями — их значения из bootstrap
@@ -37,7 +40,7 @@ parameters:
         # второй вызов crm_schema_version() возвращающим то же значение — это не так: БД изменилась.
         -
             message: '#Comparison operation ">=" between int<min, 13> and 14 is always false#'
-            path: db.php
+            path: migrations.php
         -
             message: '#Result of && is always false#'
-            path: db.php
+            path: migrations.php

@@ -1,6 +1,6 @@
 -- CRM «Детроид» — схема MySQL (utf8mb4 / InnoDB)
 -- На SpaceWeb таблицы создаются сами при первом запросе к api.php.
--- Этот файл совпадает с миграциями в db.php (schema version 14).
+-- Этот файл совпадает с миграциями в migrations.php (schema version 14).
 -- Импорт вручную не обязателен.
 
 SET NAMES utf8mb4;
