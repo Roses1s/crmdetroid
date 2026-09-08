@@ -72,7 +72,11 @@ R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LB1\",\"title\":\"hijack\"}"); check 
 
 # --- 3. пересечения в поиске только по точному запросу --------------------
 R=$(get "$JI" "search_leads&q=78"); check "поиск «78» — пересечений нет" "r.get('intersections')==[]" "$R"
-R=$(get "$JI" "search_leads&q=7809"); check "поиск «7809» — пересечение с лидом B найдено" "any(i.get('inn')=='7809876543' for i in r.get('intersections',[]))" "$R"
+R=$(get "$JI" "search_leads&q=7809"); check "поиск «7809» — пересечение с лидом B найдено (индекс ИНН)" "any(i.get('inn')=='7809876543' for i in r.get('intersections',[]))" "$R"
+# v16: пересечения по названию идут через FULLTEXT (поиск по началу слов)
+R=$(get "$JI" "search_leads&q=Smok"); check "поиск «Smok» — пересечение по началу слова найдено (FULLTEXT)" "any(i.get('inn')=='7809876543' for i in r.get('intersections',[]))" "$R"
+R=$(get "$JI" "search_leads&q=SMOKE"); check "поиск «SMOKE» — регистр не важен" "any(i.get('inn')=='7809876543' for i in r.get('intersections',[]))" "$R"
+R=$(get "$JI" "search_leads&q=%2BSmok%2A%20%22x"); check "операторы BOOLEAN MODE в запросе не ломают поиск" "r.get('success') is True" "$R"
 
 # --- 4. вложения: kind обязателен, номера независимы ----------------------
 upload "$JI" "$TI" -F lead_id="$LA1" -F text=f -F "files[]=@$TMP/t.png;filename=a.png" "$B?action=add_comment" >/dev/null

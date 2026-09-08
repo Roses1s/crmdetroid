@@ -10,7 +10,7 @@ declare(strict_types=1);
  * резолвятся в рантайме, когда все файлы уже подключены.
  */
 
-const CRM_SCHEMA_VERSION = 15;
+const CRM_SCHEMA_VERSION = 16;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -56,6 +56,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v13($pdo);
     crm_migrate_v14($pdo);
     crm_migrate_v15($pdo);
+    crm_migrate_v16($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -319,6 +320,42 @@ function crm_migrate_v15(PDO $pdo): void {
             $pdo->exec("ALTER TABLE `{$table}` ADD CONSTRAINT `{$name}` {$def}");
         } catch (PDOException $e) {
             crm_log_fail("migrate_v15 {$name}", $e);
+        }
+    }
+}
+
+/**
+ * v16: поиск «по мере роста» (код-ревью п. 6.2).
+ * Запрос «пересечений» (чужие лиды с тем же клиентом) искал LIKE '%...%' по ВСЕЙ таблице —
+ * full scan на каждый ввод символа. Теперь:
+ * - FULLTEXT-индекс ft_title по названию — поиск по началу слов через MATCH...AGAINST;
+ * - идекс idx_inn + префиксный LIKE 'цифры%' по нормализованному ИНН (без ведущего %).
+ * Поиск по СВОИМ лидам не трогаем: он ограничен user_id (индекс) и по определению мал.
+ *
+ * Если хостинг не даст создать FULLTEXT (старый MySQL/MariaDB < 10.0.5), поиск
+ * автоматически откатывается на прежний LIKE (см. crm_search_leads) — ничего не ломается.
+ */
+function crm_migrate_v16(PDO $pdo): void {
+    // ИНН давно приводится к цифрам при сохранении, но старые строки могли остаться
+    // с форматированием («77-01…»). Нормализуем одноразово через PHP (портируемо,
+    // REGEXP_REPLACE есть не везде; строк с мусором — единицы).
+    $st = $pdo->query("SELECT id, inn FROM crm_leads WHERE inn <> '' AND inn NOT REGEXP '^[0-9]+$'");
+    $upd = $pdo->prepare('UPDATE crm_leads SET inn = ? WHERE id = ?');
+    foreach ($st as $r) {
+        $upd->execute([(string) preg_replace('/\D/', '', (string) $r['inn']), (string) $r['id']]);
+    }
+    if (!crm_has_index($pdo, 'crm_leads', 'idx_inn')) {
+        try {
+            $pdo->exec('ALTER TABLE crm_leads ADD KEY idx_inn (inn)');
+        } catch (PDOException $e) {
+            crm_log_fail('migrate_v16 idx_inn', $e);
+        }
+    }
+    if (!crm_has_index($pdo, 'crm_leads', 'ft_title')) {
+        try {
+            $pdo->exec('ALTER TABLE crm_leads ADD FULLTEXT KEY ft_title (title)');
+        } catch (PDOException $e) {
+            crm_log_fail('migrate_v16 ft_title', $e);
         }
     }
 }

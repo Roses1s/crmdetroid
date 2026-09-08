@@ -814,6 +814,23 @@ function crm_like_pat(string $s): string {
     return '%' . $s . '%';
 }
 
+/**
+ * Запрос для MATCH...AGAINST (BOOLEAN MODE) из пользовательской строки: каждое слово
+ * длиной от 3 символов (короче не попадают в FULLTEXT-индекс InnoDB при дефолтном
+ * innodb_ft_min_token_size=3) становится обязательным префиксом («+слово*»).
+ * Спецоператоры BOOLEAN MODE служат разделителями и в запрос не попадают.
+ * Пустой результат — строка для FULLTEXT непригодна, ищем прежним LIKE.
+ */
+function crm_ft_query(string $q): string {
+    $words = preg_split('/[\s+\-><()~*"@]+/u', $q, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    $parts = [];
+    foreach ($words as $w) {
+        if (mb_strlen($w, 'UTF-8') < 3) continue;
+        $parts[] = '+' . $w . '*';
+    }
+    return implode(' ', $parts);
+}
+
 function crm_search_leads(PDO $pdo, int $userId, string $q): array {
     $q = trim($q);
     if ($q === '') return ['leads' => [], 'intersections' => []];
@@ -844,17 +861,37 @@ function crm_search_leads(PDO $pdo, int $userId, string $q): array {
     // «Пересечения» — чужие лиды с тем же клиентом. Показываем их только по достаточно точному
     // запросу (≥4 символа названия или ≥4 цифры ИНН) и не больше 20 за раз: по двузначным
     // фрагментам ИНН («77», «78», …) раньше можно было выгрузить всю клиентскую базу компании.
+    //
+    // Этот запрос — единственный, который ищет по ВСЕЙ таблице (ревью, п. 6.2), поэтому
+    // с v16 он ходит по индексам: название — FULLTEXT (MATCH по началу слов), ИНН —
+    // префиксный LIKE 'цифры%' по idx_inn (ИНН нормализован миграцией и при сохранении).
+    // Если FULLTEXT-индекс на хостинге не создался (v16 это молча переживает) или запрос
+    // для него непригоден (все слова короче 3 символов) — прежний LIKE '%...%'.
     $byTitle = mb_strlen($q, 'UTF-8') >= CRM_SEARCH_MIN_CHARS;
     $byInn = strlen($digits) >= CRM_SEARCH_MIN_CHARS;
     if (!$byTitle && !$byInn) return ['leads' => $leads, 'intersections' => []];
-    $othSql = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND (';
-    $othParams = [$userId];
-    $conds = [];
-    if ($byTitle) { $conds[] = 'l.title LIKE ?'; $othParams[] = $titlePat; }
-    if ($byInn) { $conds[] = 'l.inn LIKE ?'; $othParams[] = crm_like_pat($digits); }
-    $othSql .= implode(' OR ', $conds) . ') LIMIT 20';
-    $st = $pdo->prepare($othSql);
-    $st->execute($othParams);
+    $othSelect = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND (';
+    $ftQuery = $byTitle ? crm_ft_query($q) : '';
+    $st = null;
+    if ($ftQuery !== '') {
+        $conds = ['MATCH(l.title) AGAINST(? IN BOOLEAN MODE)'];
+        $othParams = [$userId, $ftQuery];
+        if ($byInn) { $conds[] = 'l.inn LIKE ?'; $othParams[] = $digits . '%'; /* только цифры, экранировать нечего */ }
+        try {
+            $st = $pdo->prepare($othSelect . implode(' OR ', $conds) . ') LIMIT 20');
+            $st->execute($othParams);
+        } catch (PDOException $e) {
+            $st = null; // нет FULLTEXT-индекса (хостинг не дал создать) — fallback ниже
+        }
+    }
+    if ($st === null) {
+        $othParams = [$userId];
+        $conds = [];
+        if ($byTitle) { $conds[] = 'l.title LIKE ?'; $othParams[] = $titlePat; }
+        if ($byInn) { $conds[] = 'l.inn LIKE ?'; $othParams[] = crm_like_pat($digits); }
+        $st = $pdo->prepare($othSelect . implode(' OR ', $conds) . ') LIMIT 20');
+        $st->execute($othParams);
+    }
     $grouped = [];
     foreach ($st as $r) {
         $inn = preg_replace('/\D/', '', (string) $r['inn']);
