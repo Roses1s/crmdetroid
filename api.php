@@ -11,7 +11,7 @@
  *                         до require_user(), как сейчас ранние if-блоки.
  *   actions/lead.php    — save_lead, move_lead, delete_lead, get_lead, get_data, get_activity,
  *                         save_lead_app, delete_lead_app
- *   actions/comment.php — add_comment, edit_comment, delete_comment, delete_attachment, get_comments
+ *   actions/comment.php — add_comment, edit_comment, delete_comment, delete_attachment, get_comments [ВЫПОЛНЕНО]
  *   actions/user.php    — register_user, update_user, delete_user, get_users, change_password, me [ВЫПОЛНЕНО]
  *   actions/routes.php  — save_direction, delete_direction, get_directions, save_carrier, delete_carrier,
  *                         get_carriers, get_carrier, add_carrier_comment, edit_carrier_comment, delete_carrier_comment
@@ -56,6 +56,7 @@ require __DIR__ . '/actions/admin.php';
 require __DIR__ . '/actions/stages.php';
 require __DIR__ . '/actions/search.php';
 require __DIR__ . '/actions/user.php';
+require __DIR__ . '/actions/comment.php';
 
 // Старые config.php без новых констант
 if (!defined('CRM_TRUSTED_PROXIES')) define('CRM_TRUSTED_PROXIES', getenv('CRM_TRUSTED_PROXIES') ?: '');
@@ -675,11 +676,7 @@ switch ($action) {
 
     case 'me': crm_action_me($pdo, $user, $viewUid);
 
-    case 'get_comments': {
-        $id = strv($_GET['id'] ?? '', 80);
-        if ($id === '' || !crm_lead_for_user($pdo, $id, $viewUid)) err('Лид не найден');
-        ok(['comments' => crm_lead_comments($pdo, $id)]);
-    }
+    case 'get_comments': crm_action_get_comments($pdo, $user, $viewUid);
 
     case 'get_lead': {
         $id = strv($_GET['id'] ?? '', 80);
@@ -1129,71 +1126,13 @@ switch ($action) {
         ok();
     }
 
-    case 'add_comment': {
-        // TODO(архитектура): add_comment принимает FormData ($_POST), а edit_comment — и JSON и FormData
-        // (через crm_edit_comment_input). add_carrier_comment — только FormData. Непоследовательность
-        // усложняет поддержку. При рефакторинге — унифицировать: либо все через multipart (т.к. файлы),
-        // либо загружать файлы отдельным action'ом, а комментарии — всегда JSON.
-        $leadId = strv($_POST['lead_id'] ?? '', 80);
-        $text = strv($_POST['text'] ?? '', 20000);
-        if (!crm_lead_for_user($pdo, $leadId, $viewUid)) err('Лид не найден');
-        crm_apply_comment_add($pdo, 'crm_comments', 'crm_attachments', 'lead_id', $leadId, $text, $user, 'c_', 'add_comment');
-        $rev = crm_touch_lead($pdo, $leadId);
-        ok(['updatedAt' => $rev]);
-    }
+    case 'add_comment': crm_action_add_comment($pdo, $user, $viewUid);
 
-    case 'edit_comment': {
-        [$cid, $text] = crm_edit_comment_input();
-        $c = crm_comment_for_user($pdo, $cid, $viewUid);
-        if (!$c) err('Комментарий не найден');
-        if (!can_edit_comment($user, $c)) err('Нет прав');
-        crm_apply_comment_edit($pdo, $cid, $text, 'crm_comments', 'crm_attachments', 'edit_comment');
-        $rev = crm_touch_lead($pdo, (string) $c['lead_id']);
-        ok(['updatedAt' => $rev]);
-    }
+    case 'edit_comment': crm_action_edit_comment($pdo, $user, $viewUid);
 
-    case 'delete_comment': {
-        $in = body_json();
-        $cid = strv($in['id'] ?? '', 80);
-        $c = crm_comment_for_user($pdo, $cid, $viewUid);
-        if (!$c) err('Комментарий не найден');
-        if (!can_delete_comment($user, $c)) err('Нет прав');
-        $rev = crm_apply_comment_delete($pdo, $cid, 'crm_comments', 'crm_attachments', 'delete_comment',
-            static fn () => crm_touch_lead($pdo, (string) $c['lead_id']));
-        ok(['updatedAt' => $rev]);
-    }
+    case 'delete_comment': crm_action_delete_comment($pdo, $user, $viewUid);
 
-    case 'delete_attachment': {
-        $in = body_json();
-        $id = intv($in['id'] ?? 0);
-        // kind обязателен: без него id неоднозначен (см. crm_find_attachment)
-        $kind = strv($in['kind'] ?? '', 16);
-        if ($kind !== 'lead' && $kind !== 'carrier') err('Не указан тип вложения');
-        $row = crm_find_attachment($pdo, $id, $kind);
-        if (!$row) err('Вложение не найдено');
-        if (!can_edit_comment($user, $row)) err('Нет прав');
-        if (($row['kind'] ?? '') === 'lead') {
-            if (!crm_lead_for_user($pdo, (string) $row['owner_id'], $viewUid)) err('Лид не найден');
-            $table = 'crm_attachments';
-        } else {
-            if (!crm_carrier_by_id($pdo, (string) $row['owner_id'])) err('Контакт не найден');
-            $table = 'crm_carrier_attachments';
-        }
-        try {
-            $pdo->prepare("DELETE FROM {$table} WHERE id = ?")->execute([$id]);
-        } catch (PDOException $e) {
-            crm_log_fail('delete_attachment', $e);
-            err('Не удалось удалить');
-        }
-        if (($row['kind'] ?? '') === 'lead') {
-            $rev = crm_touch_lead($pdo, (string) $row['owner_id']);
-        } else {
-            $rev = crm_touch_carrier($pdo, (string) $row['owner_id']);
-            crm_meta_bump($pdo, 'routes');
-        }
-        crm_unlink_upload((string) ($row['data_url'] ?? ''));
-        ok(['updatedAt' => $rev]);
-    }
+    case 'delete_attachment': crm_action_delete_attachment($pdo, $user, $viewUid);
 
     case 'save_stages': crm_action_save_stages($pdo, $user, $viewUid);
 
