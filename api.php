@@ -4,21 +4,35 @@
  * Контракт: api.php?action=...
  *
  * TODO(архитектура #15): вынести actions в отдельные файлы.
- * План разделения (32 case → ~8 файлов):
- *   actions/lead.php    — save_lead, move_lead, delete_lead, get_lead, get_data, save_lead_app, delete_lead_app
+ * План разделения (41 действие: 36 case в switch + 5 ранних if; ревизия 2026-09-08):
+ *   actions/auth.php    — csrf, login, logout, check_auth, file. Выполняются ДО общего
+ *                         middleware ($user/$viewUid ещё нет), поэтому сигнатура другая:
+ *                         crm_action_xxx(PDO $pdo, bool $hasSess): never — вызываются из api.php
+ *                         до require_user(), как сейчас ранние if-блоки.
+ *   actions/lead.php    — save_lead, move_lead, delete_lead, get_lead, get_data, get_activity,
+ *                         save_lead_app, delete_lead_app
  *   actions/comment.php — add_comment, edit_comment, delete_comment, delete_attachment, get_comments
- *   actions/user.php    — register_user, update_user, delete_user, get_users, change_password, check_auth
+ *   actions/user.php    — register_user, update_user, delete_user, get_users, change_password, me
  *   actions/routes.php  — save_direction, delete_direction, get_directions, save_carrier, delete_carrier,
  *                         get_carriers, get_carrier, add_carrier_comment, edit_carrier_comment, delete_carrier_comment
  *   actions/search.php  — search_leads
- *   actions/admin.php   — whoami, sweep_uploads, integrity_check
- *   actions/auth.php    — login, logout, csrf
+ *   actions/admin.php   — whoami, sweep_uploads, integrity_check, get_audit
  *   actions/stages.php  — save_stages
- * Каждый action-файл экспортирует функцию crm_action_xxx(PDO $pdo, array $user, int $viewUid): never.
+ *   'ui' остаётся в api.php: это выдача интерфейса (readfile ui.html), а не доменное действие.
+ * Действия после middleware экспортируют crm_action_xxx(PDO $pdo, array $user, int $viewUid): never.
  * В api.php остаётся: require actions/*.php, middleware (auth/csrf/throttle), роутинг switch.
+ * ОБЯЗАТЕЛЬНО при выполнении:
+ *   1) Безопасность: каталог actions/ закрыт в .htaccess (уже добавлен в RewriteRule рядом с
+ *      data|uploads|tests); в каждом action-файле первой строкой guard
+ *      `defined('CRM_API') || exit;` (api.php объявляет const CRM_API до require) —
+ *      прямой запрос actions/lead.php не должен исполнять код даже без mod_rewrite.
+ *   2) CI: добавить actions/*.php в шаг php -l (.github/workflows/ci.yml перечисляет файлы явно).
+ *   3) README, раздел «Обновление работающего сайта»: добавить actions/ в список заливаемого.
+ *   4) Выносить по одному файлу за коммит, после каждого — полный прогон CI (smoke на MySQL).
  *
  * TODO(архитектура #20): вынести out/ok/err в http.php — функции HTTP-ответа не принадлежат
- * слою данных (db.php). При этом crm_pdo() должен бросать исключения, а не вызывать err().
+ * слою данных (db.php). При этом crm_pdo() и crm_view_uid() должны бросать исключения,
+ * а не вызывать err(). Выполнять ПЕРЕД или вместе с #18 (см. шапку db.php).
  */
 declare(strict_types=1);
 

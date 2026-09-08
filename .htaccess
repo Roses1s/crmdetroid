@@ -33,8 +33,10 @@ ServerSignature Off
   RewriteCond %{HTTPS} !=on
   RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
-  # Служебные каталоги и файлы наружу не отдаём (третья линия — на случай, если FilesMatch не сработал)
-  RewriteRule ^(data|uploads|tests|\.git)(/|$) - [F]
+  # Служебные каталоги и файлы наружу не отдаём (третья линия — на случай, если FilesMatch не сработал).
+  # actions/ закрыт заранее: план распила api.php (TODO #15) создаст его позже, и правило,
+  # добавленное «потом», однажды забыли бы — прямой запрос actions/lead.php исполнял бы код вне api.php.
+  RewriteRule ^(data|uploads|tests|actions|\.git)(/|$) - [F]
   RewriteRule ^(config\.php|config\.example\.php|db\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$ - [F]
 </IfModule>
 

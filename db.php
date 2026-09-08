@@ -7,18 +7,32 @@ declare(strict_types=1);
  * которыми пользуются и этот файл, и api.php (раньше они жили в api.php, и db.php
  * зависел от подключающего файла).
  *
- * TODO(архитектура #18): при следующем крупном рефакторинге разделить на файлы:
- *   http.php     — out/ok/err/body_json (HTTP-ответы, не уровень данных)
- *   security.php — crm_client_ip, crm_ip_in_list, crm_upload_magic_ok, crm_allowed_upload,
- *                  crm_csrf_secret, crm_login_csrf_issue/ok, crm_pass_ok, crm_pw_fingerprint
- *   files.php    — crm_serve_file, crm_sweep_uploads, crm_unlink_upload, crm_short_filename
- *   migrations.php — crm_migrate, crm_migrate_v4..v13, crm_boot, crm_run_migrations
+ * TODO(архитектура #18): при следующем крупном рефакторинге разделить на файлы
+ * (ревизия 2026-09-08; перечислены функции ИЗ ЭТОГО файла — крипто/CSRF-хелперы
+ * crm_csrf_secret, crm_pass_ok, crm_pw_fingerprint и т.п. живут в api.php и при
+ * распиле по TODO #15 уходят в его слой, не сюда):
+ *   http.php     — out/ok/err/crm_err_status/now_ms/crm_log_fail (HTTP-ответы, не уровень данных)
+ *   security.php — crm_client_ip, crm_ip_in_list, crm_trusted_proxies, crm_behind_trusted_proxy,
+ *                  crm_allowed_upload, crm_upload_magic_ok, crm_login_throttled, crm_login_fail,
+ *                  crm_login_attempts_gc, crm_anon_throttled
+ *   files.php    — crm_serve_file, crm_sweep_uploads, crm_unlink_upload, crm_unlink_urls,
+ *                  crm_att_urls, crm_short_filename, crm_upload_name
+ *   migrations.php — crm_boot, crm_run_migrations, crm_migrate*, crm_seed, crm_has_column,
+ *                  crm_schema_version (диапазон версий не фиксировать в комментариях —
+ *                  на момент ревизии уже v14, список растёт)
  *   db.php       — только crm_pdo, SQL-хелперы (crm_*_by_id, crm_*_list, crm_touch_*)
  * Это уменьшит каждый файл до 200–400 строк и позволит использовать db.php в CLI (cron).
+ * ЗАВИСИМОСТЬ: сначала (или тем же заходом) выполнить #20 — пока crm_pdo() и crm_view_uid()
+ * зовут err() (header + exit), db.php в CLI непригоден, и распил цели не достигает.
+ * Порядок безопасного выполнения: #20 → #18 → #15 (или #15 первым, он от этих двух не зависит).
+ * После распила: новые файлы закрыть в .htaccess (FilesMatch рядом с db.php), добавить в
+ * php -l в CI и в список заливаемого в README — как расписано в шапке api.php для #15.
  *
  * TODO(архитектура #20): out/ok/err вызывают header() и exit — это HTTP-уровень.
- * crm_pdo() должен бросать RuntimeException при ошибке подключения, а api.php — ловить
- * и отдавать JSON-ответ. Это позволит использовать db.php без HTTP-контекста.
+ * crm_pdo() должен бросать RuntimeException при ошибке подключения (сообщение-подсказку
+ * crm_mysql_connect_hint сохранить в тексте исключения), crm_view_uid() — доменное
+ * исключение вместо err('Нет прав'/'Сотрудник не найден'), а api.php — ловить и отдавать
+ * JSON-ответ. Это позволит использовать db.php без HTTP-контекста (cron-бэкапы, CLI-миграции).
  */
 
 /** Отправить JSON и завершить запрос. */
