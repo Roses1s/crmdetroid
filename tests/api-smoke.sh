@@ -149,6 +149,29 @@ H2=$(get "$JI" get_data | jget "$(cat)" "r['hash']")
 check "комментарий к перевозчику не меняет хэш доски" "'$H1'=='$H2'" '{}'
 post "$JI" "$TI" delete_direction "{\"id\":\"$DID\"}" >/dev/null
 
+# --- 11а. дельта-синхронизация get_data (ревью, п. 12) ----------------------
+R=$(get "$JI" get_data); H1=$(jget "$R" "r['hash']")
+check "get_data отдаёт hash" "r.get('hash','')!=''" "$R"
+R=$(get "$JI" "get_data&hash=$H1"); check "повторный запрос с тем же hash → unchanged" "r.get('unchanged') is True" "$R"
+# создаём лид → hash меняется, дельта с since=1 должна принести его в changed + ids
+R=$(post "$JI" "$TI" save_lead '{"title":"Дельта-лид"}'); LD=$(jget "$R" "r.get('id','')")
+R=$(get "$JI" "get_data&hash=$H1&since=1")
+check "дельта: delta=true и есть ids" "r.get('delta') is True and isinstance(r.get('ids'),list)" "$R"
+check "дельта: новый лид в changed" "any(c['id']=='$LD' for c in r.get('changed',[]))" "$R"
+check "дельта: новый лид в ids" "'$LD' in r.get('ids',[])" "$R"
+H2=$(jget "$R" "r['hash']")
+DSINCE=$(jget "$R" "max([c['updatedAt'] for c in r.get('changed',[])]+[1])")
+# без изменений: дельта с актуальным since — changed пуст (или только сам лид при зазоре)
+R=$(get "$JI" "get_data&hash=badhash&since=$((DSINCE+1))")
+check "дельта: без изменений changed пуст" "r.get('delta') is True and r.get('changed')==[]" "$R"
+# удаляем лид: он должен исчезнуть из ids
+post "$JI" "$TI" delete_lead "{\"id\":\"$LD\"}" >/dev/null
+R=$(get "$JI" "get_data&hash=$H2&since=1")
+check "дельта: удалённый лид исчез из ids" "r.get('delta') is True and '$LD' not in r.get('ids',[])" "$R"
+# запрос без since (первый заход клиента) — по-прежнему полный ответ
+R=$(get "$JI" "get_data&hash=badhash")
+check "без since → полный ответ с leads" "r.get('delta') is None and isinstance(r.get('leads'),list)" "$R"
+
 # --- 12. админские сервисные действия --------------------------------------
 R=$(post "$JI" "$TI" sweep_uploads '{}'); check "sweep_uploads недоступен сотруднику" "r.get('error')=='Нет прав'" "$R"
 R=$(post "$JA" "$TA" sweep_uploads '{}'); check "sweep_uploads доступен админу" "r.get('success') is True and 'checked' in r" "$R"

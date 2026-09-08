@@ -49,7 +49,7 @@ async function viewUserBoard(id, name) {
   }
   Store.viewUserId = id;
   Store.viewUserName = name || '';
-  Net.hash = null; resetBoardCache();
+  Net.hash = null; Store.since = 0; resetBoardCache();
   updateViewBanner();
   navTo(location.hash || '#kanban', true);
   if (UI.currentView !== 'kanban') await goHome(true);
@@ -60,7 +60,7 @@ async function viewUserBoard(id, name) {
 async function exitViewUser() {
   const had = !!Store.viewUserId;
   Store.viewUserId = null; Store.viewUserName = '';
-  Net.hash = null; resetBoardCache();
+  Net.hash = null; Store.since = 0; resetBoardCache();
   updateViewBanner();
   navTo(location.hash || '#kanban', true);
   if (UI.currentView !== 'kanban') await goHome(true);
@@ -72,7 +72,7 @@ function handleLogoutUI(msg) {
   UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = []; UI.editingCommentId = null; UI.formDirty = false;
   Store.viewUserId = null; Store.viewUserName = '';
   Store.state.user = null; Store.state.leads = []; Store.state.stages = [];
-  Net.hash = null; resetBoardCache();
+  Net.hash = null; Store.since = 0; resetBoardCache();
   clearSearch();
   history.replaceState(null, '', location.pathname);
   $$('.view-section').forEach(el => el.classList.remove('active'));
@@ -130,7 +130,7 @@ async function syncViewUserFromUrl() {
     Store.viewUserId = null;
     Store.viewUserName = '';
   }
-  Net.hash = null;
+  Net.hash = null; Store.since = 0;
   resetBoardCache();
   updateViewBanner();
   await Store.load(true);

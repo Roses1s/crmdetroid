@@ -10,22 +10,41 @@ defined('CRM_API') || exit; // только через api.php
 function crm_action_get_data(PDO $pdo, array $user, int $viewUid): never {
     $uid = $viewUid;
     $stages = crm_stages($pdo, $uid);
-    $leads = crm_leads_full($pdo, $uid);
-    // Хэш считаем из уже загруженных данных (один запрос вместо двух)
-    $c = count($leads); $u = 0; $cr = 0; $ids = '';
-    foreach ($leads as $l) {
-        $u = max($u, (int) $l['updatedAt']);
-        $cr = max($cr, (int) $l['createdAt']);
-        $ids .= (string) $l['id'];
+    // Хэш ревизии — из лёгкой выборки (только id и времена), полные строки не грузим,
+    // пока не станет ясно, что они нужны (п. 12 ревью: раньше каждый полл тянул всё).
+    $st = $pdo->prepare('SELECT id, created_at, updated_at FROM crm_leads WHERE user_id = ? ORDER BY created_at ASC');
+    $st->execute([$uid]);
+    $allIds = []; $u = 0; $cr = 0; $idsConcat = '';
+    foreach ($st as $r) {
+        $allIds[] = (string) $r['id'];
+        $u = max($u, (int) $r['updated_at']);
+        $cr = max($cr, (int) $r['created_at']);
+        $idsConcat .= (string) $r['id'];
     }
-    $h = $c > 0 ? substr(hash('sha256', $ids), 0, 16) : '0';
+    $c = count($allIds);
+    $h = $c > 0 ? substr(hash('sha256', $idsConcat), 0, 16) : '0';
     $revStr = $uid . '|' . $c . '|' . $u . '|' . $cr . '|' . $h . '|' . crm_meta_get($pdo, 'users') . '|' . implode("\n", $stages);
     $hash = substr(hash('sha256', $revStr), 0, 32);
     $client = strv($_GET['hash'] ?? '', 64);
     if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
         ok(['unchanged' => true, 'hash' => $hash]);
     }
-    ok(['hash' => $hash, 'stages' => $stages, 'leads' => $leads, 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo)]);
+    // Дельта (п. 12 ревью): клиент, у которого уже есть доска (hash + since = максимальный
+    // виденный им таймштамп), получает только изменённые/новые лиды + полный список id
+    // (по нему клиент удаляет исчезнувшие и восстанавливает порядок). Сравнение >= since,
+    // а не >: два изменения в одну миллисекунду (второе — после ответа) иначе потерялись бы.
+    // Случай «переименован этап» (crm_leads.stage меняется без updated_at) дельта покрывает
+    // на клиенте: изменение $stages меняет hash, и клиент при несовпадении своего списка
+    // этапов с присланным делает полную перезагрузку (см. Store.load).
+    $since = intv($_GET['since'] ?? 0);
+    if ($client !== '' && $since > 0) {
+        $chSt = $pdo->prepare('SELECT id, title, inn, phone, manager, applications_count, stage, created_at, updated_at FROM crm_leads WHERE user_id = ? AND (updated_at >= ? OR created_at >= ?) ORDER BY created_at ASC');
+        $chSt->execute([$uid, $since, $since]);
+        $changed = [];
+        foreach ($chSt as $r) $changed[] = crm_lead_row_to_api($r, false);
+        ok(['hash' => $hash, 'delta' => true, 'ids' => $allIds, 'changed' => $changed, 'stages' => $stages, 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo)]);
+    }
+    ok(['hash' => $hash, 'stages' => $stages, 'leads' => crm_leads_full($pdo, $uid), 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo)]);
 }
 
 function crm_action_get_lead(PDO $pdo, array $user, int $viewUid): never {

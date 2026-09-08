@@ -8,7 +8,14 @@ const Net = {
   async req(action, data = null, isFormData = false) {
     try {
       let url = `api.php?action=${encodeURIComponent(action)}`;
-      if (action === 'get_data' && this.hash) url += `&hash=${encodeURIComponent(this.hash)}`;
+      if (action === 'get_data' && this.hash) {
+        url += `&hash=${encodeURIComponent(this.hash)}`;
+        // Дельта-синхронизация (ревью, п. 12): раз у нас есть hash — есть и снимок доски;
+        // просим сервер прислать только лиды, изменённые после максимального виденного времени.
+        // Зазор 10 с: транзакция с меньшим updated_at может закоммититься ПОСЛЕ того, как мы
+        // уже увидели более новый лид, — без зазора такое изменение проскочило бы мимо дельты.
+        if (Store.since) url += `&since=${encodeURIComponent(Math.max(1, Store.since - 10000))}`;
+      }
       const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1 };
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
@@ -57,6 +64,7 @@ const Net = {
 
 const Store = {
   viewUserId: null, viewUserName: '',
+  since: 0, // максимальный виденный updatedAt/createdAt — курсор дельта-синхронизации
   state: { stages: [], leads: [], user: null, colleagues: [] },
   async load(force = false) {
     if (force) Loading.show();
@@ -66,14 +74,44 @@ const Store = {
     if (res.unchanged) {
       if (!force) return;
       Net.hash = null;
+      this.since = 0;
       return this.load(true);
+    }
+
+    // Дельта (ревью, п. 12): сервер прислал только изменённые лиды + полный список id.
+    // Переименование этапа меняет stage у лидов, не трогая updatedAt, — дельта этого
+    // не увидит, поэтому при любом изменении списка этапов честно перечитываем всё.
+    if (res.delta) {
+      const same = JSON.stringify(res.stages || []) === JSON.stringify(this.state.stages || []);
+      if (!same) {
+        Net.hash = null;
+        this.since = 0;
+        return this.load(force);
+      }
     }
 
     if (res.hash) Net.hash = res.hash;
     this.state.stages = res.stages || [];
     const prevMap = {};
     (this.state.leads || []).forEach(l => { prevMap[String(l.id)] = l; });
-    this.state.leads = (res.leads || []).map(l => {
+    // При дельте восстанавливаем полный список: не изменённые берём из памяти,
+    // изменённые/новые — из res.changed; лидов, чьих id нет в res.ids, больше нет.
+    let incoming;
+    if (res.delta) {
+      const changedMap = {};
+      (res.changed || []).forEach(l => { changedMap[String(l.id)] = l; });
+      incoming = (res.ids || []).map(id => changedMap[String(id)] || prevMap[String(id)]);
+      if (incoming.some(l => !l)) {
+        // Лид есть на сервере, но нет ни в памяти, ни среди изменённых (гонка курсора) —
+        // дельте верить нельзя, честно перечитываем всё.
+        Net.hash = null;
+        this.since = 0;
+        return this.load(force);
+      }
+    } else {
+      incoming = res.leads || [];
+    }
+    this.state.leads = incoming.map(l => {
       const o = prevMap[String(l.id)];
       if (!o) return l;
       if (o._full && Number(o.updatedAt) === Number(l.updatedAt)) {
@@ -86,6 +124,8 @@ const Store = {
       }
       return l;
     });
+    // Курсор дельты — по фактическому состоянию (не Date.now(): часы клиента и сервера расходятся)
+    this.since = this.state.leads.reduce((m, l) => Math.max(m, Number(l.updatedAt) || 0, Number(l.createdAt) || 0), 0);
     this.state.user = res.user;
     if (res.colleagues) {
       this.state.colleagues = res.colleagues;
