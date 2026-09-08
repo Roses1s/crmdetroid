@@ -123,6 +123,12 @@ jobs:
           curl -s -b /tmp/ci-jar -H "X-CSRF-Token: $T2" -H 'Content-Type: application/json' \
             -d '{"old":"CiAdminPass123","password":"CiAdminPass123X"}' \
             "http://127.0.0.1:8089/api.php?action=change_password" >/dev/null
+          # Схема v15: FOREIGN KEY реально защищают от сирот (вставка мимо API должна падать)
+          FK_ERR=$(mysql -h 127.0.0.1 -P 3306 -u crm -pcrm_test_pass crm_test \
+            -e "INSERT INTO crm_comments (id, lead_id, text, author, user_id, time) VALUES ('ci_orphan','no_such_lead','x','ci',0,0);" 2>&1 || true)
+          echo "$FK_ERR" | grep -q "foreign key constraint" \
+            && echo "FK OK: сирота отвергнут БД" \
+            || { echo "::error::FK не работают: сирота вставился ($FK_ERR)"; exit 1; }
           set +e
           CRM_URL=http://127.0.0.1:8089 ADMIN_EMAIL=admin@ci.local ADMIN_PASS='CiAdminPass123X' \
             bash tests/api-smoke.sh | tee smoke.log

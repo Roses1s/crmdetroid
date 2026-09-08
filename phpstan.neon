@@ -36,8 +36,9 @@ parameters:
         # crm_boot: повторная проверка версии схемы после ожидания GET_LOCK — осознанная
         # (другой процесс мог применить миграции, пока мы ждали блокировку). PHPStan считает
         # второй вызов crm_schema_version() возвращающим то же значение — это не так: БД изменилась.
+        # (числа в сообщении — текущая и предыдущая версия схемы, растут с каждой миграцией)
         -
-            message: '#Comparison operation ">=" between int<min, 13> and 14 is always false#'
+            message: '#Comparison operation ">=" between int<min, \d+> and \d+ is always false#'
             path: migrations.php
         -
             message: '#Result of && is always false#'

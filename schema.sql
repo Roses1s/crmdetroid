@@ -1,6 +1,6 @@
 -- CRM «Детроид» — схема MySQL (utf8mb4 / InnoDB)
 -- На SpaceWeb таблицы создаются сами при первом запросе к api.php.
--- Этот файл совпадает с миграциями в migrations.php (schema version 14).
+-- Этот файл совпадает с миграциями в migrations.php (schema version 15).
 -- Импорт вручную не обязателен.
 
 SET NAMES utf8mb4;
@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS crm_stages (
   position INT NOT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_user_stage (user_id, name),
-  KEY idx_user (user_id)
+  KEY idx_user (user_id),
+  CONSTRAINT fk_stages_user FOREIGN KEY (user_id) REFERENCES crm_users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_leads (
@@ -56,7 +57,8 @@ CREATE TABLE IF NOT EXISTS crm_leads (
   KEY idx_user (user_id),
   KEY idx_updated (user_id, updated_at),
   KEY idx_user_stage (user_id, stage),
-  KEY idx_user_inn (user_id, inn)
+  KEY idx_user_inn (user_id, inn),
+  CONSTRAINT fk_leads_user FOREIGN KEY (user_id) REFERENCES crm_users (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_comments (
@@ -70,7 +72,8 @@ CREATE TABLE IF NOT EXISTS crm_comments (
   PRIMARY KEY (id),
   KEY idx_lead (lead_id),
   KEY idx_lead_time (lead_id, time),
-  KEY idx_user (user_id)
+  KEY idx_user (user_id),
+  CONSTRAINT fk_comments_lead FOREIGN KEY (lead_id) REFERENCES crm_leads (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_attachments (
@@ -81,7 +84,8 @@ CREATE TABLE IF NOT EXISTS crm_attachments (
   type VARCHAR(120) NOT NULL DEFAULT '',
   data_url VARCHAR(255) NOT NULL,
   PRIMARY KEY (id),
-  KEY idx_comment (comment_id)
+  KEY idx_comment (comment_id),
+  CONSTRAINT fk_attachments_comment FOREIGN KEY (comment_id) REFERENCES crm_comments (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_login_attempts (
@@ -116,7 +120,8 @@ CREATE TABLE IF NOT EXISTS crm_carriers (
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
-  KEY idx_dir (direction_id)
+  KEY idx_dir (direction_id),
+  CONSTRAINT fk_carriers_direction FOREIGN KEY (direction_id) REFERENCES crm_directions (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_carrier_comments (
@@ -130,7 +135,8 @@ CREATE TABLE IF NOT EXISTS crm_carrier_comments (
   PRIMARY KEY (id),
   KEY idx_carrier (carrier_id),
   KEY idx_carrier_time (carrier_id, time),
-  KEY idx_user (user_id)
+  KEY idx_user (user_id),
+  CONSTRAINT fk_carrier_comments_carrier FOREIGN KEY (carrier_id) REFERENCES crm_carriers (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_carrier_attachments (
@@ -141,7 +147,8 @@ CREATE TABLE IF NOT EXISTS crm_carrier_attachments (
   type VARCHAR(120) NOT NULL DEFAULT '',
   data_url VARCHAR(255) NOT NULL,
   PRIMARY KEY (id),
-  KEY idx_comment (comment_id)
+  KEY idx_comment (comment_id),
+  CONSTRAINT fk_carrier_atts_comment FOREIGN KEY (comment_id) REFERENCES crm_carrier_comments (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS crm_login_nonces (
@@ -169,7 +176,8 @@ CREATE TABLE IF NOT EXISTS crm_lead_apps (
   updated_at BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
   KEY idx_lead (lead_id),
-  KEY idx_lead_created (lead_id, created_at)
+  KEY idx_lead_created (lead_id, created_at),
+  CONSTRAINT fk_lead_apps_lead FOREIGN KEY (lead_id) REFERENCES crm_leads (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- v14: аудит-лог чувствительных действий (входы, управление сотрудниками, передачи лидов)

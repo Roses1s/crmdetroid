@@ -10,7 +10,7 @@ declare(strict_types=1);
  * резолвятся в рантайме, когда все файлы уже подключены.
  */
 
-const CRM_SCHEMA_VERSION = 14;
+const CRM_SCHEMA_VERSION = 15;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -55,6 +55,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v12($pdo);
     crm_migrate_v13($pdo);
     crm_migrate_v14($pdo);
+    crm_migrate_v15($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -259,6 +260,69 @@ function crm_migrate_v14(PDO $pdo): void {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
+/**
+ * v15: FOREIGN KEY на все реальные связи (код-ревью п. 10.10) — то, что раньше
+ * проверял только ?action=integrity_check, теперь гарантирует сама БД:
+ * комментарии/вложения/заявки не могут осиротеть даже при сбое между запросами.
+ *
+ * Перед добавлением FK одноразово вычищаются уже осиротевшие записи (иначе ALTER
+ * упадёт); файлы вложений, потерявшие записи, подчистит штатный crm_sweep_uploads.
+ *
+ * Осознанно НЕ сделано:
+ * - stage_id вместо имени этапа: save_stages пересоздаёт список DELETE+INSERT в одной
+ *   транзакции, а MySQL проверяет FK немедленно — FK на этап ломал бы сохранение
+ *   этапов, на которых есть лиды. Целостность этапов держат UNIQUE(user_id, name)
+ *   и атомарный перенос лидов в save_stages.
+ * - FK на *.user_id авторов комментариев и crm_audit.actor_id: там 0 = «система» /
+ *   «удалённый сотрудник» — это значение, а не ссылка.
+ * Каждый ALTER — в try/catch: если хостинг не даст добавить FK (права, старый движок),
+ * CRM продолжит работать как раньше (проверки останутся на integrity_check),
+ * а причина попадёт в лог сервера.
+ */
+function crm_migrate_v15(PDO $pdo): void {
+    // 1. Чистка сирот — в порядке «внуки → дети», чтобы не создать новых сирот.
+    $pdo->exec('DELETE a FROM crm_attachments a LEFT JOIN crm_comments c ON c.id = a.comment_id WHERE c.id IS NULL');
+    $pdo->exec('DELETE c FROM crm_comments c LEFT JOIN crm_leads l ON l.id = c.lead_id WHERE l.id IS NULL');
+    try {
+        $pdo->exec('DELETE a FROM crm_lead_apps a LEFT JOIN crm_leads l ON l.id = a.lead_id WHERE l.id IS NULL');
+    } catch (PDOException $e) { /* таблицы может не быть до v8 */ }
+    $pdo->exec('DELETE a FROM crm_carrier_attachments a LEFT JOIN crm_carrier_comments c ON c.id = a.comment_id WHERE c.id IS NULL');
+    $pdo->exec('DELETE c FROM crm_carrier_comments c LEFT JOIN crm_carriers k ON k.id = c.carrier_id WHERE k.id IS NULL');
+    $pdo->exec('DELETE k FROM crm_carriers k LEFT JOIN crm_directions d ON d.id = k.direction_id WHERE d.id IS NULL');
+    $pdo->exec('DELETE s FROM crm_stages s LEFT JOIN crm_users u ON u.id = s.user_id WHERE u.id IS NULL');
+    // Лиды без владельца: невидимы в UI навсегда (все запросы фильтруют по user_id
+    // существующего пользователя) — удаляем вместе с потомками (их сироты вычищены выше
+    // не будут, поэтому потомков удаляем явно и в правильном порядке).
+    $pdo->exec('DELETE a FROM crm_attachments a JOIN crm_comments c ON c.id = a.comment_id JOIN crm_leads l ON l.id = c.lead_id LEFT JOIN crm_users u ON u.id = l.user_id WHERE u.id IS NULL');
+    $pdo->exec('DELETE c FROM crm_comments c JOIN crm_leads l ON l.id = c.lead_id LEFT JOIN crm_users u ON u.id = l.user_id WHERE u.id IS NULL');
+    try {
+        $pdo->exec('DELETE a FROM crm_lead_apps a JOIN crm_leads l ON l.id = a.lead_id LEFT JOIN crm_users u ON u.id = l.user_id WHERE u.id IS NULL');
+    } catch (PDOException $e) { /* v8 */ }
+    $pdo->exec('DELETE l FROM crm_leads l LEFT JOIN crm_users u ON u.id = l.user_id WHERE u.id IS NULL');
+
+    // 2. Сами FK. CASCADE у дочерних записей — страховка: код и дальше удаляет их явно
+    // (ему нужно собрать URL файлов до удаления строк). RESTRICT на владельце лида:
+    // удаление пользователя обязано идти через crm_purge_user (перенос/удаление лидов).
+    $fks = [
+        ['crm_comments', 'fk_comments_lead', 'FOREIGN KEY (lead_id) REFERENCES crm_leads (id) ON DELETE CASCADE'],
+        ['crm_attachments', 'fk_attachments_comment', 'FOREIGN KEY (comment_id) REFERENCES crm_comments (id) ON DELETE CASCADE'],
+        ['crm_lead_apps', 'fk_lead_apps_lead', 'FOREIGN KEY (lead_id) REFERENCES crm_leads (id) ON DELETE CASCADE'],
+        ['crm_leads', 'fk_leads_user', 'FOREIGN KEY (user_id) REFERENCES crm_users (id) ON DELETE RESTRICT'],
+        ['crm_stages', 'fk_stages_user', 'FOREIGN KEY (user_id) REFERENCES crm_users (id) ON DELETE CASCADE'],
+        ['crm_carriers', 'fk_carriers_direction', 'FOREIGN KEY (direction_id) REFERENCES crm_directions (id) ON DELETE CASCADE'],
+        ['crm_carrier_comments', 'fk_carrier_comments_carrier', 'FOREIGN KEY (carrier_id) REFERENCES crm_carriers (id) ON DELETE CASCADE'],
+        ['crm_carrier_attachments', 'fk_carrier_atts_comment', 'FOREIGN KEY (comment_id) REFERENCES crm_carrier_comments (id) ON DELETE CASCADE'],
+    ];
+    foreach ($fks as [$table, $name, $def]) {
+        if (crm_has_fk($pdo, $table, $name)) continue;
+        try {
+            $pdo->exec("ALTER TABLE `{$table}` ADD CONSTRAINT `{$name}` {$def}");
+        } catch (PDOException $e) {
+            crm_log_fail("migrate_v15 {$name}", $e);
+        }
+    }
+}
+
 function crm_migrate_owners(PDO $pdo): void {
     if (!crm_has_column($pdo, 'crm_stages', 'user_id')) {
         $pdo->exec('ALTER TABLE crm_stages ADD COLUMN user_id INT UNSIGNED NOT NULL DEFAULT 1 AFTER id');
@@ -427,6 +491,13 @@ function crm_seed(PDO $pdo): void {
 function crm_has_column(PDO $pdo, string $table, string $col): bool {
     $st = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?');
     $st->execute([$table, $col]);
+    return (int) $st->fetchColumn() > 0;
+}
+
+/** Есть ли FOREIGN KEY с таким именем у таблицы. */
+function crm_has_fk(PDO $pdo, string $table, string $name): bool {
+    $st = $pdo->prepare("SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ? AND CONSTRAINT_TYPE = 'FOREIGN KEY'");
+    $st->execute([$table, $name]);
     return (int) $st->fetchColumn() > 0;
 }
 
