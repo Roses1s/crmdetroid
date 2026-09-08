@@ -2274,12 +2274,16 @@ function initDashboardSearch() {
   const inp = $('#dashboard-search');
   const clear = $('#dashboard-search-clear');
   const drop = $('#dashboard-search-drop');
+  const wrap = $('#dashboard-search-wrap');
   if (!inp || !drop) return;
   if (inp.dataset.init) return;
   inp.dataset.init = '1';
 
   const runSearch = debounce(() => {
     const q = inp.value.trim();
+    // Кнопка «×» показывается через .has-query (как у поиска доски в liveSearch) —
+    // раньше класс здесь не ставился, и очистить поиск дашборда крестиком было нельзя
+    wrap?.classList.toggle('has-query', !!q);
     if (q.length < 2) {
       drop.innerHTML = '';
       drop.classList.remove('open');
@@ -2310,6 +2314,7 @@ function initDashboardSearch() {
       inp.value = '';
       drop.innerHTML = '';
       drop.classList.remove('open');
+      wrap?.classList.remove('has-query');
       inp.focus();
     });
   }

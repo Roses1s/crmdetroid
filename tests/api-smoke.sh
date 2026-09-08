@@ -162,6 +162,16 @@ C=$(scode -b "$JI" "$B?action=get_lead&id=l_000000000000"); check "несуще�
 C=$(scode -b "$JI" -H "X-CSRF-Token: $TI" "$B?action=save_lead"); check "GET-мутация → 405" "'$C'=='405'" "{\"_raw\":\"$C\"}"
 C=$(scode -b "$JI" "$B?action=get_data"); check "успешный запрос → 200" "'$C'=='200'" "{\"_raw\":\"$C\"}"
 
+# --- 14. невалидный UTF-8 во входных данных ---------------------------------
+# %FF%FE в query string и битые байты в FormData обходят json_decode; раньше они доходили
+# до MySQL (ошибка 1366 → 500) или, попав в БД, ломали json_encode ответа (пустое тело).
+C=$(scode -b "$JI" "$B?action=search_leads&q=%FF%FEsmoke"); check "битый UTF-8 в поиске → не 500" "'$C'!='500'" "{\"_raw\":\"$C\"}"
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke UTF8"}'); LU8=$(jget "$R" "r.get('id','')")
+R=$(upload "$JI" "$TI" -F "lead_id=$LU8" -F "text=битые байты: $(printf '\xff\xfe')" "$B?action=add_comment")
+check "битый UTF-8 в комментарии не роняет запрос (не 500)" "r.get('success') is True or r.get('error','')!=''" "$R"
+R=$(get "$JI" "get_comments&id=$LU8"); check "лог лида после битого комментария читается" "r.get('success') is True" "$R"
+[ -n "$LU8" ] && post "$JI" "$TI" delete_lead "{\"id\":\"$LU8\"}" >/dev/null
+
 # --- уборка ---------------------------------------------------------------
 post "$JI" "$TI" delete_lead "{\"id\":\"$LADM\"}" >/dev/null
 TP=$(login "$JP" "$B_EMAIL" "$B_PASS"); post "$JP" "$TP" delete_lead "{\"id\":\"$LA1\"}" >/dev/null; post "$JP" "$TP" delete_lead "{\"id\":\"$LB1\"}" >/dev/null

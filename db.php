@@ -24,7 +24,9 @@ declare(strict_types=1);
 /** Отправить JSON и завершить запрос. */
 function out(array $data): never {
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    // JSON_INVALID_UTF8_SUBSTITUTE — страховка от битого UTF-8, уже лежащего в БД (старые данные,
+    // прямые правки в MySQL): без флага json_encode возвращал false, и клиент получал пустое тело.
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
 }
 function ok(array $extra = []): never { out(['success' => true] + $extra); }
@@ -799,8 +801,8 @@ function crm_new_id(PDO $pdo, string $prefix, string $table): string {
 }
 
 function crm_norm_city(string $s): string {
-    $s = trim(preg_replace('/\s+/u', ' ', $s));
-    return $s;
+    // preg_replace с /u возвращает null на невалидном UTF-8 — раньше trim(null) кидал TypeError (500)
+    return trim(preg_replace('/\s+/u', ' ', $s) ?? $s);
 }
 
 function crm_direction_by_id(PDO $pdo, string $id): ?array {

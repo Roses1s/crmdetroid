@@ -116,6 +116,12 @@ t('dummy: тот же алгоритм, что боевые хэши', password_
 t('dummy: стабилен в рамках процесса', crm_dummy_hash() === crm_dummy_hash(), true);
 t('dummy: выглядит валидным', crm_hash_looks_valid(crm_dummy_hash()), true);
 
+// --- crm_norm_city: нормализация пробелов + устойчивость к битому UTF-8 ----------
+t('city: схлопывание пробелов', crm_norm_city("  Санкт -  Петербург  "), 'Санкт - Петербург');
+t('city: обычный город', crm_norm_city('Москва'), 'Москва');
+// preg_replace с /u на невалидном UTF-8 возвращает null — раньше trim(null) кидал TypeError (500)
+t('city: битый UTF-8 не роняет запрос', crm_norm_city("\xFF\xFEbad"), "\xFF\xFEbad");
+
 // --- crm_is_sys_comment --------------------------------------------------------
 t('sys: user_id=0 + Система', crm_is_sys_comment(['user_id' => 0, 'author' => 'Система']), true);
 t('sys: user_id=0 но не Система', crm_is_sys_comment(['user_id' => 0, 'author' => 'Иван']), false);

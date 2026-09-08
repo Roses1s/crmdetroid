@@ -249,7 +249,12 @@ function csrf_token(): string {
 /** Строка из произвольного JSON-значения: массивы/объекты → пусто (раньше — warning и сломанный JSON). */
 function strv(mixed $v, int $max = 300, string $fallback = ''): string {
     if (!is_scalar($v)) return $fallback;
-    $s = trim(str_replace("\0", '', (string) $v));
+    $s = str_replace("\0", '', (string) $v);
+    // Невалидный UTF-8 обходит json_decode через $_GET (?q=%FF%FE) и $_POST из FormData
+    // (add_comment и др.). Раньше он доходил до MySQL (ошибка 1366 → 500 в strict-режиме),
+    // а попав в БД — ломал json_encode ответа: get_comments лида навсегда отдавал пустое тело.
+    if (!mb_check_encoding($s, 'UTF-8')) $s = mb_convert_encoding($s, 'UTF-8', 'UTF-8');
+    $s = trim($s);
     if (mb_strlen($s) > $max) $s = mb_substr($s, 0, $max);
     return $s !== '' ? $s : $fallback;
 }

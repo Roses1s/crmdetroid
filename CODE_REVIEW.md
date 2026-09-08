@@ -524,3 +524,35 @@ retry коллизий id, `loadActivity` через `Net.req`, GC сессий)
 и постепенный распил монолитов, план которого авторы уже сами записали в TODO. Самый
 большой стратегический риск — не код, а процессы: ручной деплой, ручные бэкапы и
 отсутствие автоматических проверок.
+
+---
+
+## 14. Пятый проход (2026-09-08, после настройки CI): устойчивость к невалидному UTF-8
+
+Целевой анализ ввода, обходящего json_decode (query string, FormData), + PHPStan level 7/8.
+
+1. ✅ **ИСПРАВЛЕНО. Битый UTF-8 из $_GET/$_POST доходил до БД и ломал ответы.**
+   `json_decode` отбрасывает невалидный UTF-8 (body_json защищён), но `?q=%FF%FE` в
+   search_leads и битые байты в FormData (add_comment, edit_comment, add_carrier_comment)
+   шли в MySQL как есть: в strict-режиме — ошибка 1366 → 500; а если строка попадала в БД
+   (не-strict / частичная вставка) — `json_encode` в `out()` возвращал `false`, и клиент
+   навсегда получал **пустое тело** вместо лога лида. Фикс двухслойный: `strv()` чистит
+   невалидные последовательности на входе (`mb_check_encoding` + `mb_convert_encoding`),
+   `out()` получил `JSON_INVALID_UTF8_SUBSTITUTE` как страховку для уже испорченных данных.
+2. ✅ **ИСПРАВЛЕНО. `crm_norm_city` кидала TypeError на битом UTF-8.** `preg_replace('/\s+/u')`
+   возвращает `null` на невалидной строке, `trim(null)` в strict_types — фатальный TypeError
+   (500). Теперь `?? $s`. (После фикса strv сюда битые байты уже не доходят — защита в глубину.)
+3. ✅ **ИСПРАВЛЕНО. Крестик очистки поиска на дашборде никогда не показывался.**
+   Кнопка `#dashboard-search-clear` видима только при классе `.has-query` на обёртке
+   (см. `.board-search.has-query .search-clear` в app.css), но `initDashboardSearch`,
+   в отличие от `liveSearch` доски, класс не ставила. Обработчик клика был, а кликнуть
+   было не по чему.
+4. 🟢 Проверено без замечаний: согласованность оптимистических блокировок
+   (save_lead/move_lead/delete_lead/save_carrier/save_lead_app, `MYSQL_ATTR_FOUND_ROWS`),
+   транзакции с rollBack перед err() внутри beginTransaction, цепочки сохранений
+   (`_leadSaveChain`/`_carrierSaveChain`), выдача файлов (`crm_serve_file`: заголовки,
+   санитизация имён), `crm_upload_name`/`crm_short_filename`, PHPStan level 7 и 8 —
+   оставшиеся сигналы только стилистические (`PDOStatement|false` при `ERRMODE_EXCEPTION`
+   — ложные срабатывания: в этом режиме query()/prepare() кидают исключение, а не false).
+5. В smoke-тесты добавлена секция 14 (битый UTF-8: поиск, комментарий, чтение лога),
+   в юнит-тесты — 3 проверки `crm_norm_city`.
