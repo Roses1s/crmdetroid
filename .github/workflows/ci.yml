@@ -21,7 +21,7 @@ jobs:
       - name: php -l
         run: |
           set -e
-          for f in api.php db.php http.php security.php files.php migrations.php config.example.php tests/unit.php tests/phpstan-bootstrap.php; do
+          for f in api.php db.php http.php security.php files.php migrations.php actions/*.php config.example.php tests/unit.php tests/phpstan-bootstrap.php; do
             php -l "$f"
           done
       - name: node --check

@@ -11,6 +11,7 @@ parameters:
         - security.php
         - files.php
         - migrations.php
+        - actions
     bootstrapFiles:
         - tests/phpstan-bootstrap.php
     # Константы из config.php различаются между инсталляциями — их значения из bootstrap
@@ -27,12 +28,8 @@ parameters:
         - CRM_DEFAULT_ADMIN_NAME
         - CRM_TRUSTED_PROXIES
     ignoreErrors:
-        # out/ok/err — never-функции с exit: PHPStan это понимает, но в однофайловой
-        # архитектуре встречаются ветки, где он считает код недостижимым намеренно.
-        -
-            identifier: deadCode.unreachable
         # Массивы из PDO::fetch() типизировать без value-object'ов невозможно —
-        # осознанно откладываем до распила монолитов (TODO #18).
+        # осознанное решение: value-object'ы не заводим, работаем с ассоциативными массивами.
         -
             identifier: missingType.iterableValue
         # crm_boot: повторная проверка версии схемы после ожидания GET_LOCK — осознанная

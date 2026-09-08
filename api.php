@@ -16,7 +16,7 @@
  *   actions/routes.php  — save_direction, delete_direction, get_directions, save_carrier, delete_carrier,
  *                         get_carriers, get_carrier, add_carrier_comment, edit_carrier_comment, delete_carrier_comment
  *   actions/search.php  — search_leads
- *   actions/admin.php   — whoami, sweep_uploads, integrity_check, get_audit
+ *   actions/admin.php   — whoami, sweep_uploads, integrity_check, get_audit [ВЫПОЛНЕНО]
  *   actions/stages.php  — save_stages
  *   'ui' остаётся в api.php: это выдача интерфейса (readfile ui.html), а не доменное действие.
  * Действия после middleware экспортируют crm_action_xxx(PDO $pdo, array $user, int $viewUid): never.
@@ -48,6 +48,11 @@ if (!is_file(__DIR__ . '/config.php')) {
 }
 require __DIR__ . '/config.php';
 require __DIR__ . '/db.php';
+
+// Guard для файлов actions/*: они исполняются только в контексте api.php
+// (см. `defined('CRM_API') || exit;` первой строкой каждого action-файла).
+const CRM_API = true;
+require __DIR__ . '/actions/admin.php';
 
 // Старые config.php без новых констант
 if (!defined('CRM_TRUSTED_PROXIES')) define('CRM_TRUSTED_PROXIES', getenv('CRM_TRUSTED_PROXIES') ?: '');
@@ -641,57 +646,13 @@ if (random_int(1, 1000) === 1) {
 }
 
 switch ($action) {
-    case 'whoami': {
-        // Диагностика для админа: какой IP видит сервер (нужно для настройки CRM_TRUSTED_PROXIES).
-        require_admin($user);
-        ok([
-            'ip' => crm_client_ip(),
-            'remoteAddr' => (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
-            'xForwardedFor' => (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''),
-            'xRealIp' => (string) ($_SERVER['HTTP_X_REAL_IP'] ?? ''),
-            'trustedProxies' => crm_trusted_proxies(),
-            'behindTrustedProxy' => crm_behind_trusted_proxy(),
-            'https' => crm_is_https(),
-        ]);
-    }
+    case 'whoami': crm_action_whoami($pdo, $user, $viewUid);
 
-    case 'sweep_uploads': {
-        // Ручная уборка uploads/ (файлы без записей в БД); автоматически то же выполняется раз в ~1000 запросов (см. выше).
-        require_admin($user);
-        [$checked, $removed] = crm_sweep_uploads($pdo);
-        ok(['checked' => $checked, 'removed' => $removed]);
-    }
+    case 'sweep_uploads': crm_action_sweep_uploads($pdo, $user, $viewUid);
 
-    case 'get_audit': {
-        // Последние события аудит-лога (только админ). limit ≤ 500.
-        require_admin($user);
-        $limit = max(1, min(500, intv($_GET['limit'] ?? 100)));
-        $rows = [];
-        try {
-            $st = $pdo->prepare("SELECT actor_id, actor_name, action, target, details, ip, created_at FROM crm_audit ORDER BY id DESC LIMIT $limit");
-            $st->execute();
-            foreach ($st as $r) {
-                $rows[] = [
-                    'actorId' => (int) $r['actor_id'],
-                    'actorName' => $r['actor_name'],
-                    'action' => $r['action'],
-                    'target' => $r['target'],
-                    'details' => $r['details'],
-                    'ip' => $r['ip'],
-                    'time' => (int) $r['created_at'],
-                ];
-            }
-        } catch (PDOException $e) { /* таблица появится после миграции v14 */ }
-        ok(['events' => $rows]);
-    }
+    case 'get_audit': crm_action_get_audit($pdo, $user, $viewUid);
 
-    case 'integrity_check': {
-        // Диагностика ссылочной целостности (замена FOREIGN KEY, которых нет в схеме).
-        // Находит orphan-записи: комментарии без лида, вложения без комментария и т.д.
-        require_admin($user);
-        $issues = crm_integrity_check($pdo);
-        ok(['issues' => $issues, 'count' => count($issues)]);
-    }
+    case 'integrity_check': crm_action_integrity_check($pdo, $user, $viewUid);
 
     case 'get_activity': {
         $year = intv($_GET['year'] ?? date('Y'));
