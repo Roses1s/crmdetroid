@@ -288,10 +288,10 @@ Content-Type: application/json» (400) вместо общего «CSRF». Ни�
 
 ## 8. Тесты и CI
 
-1. 🟠 **Нет CI.** Оба набора тестов (57 проверок в `api-smoke.sh`, ~15 в `e2e-jsdom.mjs`)
-   запускаются руками против живого стенда. GitHub Actions с `services: mysql:8` +
-   `shivammathur/setup-php` запустит их на каждый push бесплатно — это самое дешёвое
-   улучшение с максимальной отдачей.
+1. ✅ **CI — сделано:** `.github/workflows/ci.yml`, 4 джоба на каждый push/PR:
+   `lint` (php -l, node --check, bash -n), `unit` (`tests/unit.php`),
+   `static` (PHPStan level 6 + ESLint), `smoke` (`services: mysql:8` + `php -S` +
+   все ~50 проверок `tests/api-smoke.sh` против настоящей БД).
 2. ✅ **Юнит-тесты чистых функций** — сделано: `tests/unit.php` (без PHPUnit — обычный
    PHP-скрипт с табличными кейсами, exit code 1 при провале; 80+ проверок). Покрыты
    `crm_parse_money`, `crm_legacy_money`, `crm_money_out`, `crm_ip_in_list`,
@@ -301,16 +301,19 @@ Content-Type: application/json» (400) вместо общего «CSRF». Ни�
 3. 🟡 Smoke-тесты пишут в общую БД стенда и полагаются на заранее созданных
    пользователей (`ivan@x.ru`, «Пётр Сидоров» для e2e) — сделать сетап самодостаточным
    (e2e сам создаёт своих пользователей через API админа, как это делает smoke).
-4. 🟡 Статический анализ отсутствует: PHPStan (level 6+ пройдёт почти сразу — типы уже
-   расставлены), ESLint + Prettier для js. PHPStan поймал бы дефект 2.2 автоматически
-   (`Offset 'updated_at' does not exist on null`).
+4. ✅ **Статанализ — сделано:** PHPStan level 6 (`phpstan.neon` + `tests/phpstan-bootstrap.php`,
+   константы конфига в `dynamicConstantNames`) и ESLint flat config (`eslint.config.mjs`).
+   Оба проходят чисто; найденное вычищено: mixed-типы у `strv`/`intv`/`crm_money_out`/
+   `crm_parse_money`, мёртвый `?? ''` у cookie-domain, двойной `crm_user_by_id` в
+   `action=file`, 15 case-блоков без `{}` (утечка `const` между case), неиспользуемые
+   переменные в `app.js` и `e2e-jsdom.mjs`. PHPStan поймал бы дефект 2.2 автоматически.
 
 ## 9. Процессы и репозиторий
 
 1. 🟡 История squash-нута до одного коммита «Delete uploads/1» — история изменений и
    авторство утрачены; дальше стоит вести нормальные атомарные коммиты.
-2. 🟡 Нет `composer.json` (даже пустого с `"require": {"php": ">=8.1"}` и scripts для
-   тестов/линтеров) и `package.json` — инструментам не за что зацепиться.
+2. 🟡 Частично закрыто: появился `package.json` (ESLint как devDependency);
+   `composer.json` по-прежнему нет — PHPStan ставится в CI через `setup-php`.
 3. 🟡 Деплой — ручная заливка файлов по списку из README («не перезаписывайте config.php,
    uploads/, data/»). Одна ошибка — потеря вложений. Минимум: rsync-скрипт с `--exclude`,
    лучше — деплой по git + симлинки на shared-каталоги.
@@ -327,8 +330,8 @@ Content-Type: application/json» (400) вместо общего «CSRF». Ни�
 |---|---|---|---|
 | 1 | ✅ Фикс прав в `save_carrier` (дефект 2.1) | сделано | закрывает нарушение модели прав |
 | 2 | ✅ Фикс `$row['updated_at']` в save_lead (2.2) | сделано | убирает латентный 500 |
-| 3 | Поднять CI: smoke + e2e + `php -l` на каждый push | 0.5 дня | регрессии ловятся сами |
-| 4 | PHPStan + ESLint, вычистить находки | 1 день | класс ошибок 2.2 исчезает |
+| 3 | ✅ CI: lint + unit + статанализ + smoke с MySQL на каждый push | сделано | регрессии ловятся сами |
+| 4 | ✅ PHPStan + ESLint, находки вычищены | сделано | класс ошибок 2.2 исчезает |
 | 5 | ✅ Юнит-тесты на чистые функции (`tests/unit.php`) | сделано | защита самой рискованной логики |
 | 6 | ✅ HTTP-коды в `err()` + строгий CSRF на logout | сделано | наблюдаемость, гигиена |
 | 7 | ✅ mod_deflate + кэширование статики (hash-версии — позже) | сделано | скорость загрузки |

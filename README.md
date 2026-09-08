@@ -104,6 +104,23 @@ CRM_URL=http://127.0.0.1:8080 ADMIN_PASS='пароль_админа' bash tests/
 CRM_URL=http://127.0.0.1:8080 ADMIN_PASS='пароль_админа' NODE_PATH=./node_modules node tests/e2e-jsdom.mjs
 ```
 
+### Статический анализ
+
+```
+# PHPStan (level 6, api.php + db.php; конфиг phpstan.neon)
+phpstan analyse -c phpstan.neon --memory-limit=1G
+
+# ESLint (js/*.js + tests/*.mjs; конфиг eslint.config.mjs)
+npm install && npx eslint .
+```
+
+### CI
+
+На каждый push GitHub Actions (`.github/workflows/ci.yml`) прогоняет:
+синтаксис (`php -l`, `node --check`, `bash -n`), юнит-тесты, PHPStan + ESLint
+и smoke-тесты API против настоящего MySQL 8 в контейнере. Файлы `tests/`,
+`phpstan.neon`, `eslint.config.mjs`, `package.json` на прод не заливаются.
+
 ## Таблицы
 
 | таблица | что внутри |

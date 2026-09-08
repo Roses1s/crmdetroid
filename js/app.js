@@ -1422,7 +1422,7 @@ function renderDetailStages() {
 
 function editingCommentAttCount() {
   if (!UI.editingCommentId) return 0;
-  let c = null;
+  let c;
   if (UI.currentView === 'carrier') c = (UI.carrierComments || []).find(x => String(x.id) === String(UI.editingCommentId));
   else {
     const L = Store.getLead(UI.leadId);
@@ -1663,13 +1663,14 @@ function initAppEvents() {
         else Toast.error(resD?.error || 'Ошибка');
         break;
       }
-      case 'delete-direction':
+      case 'delete-direction': {
         if (!UI.routeId) return;
         if (!await askConfirm('Удалить направление?', 'Все перевозчики на нём тоже удалятся')) return;
         const resDD = await Net.req('delete_direction', { id: UI.routeId });
         if (resDD?.success) { UI.routeId = null; switchView('routes-view', true); }
         else Toast.error(resDD?.error || 'Ошибка');
         break;
+      }
 
       case 'new-carrier':
         if (!UI.routeId) return;
@@ -1753,7 +1754,7 @@ function initAppEvents() {
       case 'new-lead': $$('#modal-create input').forEach(i => i.value = ''); Modal.open('modal-create'); setTimeout(() => $('#m-title').focus(), 50); break;
       case 'open-add-user': $$('#modal-add-user input').forEach(i => { if (i.type === 'checkbox') i.checked = false; else i.value = ''; }); Modal.open('modal-add-user'); setTimeout(() => $('#u-name').focus(), 50); break;
 
-      case 'submit-lead':
+      case 'submit-lead': {
         const t = $('#m-title').value.trim(), i = $('#m-inn').value.trim(), em = $('#m-email').value.trim();
         if (!t) return Toast.error('Введите название');
         if (i && i.length !== 10 && i.length !== 12) return Toast.error('ИНН 10 или 12 цифр');
@@ -1762,8 +1763,9 @@ function initAppEvents() {
         const resL = await Net.req('save_lead', { title: t, inn: i, phone: $('#m-phone').value.trim(), email: em, stage: Store.state.stages[0] });
         if (resL?.success) { Modal.closeAll(); await Store.load(true); } else Toast.error(resL?.error || 'Ошибка');
         break;
+      }
 
-      case 'submit-user':
+      case 'submit-user': {
         const n = $('#u-name').value.trim(), ue = $('#u-email').value.trim(), p = $('#u-pass').value;
         if (!n || !ue || !p) return Toast.error('Все поля');
         if (isReservedUserName(n)) return Toast.error('Это имя зарезервировано');
@@ -1772,6 +1774,7 @@ function initAppEvents() {
         const resU = await Net.req('register_user', { name: n, email: ue, password: p, role: $('#u-admin')?.checked ? 'admin' : 'user' });
         if (resU?.success) { Toast.success('Добавлен'); Modal.closeAll(); loadUsers(); } else Toast.error(resU?.error || 'Ошибка');
         break;
+      }
 
       case 'save-user': {
         const id = actEl.dataset.id, un = $(`#uname-${id}`).value.trim(), uem = $(`#uemail-${id}`).value.trim(), up = $(`#upass-${id}`).value, ur = $(`#urole-${id}`)?.value || 'user';
@@ -1797,13 +1800,14 @@ function initAppEvents() {
         await confirmDeleteUser();
         break;
 
-      case 'add-stage':
+      case 'add-stage': {
         const stN = await askPrompt('Новый этап', '', 'Название этапа'); if (!stN || !stN.trim()) return;
         const resSt = await Net.req('save_stages', { stages: [...Store.state.stages, stN.trim()] });
         if (resSt?.success) await Store.load(true); else Toast.error(resSt?.error || 'Ошибка');
         break;
+      }
 
-      case 'edit-stage':
+      case 'edit-stage': {
         const oldSt = actEl.closest('.column').dataset.stage, newSt = await askPrompt('Изменить этап', oldSt, 'Пустое = удалить');
         if (newSt === null || newSt.trim() === oldSt) return;
         let ns = [...Store.state.stages];
@@ -1824,6 +1828,7 @@ function initAppEvents() {
         const resESt = await Net.req('save_stages', { stages: ns });
         if (resESt?.success) await Store.load(true); else Toast.error(resESt?.error || 'Ошибка');
         break;
+      }
 
       case 'delete-lead': {
         if (!await askConfirm('Удалить лид?', 'Навсегда')) return;
@@ -1836,7 +1841,7 @@ function initAppEvents() {
         break;
       }
 
-      case 'set-stage':
+      case 'set-stage': {
         const lead = Store.getLead(UI.leadId); if (!lead) return;
         if (UI.formDirty) await saveLeadForm(true);
         const resMS = await Net.req('move_lead', { id: UI.leadId, stage: actEl.dataset.stage, updatedAt: lead._editRev ?? lead.updatedAt });
@@ -1844,8 +1849,9 @@ function initAppEvents() {
         else if (resMS?.error === 'Карточка изменена в другом месте') { Toast.error('Карточку изменили в другой вкладке — обновляю'); await Store.load(true); }
         else Toast.error(resMS?.error || 'Ошибка');
         break;
+      }
 
-      case 'post-comment':
+      case 'post-comment': {
         const txt = $('#comment-input').value.trim(); if (!txt && !UI.pendingFiles.length) return;
         const fd = new FormData(); fd.append('lead_id', UI.leadId); fd.append('text', txt);
         UI.pendingFiles.forEach(f => fd.append('files[]', f.rawFile));
@@ -1856,10 +1862,11 @@ function initAppEvents() {
           $('#comment-input').value = ''; UI.pendingFiles = []; renderFiles(); await Store.load(true); await loadLeadComments(UI.leadId); renderLog();
         } else Toast.error(resPC?.error || 'Ошибка');
         break;
+      }
 
       case 'rm-file': (UI.editingCommentId ? UI.editFiles : UI.pendingFiles).splice(+actEl.dataset.idx, 1); renderFiles(); break;
 
-      case 'toggle-edit':
+      case 'toggle-edit': {
         const cid = actEl.dataset.cid;
         const edt = $(`[data-edt="${cid}"]`), txtEl = $(`[data-txt="${cid}"]`), inp = $(`[data-inp="${cid}"]`);
         if (!edt) return; const active = edt.classList.contains('active');
@@ -1868,6 +1875,7 @@ function initAppEvents() {
         if (!active) { txtEl.classList.add('hidden'); edt.classList.add('active'); UI.editingCommentId = cid; inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); renderFiles(); }
         else { UI.editingCommentId = null; renderFiles(); }
         break;
+      }
 
       case 'save-comment': {
         const v = $(`[data-inp="${actEl.dataset.cid}"]`).value.trim();
@@ -2068,7 +2076,7 @@ async function loadLeadComments(id) {
 
 // === АКТИВНОСТЬ КЛИЕНТОВ ===
 let _activityYear = new Date().getFullYear();
-let _activityCache = {};
+const _activityCache = {};
 let _activityUserId = null; // локальный для вкладки «Активность», не влияет на «Лиды»
 
 async function loadActivity(year) {
@@ -2266,7 +2274,6 @@ function initDashboardSearch() {
   const inp = $('#dashboard-search');
   const clear = $('#dashboard-search-clear');
   const drop = $('#dashboard-search-drop');
-  const wrap = $('#dashboard-search-wrap');
   if (!inp || !drop) return;
   if (inp.dataset.init) return;
   inp.dataset.init = '1';

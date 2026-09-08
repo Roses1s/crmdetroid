@@ -1,0 +1,42 @@
+# Статический анализ PHP (код-ревью п. 8.4). Запуск: phpstan analyse
+# Локально без composer: php phpstan.phar analyse (phar с github.com/phpstan/phpstan)
+parameters:
+    level: 6
+    parallel:
+        maximumNumberOfProcesses: 1
+    paths:
+        - api.php
+        - db.php
+    bootstrapFiles:
+        - tests/phpstan-bootstrap.php
+    # Константы из config.php различаются между инсталляциями — их значения из bootstrap
+    # не должны констант-фолдиться (иначе «CRM_DB_PASS === 'CHANGE_ME' всегда ложно» и т.п.)
+    dynamicConstantNames:
+        - CRM_DB_HOST
+        - CRM_DB_PORT
+        - CRM_DB_NAME
+        - CRM_DB_USER
+        - CRM_DB_PASS
+        - CRM_DB_FALLBACK
+        - CRM_DEFAULT_ADMIN_EMAIL
+        - CRM_DEFAULT_ADMIN_PASS
+        - CRM_DEFAULT_ADMIN_NAME
+        - CRM_TRUSTED_PROXIES
+    ignoreErrors:
+        # out/ok/err — never-функции с exit: PHPStan это понимает, но в однофайловой
+        # архитектуре встречаются ветки, где он считает код недостижимым намеренно.
+        -
+            identifier: deadCode.unreachable
+        # Массивы из PDO::fetch() типизировать без value-object'ов невозможно —
+        # осознанно откладываем до распила монолитов (TODO #18).
+        -
+            identifier: missingType.iterableValue
+        # crm_boot: повторная проверка версии схемы после ожидания GET_LOCK — осознанная
+        # (другой процесс мог применить миграции, пока мы ждали блокировку). PHPStan считает
+        # второй вызов crm_schema_version() возвращающим то же значение — это не так: БД изменилась.
+        -
+            message: '#Comparison operation ">=" between int<min, 13> and 14 is always false#'
+            path: db.php
+        -
+            message: '#Result of && is always false#'
+            path: db.php

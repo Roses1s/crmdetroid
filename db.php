@@ -571,7 +571,7 @@ function crm_integrity_check(PDO $pdo): array {
 }
 
 /** DECIMAL из БД → строка для API: '45000' / '1234.50' / '' (как вводил пользователь, без хвоста .00). */
-function crm_money_out($v): string {
+function crm_money_out(mixed $v): string {
     if ($v === null || $v === '') return '';
     $s = (string) $v;
     if (!str_contains($s, '.')) return $s;
@@ -1399,7 +1399,7 @@ function crm_lead_app_by_id(PDO $pdo, string $id): ?array {
     return $row ?: null;
 }
 
-function crm_parse_money($v): ?string {
+function crm_parse_money(mixed $v): ?string {
     $s = trim(str_replace(["\xC2\xA0", ' ', "\t"], '', (string) $v));
     if ($s === '') return '';
     $s = rtrim(str_replace(',', '.', $s), '.');

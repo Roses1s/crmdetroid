@@ -88,7 +88,6 @@ async function api(jar, action, data, csrf, as) {
   const user = await loginAs(w, 'ivan@x.ru', 'IvanPass123');
   ok('5 первый вход', !!user);
   const n1 = w.Store.state.leads.length;
-  const hash1 = w.Net.hash;
   // Сервер: убиваем сессию удалением cookie-файла — имитируем истёкшую сессию
   const cookies = await jar.getCookies(BASE);
   const sid = cookies.find(c => c.key === 'CRMSESSID')?.value;
@@ -162,7 +161,7 @@ async function api(jar, action, data, csrf, as) {
 
 // ---------- 13: пароль в таблице сотрудников уходит только при ручном вводе ----------
 {
-  const { w, jar } = await makeWindow();
+  const { w } = await makeWindow();
   await loginAs(w, ADMIN_EMAIL, ADMIN_PASS);
   await w.loadUsers(); await sleep(200);
   const sent = [];

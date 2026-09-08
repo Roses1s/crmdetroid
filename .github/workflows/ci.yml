@@ -1,0 +1,129 @@
+# CI CRM «Детроид»: синтаксис → юнит-тесты → статанализ → smoke-тесты API с настоящим MySQL.
+# Запускается на каждый push и pull request.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # --- 1. Синтаксис: php -l, node --check, bash -n ---------------------------
+  lint:
+    name: Синтаксис (php -l, node --check, bash -n)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring
+          coverage: none
+      - name: php -l
+        run: |
+          set -e
+          for f in api.php db.php config.example.php tests/unit.php tests/phpstan-bootstrap.php; do
+            php -l "$f"
+          done
+      - name: node --check
+        run: |
+          set -e
+          node --check js/app.js
+          node --check js/theme.js
+          node --check tests/e2e-jsdom.mjs
+      - name: bash -n
+        run: bash -n tests/api-smoke.sh
+
+  # --- 2. Юнит-тесты чистых функций (без БД) ---------------------------------
+  unit:
+    name: Юнит-тесты (tests/unit.php)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring
+          coverage: none
+      - run: php tests/unit.php
+
+  # --- 3. Статанализ: PHPStan + ESLint ----------------------------------------
+  static:
+    name: Статанализ (PHPStan, ESLint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring
+          coverage: none
+          tools: phpstan:1.12
+      - name: PHPStan
+        run: phpstan analyse -c phpstan.neon --no-progress --memory-limit=1G
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: ESLint
+        run: |
+          npm ci
+          npx eslint .
+
+  # --- 4. Smoke-тесты API против настоящего MySQL 8 ----------------------------
+  smoke:
+    name: Smoke-тесты API (MySQL 8)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: crm_test
+          MYSQL_USER: crm
+          MYSQL_PASSWORD: crm_test_pass
+          MYSQL_ROOT_PASSWORD: root_test_pass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_test_pass"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring
+          coverage: none
+      - name: config.php для тестовой БД
+        run: cp config.example.php config.php
+      - name: Запуск php -S и smoke-тестов
+        env:
+          CRM_DB_HOST: 127.0.0.1
+          CRM_DB_PORT: '3306'
+          CRM_DB_NAME: crm_test
+          CRM_DB_USER: crm
+          CRM_DB_PASS: crm_test_pass
+          CRM_ADMIN_EMAIL: admin@ci.local
+          CRM_ADMIN_PASS: CiAdminPass123
+        run: |
+          set -e
+          php -S 127.0.0.1:8089 -t . >php-server.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf "http://127.0.0.1:8089/api.php?action=csrf" >/dev/null && break
+            sleep 1
+          done
+          # Первый вход админа помечен must_change (пароль из конфига) — снимаем флаг,
+          # иначе все действия smoke-скрипта упрутся в «Смените временный пароль».
+          T=$(curl -s "http://127.0.0.1:8089/api.php?action=csrf" | sed 's/.*"csrf":"\([^"]*\)".*/\1/')
+          T2=$(curl -s -c /tmp/ci-jar -H "X-CSRF-Token: $T" -H 'Content-Type: application/json' \
+            -d '{"email":"admin@ci.local","password":"CiAdminPass123"}' \
+            "http://127.0.0.1:8089/api.php?action=login" | sed -n 's/.*"csrf":"\([^"]*\)".*/\1/p')
+          curl -s -b /tmp/ci-jar -H "X-CSRF-Token: $T2" -H 'Content-Type: application/json' \
+            -d '{"old":"CiAdminPass123","password":"CiAdminPass123X"}' \
+            "http://127.0.0.1:8089/api.php?action=change_password" >/dev/null
+          CRM_URL=http://127.0.0.1:8089 ADMIN_EMAIL=admin@ci.local ADMIN_PASS='CiAdminPass123X' \
+            bash tests/api-smoke.sh
+      - name: Лог PHP-сервера при провале
+        if: failure()
+        run: cat php-server.log || true

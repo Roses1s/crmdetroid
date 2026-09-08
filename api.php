@@ -134,7 +134,7 @@ function crm_session_kill(string $msg = 'Сессия истекла'): never {
         $_SESSION = [];
         if (ini_get('session.use_cookies')) {
             $p = session_get_cookie_params();
-            setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'] ?? '', (bool) $p['secure'], (bool) $p['httponly']);
+            setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], (bool) $p['secure'], (bool) $p['httponly']);
         }
         session_destroy();
     }
@@ -247,14 +247,14 @@ function csrf_token(): string {
     return $_SESSION['csrf'];
 }
 /** Строка из произвольного JSON-значения: массивы/объекты → пусто (раньше — warning и сломанный JSON). */
-function strv($v, int $max = 300, string $fallback = ''): string {
+function strv(mixed $v, int $max = 300, string $fallback = ''): string {
     if (!is_scalar($v)) return $fallback;
     $s = trim(str_replace("\0", '', (string) $v));
     if (mb_strlen($s) > $max) $s = mb_substr($s, 0, $max);
     return $s !== '' ? $s : $fallback;
 }
 /** Целое из JSON-значения; массив/объект → 0 (а не 1, как даёт (int) от непустого массива). */
-function intv($v): int {
+function intv(mixed $v): int {
     if (is_int($v)) return $v;
     if (is_float($v)) return (int) $v;
     if (is_string($v) && preg_match('/^-?\d{1,18}$/', trim($v))) return (int) trim($v);
@@ -478,7 +478,9 @@ if ($action === 'csrf') {
 
 if ($action === 'file') {
     $id = (int) ($_SESSION['user_id'] ?? 0);
-    if (!$hasSess || !$id || !crm_user_by_id($pdo, $id)) {
+    // Пользователь выбирается один раз (раньше crm_user_by_id вызывался дважды — до и после throttle)
+    $uFile = ($hasSess && $id) ? crm_user_by_id($pdo, $id) : null;
+    if (!$uFile) {
         http_response_code(401);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Need login';
@@ -491,8 +493,7 @@ if ($action === 'file') {
         echo 'Too many requests';
         exit;
     }
-    $uFile = crm_user_by_id($pdo, $id);
-    if (!$uFile || ($_SESSION['pw'] ?? '') !== crm_pw_fingerprint($uFile)) {
+    if (($_SESSION['pw'] ?? '') !== crm_pw_fingerprint($uFile)) {
         http_response_code(401);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Need login';
@@ -586,7 +587,7 @@ if ($action === 'logout') {
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $p = session_get_cookie_params();
-        setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'] ?? '', (bool) $p['secure'], (bool) $p['httponly']);
+        setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], (bool) $p['secure'], (bool) $p['httponly']);
     }
     session_destroy();
     ok();
