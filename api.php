@@ -15,7 +15,7 @@
  *   actions/user.php    — register_user, update_user, delete_user, get_users, change_password, me
  *   actions/routes.php  — save_direction, delete_direction, get_directions, save_carrier, delete_carrier,
  *                         get_carriers, get_carrier, add_carrier_comment, edit_carrier_comment, delete_carrier_comment
- *   actions/search.php  — search_leads
+ *   actions/search.php  — search_leads [ВЫПОЛНЕНО]
  *   actions/admin.php   — whoami, sweep_uploads, integrity_check, get_audit [ВЫПОЛНЕНО]
  *   actions/stages.php  — save_stages [ВЫПОЛНЕНО]
  *   'ui' остаётся в api.php: это выдача интерфейса (readfile ui.html), а не доменное действие.
@@ -54,6 +54,7 @@ require __DIR__ . '/db.php';
 const CRM_API = true;
 require __DIR__ . '/actions/admin.php';
 require __DIR__ . '/actions/stages.php';
+require __DIR__ . '/actions/search.php';
 
 // Старые config.php без новых констант
 if (!defined('CRM_TRUSTED_PROXIES')) define('CRM_TRUSTED_PROXIES', getenv('CRM_TRUSTED_PROXIES') ?: '');
@@ -780,12 +781,7 @@ switch ($action) {
         ]);
     }
 
-    case 'search_leads': {
-        $q = strv($_GET['q'] ?? '', 120);
-        $out = crm_search_leads($pdo, $viewUid, $q);
-        if (($user['role'] ?? '') === 'admin') $out['employees'] = crm_search_employees($pdo, $q);
-        ok($out);
-    }
+    case 'search_leads': crm_action_search_leads($pdo, $user, $viewUid);
 
     case 'get_directions': {
         $q = strv($_GET['q'] ?? '', 80);
