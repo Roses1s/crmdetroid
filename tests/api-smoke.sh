@@ -179,6 +179,10 @@ check "без since → полный ответ с leads" "r.get('delta') is Non
 # --- 12. админские сервисные действия --------------------------------------
 R=$(post "$JI" "$TI" sweep_uploads '{}'); check "sweep_uploads недоступен сотруднику" "r.get('error')=='Нет прав'" "$R"
 R=$(post "$JA" "$TA" sweep_uploads '{}'); check "sweep_uploads доступен админу" "r.get('success') is True and 'checked' in r" "$R"
+R=$(get "$JI" "get_audit"); check "get_audit недоступен сотруднику" "r.get('error')=='Нет прав'" "$R"
+# LIMIT через bindValue(PARAM_INT) — проверяем против настоящего MySQL, включая зажим limit
+R=$(get "$JA" "get_audit&limit=3"); check "get_audit: limit работает (события входов есть)" "r.get('success') is True and 0 < len(r.get('events',[])) <= 3" "$R"
+R=$(get "$JA" "get_audit&limit=99999"); check "get_audit: limit зажат до 500" "r.get('success') is True and len(r.get('events',[])) <= 500" "$R"
 
 # --- 13. HTTP-статусы ошибок (ревью, пп. 2.5 / 12.8) ------------------------
 # err() отдаёт честные коды: 401 need_login, 403 права, 404 не найдено, 405 метод, 200 успех.

@@ -42,7 +42,11 @@ function crm_action_get_audit(PDO $pdo, array $user, int $viewUid): never {
     $limit = max(1, min(500, intv($_GET['limit'] ?? 100)));
     $rows = [];
     try {
-        $st = $pdo->prepare("SELECT actor_id, actor_name, action, target, details, ip, created_at FROM crm_audit ORDER BY id DESC LIMIT $limit");
+        // LIMIT через bindValue(PARAM_INT): при EMULATE_PREPARES=false MySQL принимает
+        // параметр в LIMIT, если он привязан как целое. Раньше $limit интерполировался —
+        // безопасно (int, зажатый max/min), но выбивалось из общего стиля «ввод только параметрами».
+        $st = $pdo->prepare('SELECT actor_id, actor_name, action, target, details, ip, created_at FROM crm_audit ORDER BY id DESC LIMIT ?');
+        $st->bindValue(1, $limit, PDO::PARAM_INT);
         $st->execute();
         foreach ($st as $r) {
             $rows[] = [

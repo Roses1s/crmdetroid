@@ -36,7 +36,10 @@ ServerSignature Off
   # Служебные каталоги и файлы наружу не отдаём (третья линия — на случай, если FilesMatch не сработал).
   # actions/ закрыт заранее: план распила api.php (TODO #15) создаст его позже, и правило,
   # добавленное «потом», однажды забыли бы — прямой запрос actions/lead.php исполнял бы код вне api.php.
-  RewriteRule ^(data|uploads|tests|actions|tools|\.git)(/|$) - [F]
+  # \.git[^/]* — не только .git/, но и .github/, .gitignore, .gitattributes (раньше «hub»
+  # не подпадал под (/|$) сразу после .git). На бой эти каталоги не деплоятся (deploy.sh
+  # заливает белый список), правило — на случай ручной заливки всего каталога.
+  RewriteRule ^(data|uploads|tests|actions|tools|\.git[^/]*)(/|$) - [F]
   RewriteRule ^(config\.php|config\.example\.php|db\.php|http\.php|security\.php|files\.php|migrations\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$ - [F]
 </IfModule>
 
@@ -70,5 +73,16 @@ ServerSignature Off
   Header always set Cross-Origin-Resource-Policy "same-origin"
   Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
   Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
+  # HSTS и для статики (index.html/CSS/JS отдаёт Apache, не PHP — api.php ставил заголовок
+  # только на свои ответы). Два случая: прямой HTTPS (env=HTTPS ставит mod_ssl) и HTTPS,
+  # завершённый на прокси SpaceWeb (CRM_HTTPS из X-Forwarded-Proto, см. mod_setenvif ниже).
+  # Подделка заголовка клиентом навязывает HSTS только ему самому — как и у редиректа выше.
+  # Без includeSubDomains: за поддомены домена CRM этот файл не отвечает.
+  Header always set Strict-Transport-Security "max-age=15552000" env=HTTPS
+  Header always set Strict-Transport-Security "max-age=15552000" env=CRM_HTTPS
+</IfModule>
+
+<IfModule mod_setenvif.c>
+  SetEnvIf X-Forwarded-Proto "^https$" CRM_HTTPS=1
 </IfModule>
 
