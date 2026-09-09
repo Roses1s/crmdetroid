@@ -1,7 +1,7 @@
 'use strict';
 // Поиск: выпадающий список глобального поиска в шапке (liveSearch/renderSearchDrop, локальный + серверный), поиск по своим лидам и сотрудникам, поиск на дашборде. Вынесено из app.js (план CODE_REVIEW п. 10.9).
 /* global $, Net, Store, debounce, esc */
-/* exported clearSearch, initDashboardSearch, liveSearch */
+/* exported checkLeadDupDebounced, clearSearch, initDashboardSearch, liveSearch */
 
 function closeSearchDrop() {
   $('#search-drop')?.classList.remove('open');
@@ -154,3 +154,38 @@ function initDashboardSearch() {
     }
   });
 }
+
+/*
+ * Предупреждение о дубле в окне «Новый лид»: при вводе ИНН (от 10 цифр — валидная длина
+ * начинается с 10) спрашиваем search_leads и показываем, у кого уже есть клиент с таким ИНН.
+ * Свои лиды и чужие (intersections) — разные подсказки. Не блокирует создание: пересечения —
+ * легальная ситуация (см. README «Права и правила»), цель — предупредить, а не запретить.
+ */
+let _dupGen = 0;
+
+async function checkLeadDup(inn) {
+  const warn = $('#m-inn-warn');
+  if (!warn) return;
+  const digits = String(inn || '').replace(/\D/g, '');
+  const gen = ++_dupGen;
+  if (digits.length < 10) { warn.classList.add('hidden'); warn.textContent = ''; return; }
+  // Свои лиды ищем локально (доска уже в памяти) — мгновенно и без запроса
+  const mine = (Store.state.leads || []).filter(l => String(l.inn || '').replace(/\D/g, '') === digits);
+  const res = await Net.req('search_leads', { q: digits });
+  if (gen !== _dupGen) return; // устаревший ответ (ИНН уже другой)
+  const others = [];
+  if (res && res.success) {
+    (res.intersections || []).forEach(it => {
+      if (String(it.inn || '').replace(/\D/g, '') !== digits) return;
+      (it.users || []).forEach(n => { if (n && !others.includes(n)) others.push(n); });
+    });
+  }
+  const parts = [];
+  if (mine.length) parts.push(`у вас уже есть лид «${mine[0].title}»`);
+  if (others.length) parts.push(`клиента уже ведёт: ${others.join(', ')}`);
+  if (!parts.length) { warn.classList.add('hidden'); warn.textContent = ''; return; }
+  warn.textContent = '⚠ Возможный дубль: ' + parts.join('; ');
+  warn.classList.remove('hidden');
+}
+
+const checkLeadDupDebounced = debounce(() => checkLeadDup($('#m-inn')?.value), 350);

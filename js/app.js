@@ -1,5 +1,5 @@
 'use strict';
-/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, clearSearch, closeImageLightbox, closeLeadAppModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openRoute, passwordError, persistOk, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setRoutesFilter, setupPhoneMask, withLock */
+/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openRoute, passwordError, persistOk, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setRoutesFilter, setupPhoneMask, withLock */
 /* exported syncAdminNav, updateSearchPlaceholder */
 
 const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
@@ -232,7 +232,7 @@ function initAppEvents() {
   if (UI.appEvents) return;
   UI.appEvents = true;
   setupPhoneMask($('#m-phone')); setupPhoneMask($('#f-logist-phone'));
-  $('#m-inn').addEventListener('input', e => formatInnInput(e.target));
+  $('#m-inn').addEventListener('input', e => { formatInnInput(e.target); checkLeadDupDebounced(); });
   $('#f-inn').addEventListener('input', e => formatInnInput(e.target));
 
   const searchInp = $('#board-search');
@@ -530,7 +530,11 @@ function initAppEvents() {
       case 'submit-lead-app':
         await saveLeadAppFromModal();
         break;
-      case 'new-lead': $$('#modal-create input').forEach(i => i.value = ''); Modal.open('modal-create'); setTimeout(() => $('#m-title').focus(), 50); break;
+      case 'new-lead': {
+        $$('#modal-create input').forEach(i => i.value = '');
+        const dupWarn = $('#m-inn-warn'); if (dupWarn) { dupWarn.classList.add('hidden'); dupWarn.textContent = ''; }
+        Modal.open('modal-create'); setTimeout(() => $('#m-title').focus(), 50); break;
+      }
       case 'open-add-user': $$('#modal-add-user input').forEach(i => { if (i.type === 'checkbox') i.checked = false; else i.value = ''; }); Modal.open('modal-add-user'); setTimeout(() => $('#u-name').focus(), 50); break;
 
       case 'submit-lead': {
