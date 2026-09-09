@@ -120,7 +120,7 @@ const Store = {
       if (UI.formDirty && UI.leadId && String(l.id).trim() === String(UI.leadId).trim()) {
         l._editRev = o._editRev ?? o.updatedAt;
         l._full = o._full;
-        ['email','logistName','logistPhone','comments','applications','appsStats'].forEach(k => { if (o[k] !== undefined) l[k] = o[k]; });
+        ['email','ati','logistName','logistPhone','comments','applications','appsStats'].forEach(k => { if (o[k] !== undefined) l[k] = o[k]; });
       }
       return l;
     });

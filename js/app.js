@@ -231,7 +231,7 @@ function initEvents() {
 function initAppEvents() {
   if (UI.appEvents) return;
   UI.appEvents = true;
-  setupPhoneMask($('#m-phone')); setupPhoneMask($('#f-phone')); setupPhoneMask($('#f-logist-phone'));
+  setupPhoneMask($('#m-phone')); setupPhoneMask($('#f-logist-phone'));
   $('#m-inn').addEventListener('input', e => formatInnInput(e.target));
   $('#f-inn').addEventListener('input', e => formatInnInput(e.target));
 
@@ -539,7 +539,12 @@ function initAppEvents() {
         if (i && i.length !== 10 && i.length !== 12) return Toast.error('ИНН 10 или 12 цифр');
         if (!isValidEmail(em)) return Toast.error('Некорректный email');
         // id новому лиду выдаёт сервер
-        const resL = await Net.req('save_lead', { title: t, inn: i, phone: $('#m-phone').value.trim(), email: em, stage: Store.state.stages[0] });
+        const resL = await Net.req('save_lead', {
+          title: t, inn: i, phone: $('#m-phone').value.trim(), email: em,
+          ati: ($('#m-ati')?.value || '').trim(),
+          logistName: ($('#m-logist-name')?.value || '').trim(),
+          stage: Store.state.stages[0]
+        });
         if (resL?.success) { Modal.closeAll(); await Store.load(true); } else Toast.error(resL?.error || 'Ошибка');
         break;
       }

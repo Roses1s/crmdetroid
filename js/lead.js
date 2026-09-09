@@ -169,12 +169,12 @@ function fillLeadForm(lead, fromServer = false) {
   if (!lead || !lead._full) return;
   if (fromServer || lead._editRev == null) lead._editRev = lead.updatedAt;
   $('#f-title').value = lead.title;
-  ['inn','phone','email','manager'].forEach(f => {
+  ['inn','ati','email','manager'].forEach(f => {
     const el = $(`#f-${f}`); if (el && document.activeElement !== el) el.value = lead[f] || '';
   });
   const ln = $('#f-logist-name'); if (ln && document.activeElement !== ln) ln.value = lead.logistName || '';
   const lp = $('#f-logist-phone'); if (lp && document.activeElement !== lp) lp.value = lead.logistPhone || '';
-  $('#crumb-name').textContent = lead.title; setupPhoneMask($('#f-phone')); setupPhoneMask($('#f-logist-phone'));
+  $('#crumb-name').textContent = lead.title; setupPhoneMask($('#f-logist-phone'));
   renderLeadApps();
 }
 
@@ -397,7 +397,7 @@ async function saveLeadForm(_sync = false, keepalive = false, transferTo = 0) {
       id: UI.leadId,
       title: $('#f-title').value.trim() || 'Без названия',
       inn: innDigits,
-      phone: $('#f-phone').value.trim(),
+      ati: ($('#f-ati')?.value || '').trim(),
       email: $('#f-email').value.trim(),
       manager: $('#f-manager').value.trim(),
       logistName: ($('#f-logist-name')?.value || '').trim(),
@@ -452,7 +452,7 @@ function resetBoardCache() { _lastBoardHash = null; }
 
 function renderBoard() {
   if (UI.currentView !== 'kanban') return;
-  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.phone, l.manager, l.inn, l.applicationsCount])]);
+  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.logistPhone, l.manager, l.inn, l.applicationsCount])]);
   if (dataHash === _lastBoardHash) return; _lastBoardHash = dataHash;
 
   const board = $('#board'); if (!board) return; board.innerHTML = ''; const frag = document.createDocumentFragment();
@@ -466,7 +466,7 @@ function renderBoard() {
       const innLine = l.inn ? `<span>ИНН ${esc(l.inn)}</span>` : '<span></span>';
       const nApps = Number(l.applicationsCount || 0);
       const appsLine = nApps ? `<div class="card-apps">${nApps} ${appsWord(nApps)}</div>` : '';
-      card.innerHTML = `<div class="card-title">${esc(l.title)}</div><div class="card-meta">${innLine}<span>📱 ${esc(l.phone || 'Нет')}</span></div>${appsLine}`;
+      card.innerHTML = `<div class="card-title">${esc(l.title)}</div><div class="card-meta">${innLine}<span>📱 ${esc(l.logistPhone || 'Нет')}</span></div>${appsLine}`;
       cont.appendChild(card);
     });
     frag.appendChild(col);

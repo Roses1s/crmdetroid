@@ -70,6 +70,16 @@ LA1=$(jget "$R" "r['id']"); check "клиентский id игнорирует�
 R=$(post "$JP" "$TP" save_lead '{"title":"Smoke B1","inn":"7809876543"}'); LB1=$(jget "$R" "r['id']")
 R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LB1\",\"title\":\"hijack\"}"); check "чужой лид через save_lead → Лид не найден" "r.get('error')=='Лид не найден'" "$R"
 
+# --- 2а. Код АТИ и Имя логиста при создании лида ---------------------------
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke ATI","ati":"ATI-12345","logistName":"Логист Смоук"}'); LATI=$(jget "$R" "r['id']")
+R=$(get "$JI" "get_lead&id=$LATI")
+check "ati сохраняется при создании" "r['lead'].get('ati')=='ATI-12345'" "$R"
+check "logistName сохраняется при создании" "r['lead'].get('logistName')=='Логист Смоук'" "$R"
+R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LATI\",\"ati\":\"ATI-99\"}")
+R=$(get "$JI" "get_lead&id=$LATI"); check "ati обновляется через save_lead" "r['lead'].get('ati')=='ATI-99'" "$R"
+R=$(get "$JI" "get_data"); check "лёгкая выборка досок содержит logistPhone" "all('logistPhone' in l for l in r.get('leads',[]))" "$R"
+post "$JI" "$TI" delete_lead "{\"id\":\"$LATI\"}" >/dev/null
+
 # --- 3. пересечения в поиске только по точному запросу --------------------
 R=$(get "$JI" "search_leads&q=78"); check "поиск «78» — пересечений нет" "r.get('intersections')==[]" "$R"
 R=$(get "$JI" "search_leads&q=7809"); check "поиск «7809» — пересечение с лидом B найдено (индекс ИНН)" "any(i.get('inn')=='7809876543' for i in r.get('intersections',[]))" "$R"

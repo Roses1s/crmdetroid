@@ -38,7 +38,7 @@ function crm_action_get_data(PDO $pdo, array $user, int $viewUid): never {
     // этапов с присланным делает полную перезагрузку (см. Store.load).
     $since = intv($_GET['since'] ?? 0);
     if ($client !== '' && $since > 0) {
-        $chSt = $pdo->prepare('SELECT id, title, inn, phone, manager, applications_count, stage, created_at, updated_at FROM crm_leads WHERE user_id = ? AND (updated_at >= ? OR created_at >= ?) ORDER BY created_at ASC');
+        $chSt = $pdo->prepare('SELECT id, title, inn, phone, logist_phone, manager, applications_count, stage, created_at, updated_at FROM crm_leads WHERE user_id = ? AND (updated_at >= ? OR created_at >= ?) ORDER BY created_at ASC');
         $chSt->execute([$uid, $since, $since]);
         $changed = [];
         foreach ($chSt as $r) $changed[] = crm_lead_row_to_api($r, false);
@@ -79,6 +79,9 @@ function crm_action_save_lead(PDO $pdo, array $user, int $viewUid): never {
     $inn = preg_replace('/\D/', '', strv($in['inn'] ?? ($row['inn'] ?? ''), 12)) ?? '';
     if ($inn !== '' && strlen($inn) !== 10 && strlen($inn) !== 12) err('ИНН 10 или 12 цифр');
     $phone = strv($in['phone'] ?? ($row['phone'] ?? ''), 40);
+    // Код АТИ (ati.su): колонка ati существовала в схеме с ранних версий, но не была
+    // выведена в интерфейс. Телефон лида из карточки убран (остался в окне создания и в БД).
+    $ati = strv($in['ati'] ?? ($row['ati'] ?? ''), 300);
     $email = strv($in['email'] ?? ($row['email'] ?? ''), 120);
     if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) err('Некорректный email');
     // Продавец по умолчанию — владелец доски (админ через ?as= создаёт лид сотруднику, а не себе)
@@ -99,12 +102,12 @@ function crm_action_save_lead(PDO $pdo, array $user, int $viewUid): never {
     $pdo->beginTransaction();
     try {
         if (!$row) {
-            $ins = $pdo->prepare('INSERT INTO crm_leads (id,user_id,title,inn,phone,email,manager,logist_name,logist_phone,applications_count,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
-            $ins->execute([$id, $uid, $title, $inn, $phone, $email, $manager, $logistName, $logistPhone, $apps, $stage, $now, $now]);
+            $ins = $pdo->prepare('INSERT INTO crm_leads (id,user_id,title,inn,phone,ati,email,manager,logist_name,logist_phone,applications_count,stage,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+            $ins->execute([$id, $uid, $title, $inn, $phone, $ati, $email, $manager, $logistName, $logistPhone, $apps, $stage, $now, $now]);
             crm_sys_comment($pdo, $id, 'Лид создан');
         } else {
-            $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,email=?,manager=?,logist_name=?,logist_phone=?,stage=?,updated_at=? WHERE id=? AND user_id=? AND updated_at=?');
-            $upd->execute([$title, $inn, $phone, $email, $manager, $logistName, $logistPhone, $stage, $now, $id, $uid, (int) $row['updated_at']]);
+            $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,ati=?,email=?,manager=?,logist_name=?,logist_phone=?,stage=?,updated_at=? WHERE id=? AND user_id=? AND updated_at=?');
+            $upd->execute([$title, $inn, $phone, $ati, $email, $manager, $logistName, $logistPhone, $stage, $now, $id, $uid, (int) $row['updated_at']]);
             if ($upd->rowCount() === 0) {
                 $pdo->rollBack();
                 err('Карточка изменена в другом месте');

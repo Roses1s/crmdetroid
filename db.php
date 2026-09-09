@@ -706,17 +706,20 @@ function crm_lead_row_to_api(array $r, bool $full = true): array {
         'stage' => $r['stage'],
         'createdAt' => (int) $r['created_at'],
         'updatedAt' => (int) ($r['updated_at'] ?? $r['created_at'] ?? 0),
+        // Телефон логиста нужен и в лёгкой выборке: карточка на доске показывает его
+        // вместо телефона лида (телефон лида из карточки убран — заменён на Код АТИ).
+        'logistPhone' => $r['logist_phone'] ?? '',
     ];
     if ($full) {
         $out['email'] = $r['email'];
+        $out['ati'] = $r['ati'] ?? '';
         $out['logistName'] = $r['logist_name'] ?? '';
-        $out['logistPhone'] = $r['logist_phone'] ?? '';
     }
     return $out;
 }
 
 function crm_leads_full(PDO $pdo, int $userId): array {
-    $st = $pdo->prepare('SELECT id, title, inn, phone, manager, applications_count, stage, created_at, updated_at FROM crm_leads WHERE user_id = ? ORDER BY created_at ASC');
+    $st = $pdo->prepare('SELECT id, title, inn, phone, logist_phone, manager, applications_count, stage, created_at, updated_at FROM crm_leads WHERE user_id = ? ORDER BY created_at ASC');
     $st->execute([$userId]);
     $leads = [];
     foreach ($st as $r) $leads[] = crm_lead_row_to_api($r, false);
