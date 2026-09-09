@@ -71,10 +71,12 @@ R=$(post "$JP" "$TP" save_lead '{"title":"Smoke B1","inn":"7809876543"}'); LB1=$
 R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LB1\",\"title\":\"hijack\"}"); check "чужой лид через save_lead → Лид не найден" "r.get('error')=='Лид не найден'" "$R"
 
 # --- 2а. Код АТИ и Имя логиста при создании лида ---------------------------
-R=$(post "$JI" "$TI" save_lead '{"title":"Smoke ATI","ati":"ATI-12345","logistName":"Логист Смоук"}'); LATI=$(jget "$R" "r['id']")
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke ATI","ati":"ATI-12345","logistName":"Логист Смоук","phone":"+7 (912) 000-11-22","logistPhone":"+7 (912) 000-11-22"}'); LATI=$(jget "$R" "r['id']")
 R=$(get "$JI" "get_lead&id=$LATI")
 check "ati сохраняется при создании" "r['lead'].get('ati')=='ATI-12345'" "$R"
 check "logistName сохраняется при создании" "r['lead'].get('logistName')=='Логист Смоук'" "$R"
+# Окно создания шлёт телефон и в phone, и в logistPhone (контакт логиста)
+check "телефон из окна создания попал в контакт логиста" "r['lead'].get('logistPhone')=='+7 (912) 000-11-22'" "$R"
 R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LATI\",\"ati\":\"ATI-99\"}")
 R=$(get "$JI" "get_lead&id=$LATI"); check "ati обновляется через save_lead" "r['lead'].get('ati')=='ATI-99'" "$R"
 R=$(get "$JI" "get_data"); check "лёгкая выборка досок содержит logistPhone" "all('logistPhone' in l for l in r.get('leads',[]))" "$R"

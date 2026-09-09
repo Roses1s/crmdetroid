@@ -539,10 +539,14 @@ function initAppEvents() {
         if (i && i.length !== 10 && i.length !== 12) return Toast.error('ИНН 10 или 12 цифр');
         if (!isValidEmail(em)) return Toast.error('Некорректный email');
         // id новому лиду выдаёт сервер
+        // Телефон из окна создания сразу попадает и в «Контакт логиста» (logistPhone):
+        // карточка лида и доска показывают именно его. В phone тоже сохраняем — как раньше.
+        const mPhone = $('#m-phone').value.trim();
         const resL = await Net.req('save_lead', {
-          title: t, inn: i, phone: $('#m-phone').value.trim(), email: em,
+          title: t, inn: i, phone: mPhone, email: em,
           ati: ($('#m-ati')?.value || '').trim(),
           logistName: ($('#m-logist-name')?.value || '').trim(),
+          logistPhone: mPhone,
           stage: Store.state.stages[0]
         });
         if (resL?.success) { Modal.closeAll(); await Store.load(true); } else Toast.error(resL?.error || 'Ошибка');
