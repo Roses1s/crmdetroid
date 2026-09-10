@@ -1,7 +1,7 @@
 'use strict';
 // Утилиты без доменной логики: DOM-хелперы, экранирование, форматирование, маски ввода, Toast/Loading/Modal, prompt/confirm. Вынесено из app.js (план CODE_REVIEW п. 10.9). Файлы js/ — обычные скрипты (не модули): top-level объявления видны всем следующим <script> (порядок — в index.html).
 /* global UI */
-/* exported Loading, Theme, Toast, askConfirm, askPrompt, closeImageLightbox, debounce, fmtBytes, fmtMoney, fmtTime, formatInnInput, formatMarginInput, isImageAtt, isValidEmail, moneyToInput, openImageLightbox, passwordError, plural, safeAttUrl, setupPhoneMask, withLock */
+/* exported Loading, Theme, Toast, askConfirm, askPrompt, closeImageLightbox, debounce, fmtBytes, fmtMoney, fmtTime, formatInnInput, formatMarginInput, isImageAtt, isValidEmail, moneyToInput, openImageLightbox, passwordError, plural, renderSaveStatus, safeAttUrl, setupPhoneMask, withLock */
 
 const Theme = {
   key: 'crm-theme',
@@ -266,3 +266,26 @@ function formatMarginInput(inp) {
 }
 
 function withLock(fn) { return async (...args) => { if (UI.lock) return; UI.lock = true; try { await fn(...args); } finally { UI.lock = false; } }; }
+
+/*
+ * Общий рендер статуса сохранения карточки (лид и перевозчик):
+ * «● Есть изменения» / «Сохраняю…» / «✓ Сохранено HH:MM». Кнопка активна только в dirty.
+ */
+function renderSaveStatus(el, btn, state, ts = 0) {
+  if (!el || !btn) return;
+  el.classList.remove('dirty', 'saving', 'saved');
+  if (state === 'dirty') {
+    el.classList.add('dirty');
+    el.textContent = '● Есть изменения';
+    btn.disabled = false;
+  } else if (state === 'saving') {
+    el.classList.add('saving');
+    el.textContent = 'Сохраняю…';
+    btn.disabled = true;
+  } else { // 'saved'
+    el.classList.add('saved');
+    const t = ts ? new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+    el.textContent = '✓ Сохранено' + (t ? ' ' + t : '');
+    btn.disabled = true;
+  }
+}

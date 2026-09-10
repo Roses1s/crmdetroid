@@ -1,6 +1,6 @@
 'use strict';
 // Лиды: доска (renderBoard), карточка лида, заявки лида (модалка, статистика), лог комментариев с вложениями (общий рендер renderLogInto используют и перевозчики), автосохранение формы. Вынесено из app.js (план CODE_REVIEW п. 10.9).
-/* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, safeAttUrl, setupPhoneMask */
+/* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, setupPhoneMask */
 /* exported closeLeadAppModal, deleteLeadApp, editingCommentAttCount, goNeighborLead, openLeadAppModal, renderBoard, resetBoardCache, saveLeadAppFromModal, updateLeadSaveUI */
 
 function renderAttHtml(a, c) {
@@ -390,25 +390,10 @@ async function deleteLeadApp(id) {
  * Статус сохранения карточки лида (тулбар): «● Есть изменения» / «Сохраняю…» / «✓ Сохранено HH:MM».
  * Кнопка «💾 Сохранить» активна только при несохранённых изменениях — автосохранение
  * (saveLeadDebounced) остаётся основным механизмом, кнопка и Ctrl+S просто не ждут 500 мс.
+ * Общий рендер (renderSaveStatus в util.js) используют и лид, и перевозчик.
  */
 function updateLeadSaveUI(state, ts = 0) {
-  const el = $('#lead-save-status'), btn = $('#btn-save-lead');
-  if (!el || !btn) return;
-  el.classList.remove('dirty', 'saving', 'saved');
-  if (state === 'dirty') {
-    el.classList.add('dirty');
-    el.textContent = '● Есть изменения';
-    btn.disabled = false;
-  } else if (state === 'saving') {
-    el.classList.add('saving');
-    el.textContent = 'Сохраняю…';
-    btn.disabled = true;
-  } else { // 'saved'
-    el.classList.add('saved');
-    const t = ts ? new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
-    el.textContent = '✓ Сохранено' + (t ? ' ' + t : '');
-    btn.disabled = true;
-  }
+  renderSaveStatus($('#lead-save-status'), $('#btn-save-lead'), state, ts);
 }
 
 let _leadSaveChain = Promise.resolve();

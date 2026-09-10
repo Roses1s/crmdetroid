@@ -1,5 +1,5 @@
 'use strict';
-/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openRoute, passwordError, persistOk, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, withLock */
+/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openRoute, passwordError, persistOk, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, withLock */
 /* exported syncAdminNav, updateSearchPlaceholder */
 
 const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
@@ -303,7 +303,7 @@ function initAppEvents() {
     const res = await saveLeadForm(true, false, transferTo);
     if (res && res.transferred) { await Store.load(true); await goHome(true); }
   });
-  $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; saveCarrierDebounced(); } });
+  $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title') && UI.carrierCanManage) { UI.formDirty = true; updateCarrierSaveUI('dirty'); saveCarrierDebounced(); } });
 
   $('#comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-comment"]').click(); } });
   $('#carrier-comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-carrier-comment"]').click(); } });
@@ -630,6 +630,13 @@ function initAppEvents() {
         break;
       }
 
+      case 'save-carrier-now': {
+        if (!UI.carrierId) return;
+        saveCarrierDebounced.cancel();
+        await saveCarrierForm(true);
+        break;
+      }
+
       case 'delete-lead': {
         if (!await askConfirm('Удалить лид?', 'Навсегда')) return;
         const delLead = Store.getLead(UI.leadId);
@@ -773,11 +780,17 @@ function initAppEvents() {
 /** Глобальные клавиатурные сокращения (#16: вынесено из initAppEvents). */
 function initKeyboardShortcuts() {
   document.addEventListener('keydown', e => {
-    // Ctrl+S / Cmd+S на карточке лида — немедленное сохранение (вместо «Сохранить страницу» браузера)
+    // Ctrl+S / Cmd+S на карточке лида или перевозчика — немедленное сохранение
+    // (вместо «Сохранить страницу» браузера)
     if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S' || e.key === 'ы' || e.key === 'Ы')) {
       if (UI.currentView === 'lead' && UI.leadId) {
         e.preventDefault();
         if (UI.formDirty) { saveLeadDebounced.cancel(); saveLeadForm(true); }
+        return;
+      }
+      if (UI.currentView === 'carrier' && UI.carrierId) {
+        e.preventDefault();
+        if (UI.formDirty) { saveCarrierDebounced.cancel(); saveCarrierForm(true); }
         return;
       }
     }

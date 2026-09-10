@@ -1,7 +1,7 @@
 'use strict';
 // Справочник маршрутов: список направлений, карточка направления, перевозчики (список, карточка, автосохранение), их лог. Вынесено из app.js (план CODE_REVIEW п. 10.9).
-/* global $, $$, Net, Toast, UI, debounce, esc, navTo, persistOk, plural, renderFiles, renderLogInto, saveLeadForm, setupPhoneMask, switchView */
-/* exported appsWord, goNeighborCarrier, loadRoutes, saveCarrierDebounced, setRoutesFilter */
+/* global $, $$, Net, Toast, UI, debounce, esc, navTo, persistOk, plural, renderFiles, renderLogInto, renderSaveStatus, saveLeadForm, setupPhoneMask, switchView */
+/* exported appsWord, goNeighborCarrier, loadRoutes, saveCarrierDebounced, setRoutesFilter, updateCarrierSaveUI */
 
 let _routesCache = [];
 
@@ -125,6 +125,11 @@ async function openCarrier(id, updateHash = true) {
     const el = $(sel); if (el) el.readOnly = !c.canManage;
   });
   UI.carrierRev = c.updatedAt;
+  // Статус и кнопка сохранения — только тем, кто может править (у остальных поля read-only,
+  // автосейв не шлётся, и «✓ Сохранено» было бы ложным обещанием)
+  $('#carrier-save-status')?.classList.toggle('hidden', !c.canManage);
+  $('#btn-save-carrier')?.classList.toggle('hidden', !c.canManage);
+  if (c.canManage) updateCarrierSaveUI('saved');
   $('#carrier-view [data-action="delete-carrier"]')?.classList.toggle('hidden', !c.canManage);
   $('#carrier-crumb').textContent = c.name || '';
   $('#carrier-dir-crumb').textContent = d ? `${d.cityFrom} → ${d.cityTo}` : 'Направление';
@@ -174,6 +179,14 @@ function fillCarrierFromForm() {
   };
 }
 
+/*
+ * Статус сохранения карточки перевозчика — та же связка, что на карточке лида
+ * (общий рендер renderSaveStatus в util.js): статус + кнопка «💾 Сохранить» в тулбаре.
+ */
+function updateCarrierSaveUI(state, ts = 0) {
+  renderSaveStatus($('#carrier-save-status'), $('#btn-save-carrier'), state, ts);
+}
+
 let _carrierSaveChain = Promise.resolve();
 
 // Сохранения выстраиваются в цепочку (_carrierSaveChain), поэтому вызов всегда возвращает промис
@@ -186,16 +199,26 @@ async function saveCarrierForm(_sync = false, keepalive = false) {
   const run = async () => {
     const patch = fillCarrierFromForm();
     $('#carrier-crumb').textContent = patch.name;
+    if (UI.currentView === 'carrier') updateCarrierSaveUI('saving');
     const extra = keepalive ? { keepalive: true } : {};
     const res = await Net.req('save_carrier', patch, false, extra);
     if (res && res.success === false && res.error === 'Карточка изменена в другом месте') {
       Toast.error('Карточку изменили в другой вкладке — обновляю');
+      // openCarrier перечитает карточку с сервера и сам выставит статус «Сохранено»
       if (UI.carrierId) await openCarrier(UI.carrierId, false);
       return res;
     }
     if (res && res.success && res.updatedAt) UI.carrierRev = res.updatedAt;
-    if (res && res.success) UI.formDirty = false;
-    else if (res && res.success === false) Toast.error(res.error || 'Ошибка');
+    if (res && res.success) {
+      UI.formDirty = false;
+      if (UI.currentView === 'carrier') updateCarrierSaveUI('saved', Date.now());
+    } else if (res && res.success === false) {
+      Toast.error(res.error || 'Ошибка');
+      if (UI.currentView === 'carrier') updateCarrierSaveUI('dirty');
+    } else if (res == null && UI.currentView === 'carrier') {
+      // Сбой сети — честно показываем «не сохранено»
+      updateCarrierSaveUI('dirty');
+    }
     return res;
   };
   const job = _carrierSaveChain.then(run, run);
