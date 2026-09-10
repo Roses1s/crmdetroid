@@ -440,6 +440,13 @@
   .view-paper { background: var(--panel); }
   .toolbar-sub { background: var(--surface-2); padding: 8px 20px; }
   .ml-auto { margin-left: auto; }
+  /* Статус сохранения карточки: «✓ Сохранено» / «Сохраняю…» / «● Есть изменения» */
+  .save-status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .save-status.dirty { color: #b45309; font-weight: 600; }
+  .save-status.saving { color: var(--muted); }
+  .save-status.saved { color: #15803d; }
+  html[data-theme="dark"] .save-status.dirty { color: #e2b36a; }
+  html[data-theme="dark"] .save-status.saved { color: #6ec87f; }
   .ml-10 { margin-left: 10px; }
   .ml-15 { margin-left: 15px; }
   .col-actions { width: 80px; }

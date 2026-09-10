@@ -87,7 +87,9 @@
       <button type="button" class="btn btn-secondary btn-sm" id="btn-next-lead" data-action="next-lead" title="Следующий лид" aria-label="Следующий лид">→</button>
     </div>
     <div class="stages-row ml-15" id="stages-row"></div>
-    <button class="btn btn-danger btn-sm ml-auto" data-action="delete-lead" aria-label="Удалить лид">🗑️ Удалить</button>
+    <span class="save-status ml-auto" id="lead-save-status" aria-live="polite"></span>
+    <button class="btn btn-primary btn-sm" id="btn-save-lead" data-action="save-lead-now" disabled>💾 Сохранить</button>
+    <button class="btn btn-danger btn-sm" data-action="delete-lead" aria-label="Удалить лид">🗑️ Удалить</button>
   </div>
   <div class="detail-body">
     <div class="form-panel">

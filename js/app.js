@@ -1,5 +1,5 @@
 'use strict';
-/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openRoute, passwordError, persistOk, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setRoutesFilter, setupPhoneMask, withLock */
+/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openRoute, passwordError, persistOk, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, withLock */
 /* exported syncAdminNav, updateSearchPlaceholder */
 
 const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
@@ -275,7 +275,7 @@ function initAppEvents() {
     e.preventDefault();
     e.returnValue = '';
   });
-  $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; saveLeadDebounced(); } });
+  $('#detail-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; updateLeadSaveUI('dirty'); saveLeadDebounced(); } });
   $('#la-inn')?.addEventListener('input', e => formatInnInput(e.target));
   $('#la-rate')?.addEventListener('input', e => formatMarginInput(e.target));
   $('#la-margin')?.addEventListener('input', e => formatMarginInput(e.target));
@@ -622,6 +622,14 @@ function initAppEvents() {
         break;
       }
 
+      case 'save-lead-now': {
+        if (!UI.leadId) return;
+        // Немедленное сохранение без ожидания debounce (кнопка активна только при formDirty)
+        saveLeadDebounced.cancel();
+        await saveLeadForm(true);
+        break;
+      }
+
       case 'delete-lead': {
         if (!await askConfirm('Удалить лид?', 'Навсегда')) return;
         const delLead = Store.getLead(UI.leadId);
@@ -765,6 +773,14 @@ function initAppEvents() {
 /** Глобальные клавиатурные сокращения (#16: вынесено из initAppEvents). */
 function initKeyboardShortcuts() {
   document.addEventListener('keydown', e => {
+    // Ctrl+S / Cmd+S на карточке лида — немедленное сохранение (вместо «Сохранить страницу» браузера)
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S' || e.key === 'ы' || e.key === 'Ы')) {
+      if (UI.currentView === 'lead' && UI.leadId) {
+        e.preventDefault();
+        if (UI.formDirty) { saveLeadDebounced.cancel(); saveLeadForm(true); }
+        return;
+      }
+    }
     if (e.key === 'Enter' && $('#modal-lead-app.open') && !$('#modal-confirm.open') && !$('#modal-prompt.open') && !$('#modal-password.open')) {
       const tag = (document.activeElement && document.activeElement.tagName) || '';
       if (tag !== 'TEXTAREA' && document.activeElement && document.activeElement.closest('#modal-lead-app')) {

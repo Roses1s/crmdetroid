@@ -1,7 +1,7 @@
 'use strict';
 // Лиды: доска (renderBoard), карточка лида, заявки лида (модалка, статистика), лог комментариев с вложениями (общий рендер renderLogInto используют и перевозчики), автосохранение формы. Вынесено из app.js (план CODE_REVIEW п. 10.9).
 /* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, safeAttUrl, setupPhoneMask */
-/* exported closeLeadAppModal, deleteLeadApp, editingCommentAttCount, goNeighborLead, openLeadAppModal, renderBoard, resetBoardCache, saveLeadAppFromModal */
+/* exported closeLeadAppModal, deleteLeadApp, editingCommentAttCount, goNeighborLead, openLeadAppModal, renderBoard, resetBoardCache, saveLeadAppFromModal, updateLeadSaveUI */
 
 function renderAttHtml(a, c) {
   const raw = String(a.dataUrl || '');
@@ -116,6 +116,7 @@ async function openLead(id, updateHash = true) {
   const still = Store.getLead(id); if (!still || !still._full) return goHome(updateHash);
 
   UI.leadId = id; UI.currentView = 'lead'; UI.pendingFiles = []; UI.formDirty = false;
+  updateLeadSaveUI('saved');
   $$('.view-section').forEach(el => el.classList.remove('active'));
   // Синхронизируем подсветку навигации: карточка лида относится к разделу «Лиды»
   // (иначе при открытии лида из поиска дашборда кнопка дашборда оставалась подсвеченной)
@@ -385,6 +386,31 @@ async function deleteLeadApp(id) {
   renderLeadApps();
 }
 
+/*
+ * Статус сохранения карточки лида (тулбар): «● Есть изменения» / «Сохраняю…» / «✓ Сохранено HH:MM».
+ * Кнопка «💾 Сохранить» активна только при несохранённых изменениях — автосохранение
+ * (saveLeadDebounced) остаётся основным механизмом, кнопка и Ctrl+S просто не ждут 500 мс.
+ */
+function updateLeadSaveUI(state, ts = 0) {
+  const el = $('#lead-save-status'), btn = $('#btn-save-lead');
+  if (!el || !btn) return;
+  el.classList.remove('dirty', 'saving', 'saved');
+  if (state === 'dirty') {
+    el.classList.add('dirty');
+    el.textContent = '● Есть изменения';
+    btn.disabled = false;
+  } else if (state === 'saving') {
+    el.classList.add('saving');
+    el.textContent = 'Сохраняю…';
+    btn.disabled = true;
+  } else { // 'saved'
+    el.classList.add('saved');
+    const t = ts ? new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+    el.textContent = '✓ Сохранено' + (t ? ' ' + t : '');
+    btn.disabled = true;
+  }
+}
+
 let _leadSaveChain = Promise.resolve();
 
 // См. saveCarrierForm: цепочка _leadSaveChain, первый аргумент ни на что не влияет.
@@ -392,6 +418,7 @@ async function saveLeadForm(_sync = false, keepalive = false, transferTo = 0) {
   if (!UI.leadId) return null; const lead = Store.getLead(UI.leadId); if (!lead || !lead._full) return null;
   const run = async () => {
     const cur = Store.getLead(UI.leadId); if (!cur || !cur._full) return null;
+    if (UI.currentView === 'lead') updateLeadSaveUI('saving');
     const innDigits = ($('#f-inn').value || '').replace(/\D/g, '');
     const patch = {
       id: UI.leadId,
@@ -407,10 +434,12 @@ async function saveLeadForm(_sync = false, keepalive = false, transferTo = 0) {
     };
     if (innDigits && innDigits.length !== 10 && innDigits.length !== 12) {
       Toast.error('ИНН 10 или 12 цифр');
+      if (UI.currentView === 'lead') updateLeadSaveUI('dirty');
       return { success: false, error: 'ИНН 10 или 12 цифр' };
     }
     if (!isValidEmail(patch.email)) {
       Toast.error('Некорректный email');
+      if (UI.currentView === 'lead') updateLeadSaveUI('dirty');
       return { success: false, error: 'Некорректный email' };
     }
     $('#crumb-name').textContent = patch.title;
@@ -428,13 +457,22 @@ async function saveLeadForm(_sync = false, keepalive = false, transferTo = 0) {
         Toast.error('Карточку изменили в другой вкладке — обновляю');
         await Store.load(true);
         if (UI.leadId) { await ensureLeadFull(UI.leadId); const fresh = Store.getLead(UI.leadId); if (fresh) { fresh._editRev = fresh.updatedAt; fillLeadForm(fresh, true); } }
-      } else Toast.error(res.error || 'Ошибка');
+        // После перечитывания форма совпадает с сервером — несохранённых изменений больше нет
+        if (UI.currentView === 'lead') updateLeadSaveUI('saved', Date.now());
+      } else {
+        Toast.error(res.error || 'Ошибка');
+        if (UI.currentView === 'lead') updateLeadSaveUI('dirty');
+      }
       return res;
     }
     if (res && res.success) {
       UI.formDirty = false;
       Object.assign(cur, patch);
       if (res.updatedAt) { cur.updatedAt = res.updatedAt; cur._editRev = res.updatedAt; }
+      if (UI.currentView === 'lead') updateLeadSaveUI('saved', Date.now());
+    } else if (res == null && UI.currentView === 'lead') {
+      // Сбой сети (Net.req вернул null/ошибку без success) — честно показываем «не сохранено»
+      updateLeadSaveUI('dirty');
     }
     return res;
   };
