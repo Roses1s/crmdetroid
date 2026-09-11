@@ -227,15 +227,26 @@
   .apps-counter { display: flex; align-items: center; gap: 8px; font-size: 13px; }
   .apps-counter b { min-width: 1.5em; text-align: center; font-weight: 700; color: var(--primary); }
 
-  .comment-form { padding: 20px; background: #fff; border-bottom: 1px solid var(--border); }
-  .comment-form textarea { width: 100%; height: 70px; padding: 12px; border: 1px solid #ccc; border-radius: var(--radius); resize: none; font-size: 13px; margin-bottom: 10px; transition: border .2s; }
-  .comment-form textarea:focus { border-color: var(--primary); outline: none; }
+  .comment-form { padding: 14px 20px; background: #fff; border-bottom: 1px solid var(--border); }
+  /* Composer в духе Odoo: единая рамка вокруг поля, превью файлов и ряда иконок;
+     скрепка и «отправить» — круглые иконки-кнопки, textarea растёт под текст (JS autoGrow) */
+  .composer { border: 1px solid #ccc; border-radius: var(--radius-lg); background: var(--input-bg, #fff); padding: 8px 10px; transition: border .2s, box-shadow .2s; }
+  .composer:focus-within { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(113, 75, 103, .12); }
+  .composer textarea { display: block; width: 100%; min-height: 38px; max-height: 180px; padding: 6px 4px; border: none; background: transparent; color: inherit; resize: none; font-size: 13px; line-height: 1.45; overflow-y: auto; }
+  .composer textarea:focus { outline: none; }
+  .composer .files-preview { margin: 0; }
+  .composer .files-preview:not(:empty) { margin: 6px 0 2px; }
+  .composer-actions { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+  .composer-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: none; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
+  .composer-btn svg { width: 17px; height: 17px; }
+  .composer-btn:hover { background: var(--hover); color: var(--text); }
+  .composer-attach { margin-right: auto; }
+  .composer-send { color: var(--primary); }
+  .composer-send:hover { background: var(--primary); color: #fff; }
   .files-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
   .file-chip { background: #eef1f6; border: 1px solid #cbd5e1; border-radius: var(--radius); padding: 4px 10px; font-size: 11px; display: flex; gap: 8px; align-items: center;}
   .chip-remove { cursor: pointer; color: #ef4444; font-weight: 700; font-size: 14px; line-height: 1; flex-shrink: 0;}
   .form-actions { display: flex; justify-content: space-between; align-items: center; }
-  .file-label { cursor: pointer; padding: 6px 12px; font-size: 12px; border-radius: var(--radius); background: #f1f1f1; border: 1px solid #ccc; transition: background .2s; }
-  .file-label:hover { background: #e4e4e4; }
 
   .chatter-log { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
   .log-empty { text-align: center; color: var(--muted); padding: 30px; font-style: italic; }
@@ -279,7 +290,7 @@
   .log-text.hidden { display: none; }
   .inline-editor textarea { width: 100%; min-height: 70px; padding: 10px; border: 1px solid var(--primary); border-radius: var(--radius); font-size: 13px; resize: vertical; margin-bottom: 8px; }
   .inline-edit-btns { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
-  .inline-edit-btns .file-label { margin-right: auto; }
+  .inline-edit-btns .composer-attach { margin-right: auto; }
 
   .users-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); margin-top: 15px; }
   .users-table th, .users-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
@@ -409,12 +420,10 @@
   html[data-theme="dark"] .btn-primary { background: #714B67; color: #fff; border-color: #714B67; }
   html[data-theme="dark"] .btn-primary:hover:not(:disabled) { background: #5a3b52; }
   html[data-theme="dark"] .btn-secondary,
-  html[data-theme="dark"] .file-label,
   html[data-theme="dark"] .stage-btn {
     background: var(--surface-3); color: var(--text); border-color: #555;
   }
-  html[data-theme="dark"] .btn-secondary:hover:not(:disabled),
-  html[data-theme="dark"] .file-label:hover { background: #555; }
+  html[data-theme="dark"] .btn-secondary:hover:not(:disabled) { background: #555; }
   html[data-theme="dark"] .stage-btn.active { background: #714B67; color: #fff; border-color: #714B67; }
   html[data-theme="dark"] .kanban-board { background: var(--bg); }
   html[data-theme="dark"] .column { background: var(--column-bg); }
@@ -426,6 +435,11 @@
   html[data-theme="dark"] .chatter { background: #242424; }
   html[data-theme="dark"] .chatter-header,
   html[data-theme="dark"] .comment-form { background: var(--panel); border-color: var(--border); }
+  html[data-theme="dark"] .composer { background: var(--input-bg); border-color: #555; }
+  html[data-theme="dark"] .composer:focus-within { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(113, 75, 103, .35); }
+  html[data-theme="dark"] .composer-btn:hover { background: var(--hover); color: var(--text); }
+  html[data-theme="dark"] .composer-send { color: #c9a8c0; }
+  html[data-theme="dark"] .composer-send:hover { background: var(--primary); color: #fff; }
   html[data-theme="dark"] .tab-title { color: #c9a8c0; border-bottom-color: #714B67; }
   html[data-theme="dark"] .log-body { background: var(--surface); border-color: #4a4a4a; }
   html[data-theme="dark"] .log-author { color: var(--text); }

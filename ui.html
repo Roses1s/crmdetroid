@@ -131,11 +131,18 @@
         <div class="apps-counter"><span>Заявки:</span><b id="f-apps">0</b></div>
       </div>
       <div class="comment-form">
-        <textarea id="comment-input" placeholder="Комментарий... Enter — отправить, Ctrl+V — скриншот"></textarea>
-        <div class="files-preview" id="files-preview"></div>
-        <div class="form-actions">
-          <button class="btn btn-primary" data-action="post-comment">Записать в лог</button>
-          <label class="file-label">📎 Прикрепить<input type="file" id="file-input" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label>
+        <div class="composer">
+          <textarea id="comment-input" rows="1" placeholder="Написать примечание… Enter — отправить, Ctrl+V — скриншот"></textarea>
+          <div class="files-preview" id="files-preview"></div>
+          <div class="composer-actions">
+            <label class="composer-btn composer-attach" title="Прикрепить файлы" aria-label="Прикрепить файлы">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              <input type="file" id="file-input" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z">
+            </label>
+            <button type="button" class="composer-btn composer-send" data-action="post-comment" title="Записать в лог" aria-label="Записать в лог">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            </button>
+          </div>
         </div>
       </div>
       <div class="chatter-log" id="chatter-log"></div>
@@ -195,11 +202,18 @@
         <div class="tab-title">Лог примечания</div>
       </div>
       <div class="comment-form">
-        <textarea id="carrier-comment-input" placeholder="Комментарий... Enter — отправить, Ctrl+V — скриншот"></textarea>
-        <div class="files-preview" id="carrier-files-preview"></div>
-        <div class="form-actions">
-          <button class="btn btn-primary" data-action="post-carrier-comment">Записать в лог</button>
-          <label class="file-label">📎 Прикрепить<input type="file" id="carrier-file-input" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z"></label>
+        <div class="composer">
+          <textarea id="carrier-comment-input" rows="1" placeholder="Написать примечание… Enter — отправить, Ctrl+V — скриншот"></textarea>
+          <div class="files-preview" id="carrier-files-preview"></div>
+          <div class="composer-actions">
+            <label class="composer-btn composer-attach" title="Прикрепить файлы" aria-label="Прикрепить файлы">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              <input type="file" id="carrier-file-input" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z">
+            </label>
+            <button type="button" class="composer-btn composer-send" data-action="post-carrier-comment" title="Записать в лог" aria-label="Записать в лог">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            </button>
+          </div>
         </div>
       </div>
       <div class="chatter-log" id="carrier-chatter-log"></div>

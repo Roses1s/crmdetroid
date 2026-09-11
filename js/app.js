@@ -1,5 +1,5 @@
 'use strict';
-/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
+/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
 /* exported syncAdminNav, updateSearchPlaceholder */
 
 const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
@@ -332,6 +332,9 @@ function initAppEvents() {
   $('#tag-new-name')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addTagFromModal(); } });
   $('#comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-comment"]').click(); } });
   $('#carrier-comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-carrier-comment"]').click(); } });
+  // Composer в духе Odoo: поле растёт под текст (autoGrowComposer в util.js)
+  $('#comment-input').addEventListener('input', e => autoGrowComposer(e.target));
+  $('#carrier-comment-input').addEventListener('input', e => autoGrowComposer(e.target));
   const bindLogEnter = el => el.addEventListener('keydown', e => { if (e.target.matches('.inline-editor textarea') && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $(`[data-action="save-comment"][data-cid="${e.target.dataset.inp}"]`).click(); } });
   bindLogEnter($('#chatter-log'));
   bindLogEnter($('#carrier-chatter-log'));
@@ -517,7 +520,7 @@ function initAppEvents() {
         const fd = new FormData(); fd.append('carrier_id', UI.carrierId); fd.append('text', txt);
         UI.pendingFiles.forEach(f => fd.append('files[]', f.rawFile));
         const resPCC = await Net.req('add_carrier_comment', fd, true);
-        if (resPCC?.success) { $('#carrier-comment-input').value = ''; UI.pendingFiles = []; await openCarrier(UI.carrierId, false); }
+        if (resPCC?.success) { $('#carrier-comment-input').value = ''; autoGrowComposer($('#carrier-comment-input')); UI.pendingFiles = []; await openCarrier(UI.carrierId, false); }
         else Toast.error(resPCC?.error || 'Ошибка');
         break;
       }
@@ -699,7 +702,7 @@ function initAppEvents() {
         if (resPC?.success) {
           const L = Store.getLead(UI.leadId);
           if (L && resPC.updatedAt) { L.updatedAt = resPC.updatedAt; L._editRev = resPC.updatedAt; }
-          $('#comment-input').value = ''; UI.pendingFiles = []; renderFiles(); await Store.load(true); await loadLeadComments(UI.leadId); renderLog();
+          $('#comment-input').value = ''; autoGrowComposer($('#comment-input')); UI.pendingFiles = []; renderFiles(); await Store.load(true); await loadLeadComments(UI.leadId); renderLog();
         } else Toast.error(resPC?.error || 'Ошибка');
         break;
       }

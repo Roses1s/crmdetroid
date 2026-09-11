@@ -1,7 +1,7 @@
 'use strict';
 // Утилиты без доменной логики: DOM-хелперы, экранирование, форматирование, маски ввода, Toast/Loading/Modal, prompt/confirm. Вынесено из app.js (план CODE_REVIEW п. 10.9). Файлы js/ — обычные скрипты (не модули): top-level объявления видны всем следующим <script> (порядок — в index.html).
 /* global UI */
-/* exported Loading, Theme, Toast, askConfirm, askPrompt, closeImageLightbox, debounce, fmtBytes, fmtMoney, fmtTime, formatInnInput, formatMarginInput, isImageAtt, isValidEmail, moneyToInput, openImageLightbox, passwordError, plural, renderSaveStatus, safeAttUrl, setupPhoneMask, withLock */
+/* exported Loading, Theme, Toast, askConfirm, askPrompt, autoGrowComposer, closeImageLightbox, debounce, fmtBytes, fmtMoney, fmtTime, formatInnInput, formatMarginInput, isImageAtt, isValidEmail, moneyToInput, openImageLightbox, passwordError, plural, renderSaveStatus, safeAttUrl, setupPhoneMask, withLock */
 
 const Theme = {
   key: 'crm-theme',
@@ -108,6 +108,17 @@ function applyPhoneMask(input, e) {
   if (d.length >= 8) f += '-' + d.slice(7, 9);
   if (d.length >= 10) f += '-' + d.slice(9, 11);
   input.value = f;
+}
+
+/**
+ * Автовысота textarea в духе composer'а Odoo: поле начинается с одной строки
+ * и растёт под текст до max-height из CSS (дальше — внутренняя прокрутка).
+ * Вызывать при input и после программной очистки поля (сброс к одной строке).
+ */
+function autoGrowComposer(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
 }
 
 function setupPhoneMask(input) {
