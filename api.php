@@ -434,6 +434,8 @@ function crm_apply_comment_add(PDO $pdo, string $table, string $attTable, string
 }
 /** Обновить текст комментария и дописать вложения (суммарно не более 8). */
 function crm_apply_comment_edit(PDO $pdo, string $cid, string $text, string $table, string $attTable, string $logTag): void {
+    // Предварительная (не блокирующая) оценка свободных слотов — чтобы не сохранять
+    // на диск файлы, которые заведомо не влезут в лимит.
     $have = 0;
     try {
         $stN = $pdo->prepare("SELECT COUNT(*) FROM {$attTable} WHERE comment_id = ?");
@@ -442,8 +444,20 @@ function crm_apply_comment_edit(PDO $pdo, string $cid, string $text, string $tab
     } catch (PDOException $e) { $have = 0; }
     $atts = crm_take_uploads(max(0, 8 - $have));
     if ($text === '' && $have === 0 && !$atts) { crm_discard_uploads($atts); err('Пусто'); }
+    $overLimit = false;
     try {
         $pdo->beginTransaction();
+        if ($atts) {
+            // Контрольный пересчёт под блокировкой (FOR UPDATE): между внешним COUNT и
+            // INSERT параллельный запрос мог дописать свои вложения, и суммарно вышло бы
+            // больше 8 (TOCTOU). Блокирующее чтение сериализует конкурентов по comment_id.
+            $stL = $pdo->prepare("SELECT COUNT(*) FROM {$attTable} WHERE comment_id = ? FOR UPDATE");
+            $stL->execute([$cid]);
+            if ((int) $stL->fetchColumn() + count($atts) > 8) {
+                $overLimit = true;
+                throw new RuntimeException('attachment limit exceeded');
+            }
+        }
         $pdo->prepare("UPDATE {$table} SET text = ?, edited_at = ? WHERE id = ?")->execute([$text, now_ms(), $cid]);
         if ($atts) {
             $insA = $pdo->prepare("INSERT INTO {$attTable} (comment_id, name, size, type, data_url) VALUES (?,?,?,?,?)");
@@ -453,6 +467,7 @@ function crm_apply_comment_edit(PDO $pdo, string $cid, string $text, string $tab
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         crm_discard_uploads($atts);
+        if ($overLimit) err('Максимум 8 файлов у комментария');
         crm_log_fail($logTag, $e);
         err('Не удалось сохранить');
     }
