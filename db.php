@@ -1003,21 +1003,24 @@ function crm_client_activity(PDO $pdo, int $userId, int $year): array {
     // 2) Заявки за год — добавляем месяцы к существующим клиентам.
     // Год фильтруем диапазоном по created_at (миллисекунды), а не YEAR(FROM_UNIXTIME(...)):
     // функция от колонки не даёт использовать индекс и заставляла считать её для каждой строки.
+    // Месяц считаем в PHP, а не MONTH(FROM_UNIXTIME(...)) в SQL: MySQL берёт свою time_zone,
+    // и при расхождении с TZ PHP заявка у границы месяца попадала бы в соседний месяц
+    // (а границы года и номера месяцев считались бы в разных зонах). Теперь обе величины —
+    // границы года и номер месяца — считаются в одной и той же зоне PHP (date.timezone).
     $from = (new DateTimeImmutable("$year-01-01 00:00:00"))->getTimestamp() * 1000;
     $to = (new DateTimeImmutable(($year + 1) . "-01-01 00:00:00"))->getTimestamp() * 1000;
-    $stTrips = $pdo->prepare("SELECT l.inn, MONTH(FROM_UNIXTIME(a.created_at / 1000)) AS month, COUNT(*) AS trips
+    $stTrips = $pdo->prepare("SELECT l.inn, a.created_at
             FROM crm_lead_apps a
             INNER JOIN crm_leads l ON l.id = a.lead_id
             WHERE l.user_id = ?
               AND a.created_at >= ? AND a.created_at < ?
-              AND l.inn <> ''
-            GROUP BY l.inn, month");
+              AND l.inn <> ''");
     $stTrips->execute([$userId, $from, $to]);
     foreach ($stTrips->fetchAll() as $r) {
         $inn = (string) $r['inn'];
-        if (isset($clients[$inn])) {
-            $clients[$inn]['months'][(int) $r['month']] = (int) $r['trips'];
-        }
+        if (!isset($clients[$inn])) continue;
+        $month = (int) date('n', intdiv((int) $r['created_at'], 1000));
+        $clients[$inn]['months'][$month] = ($clients[$inn]['months'][$month] ?? 0) + 1;
     }
     return array_values($clients);
 }
