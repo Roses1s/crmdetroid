@@ -118,11 +118,9 @@ async function openLead(id, updateHash = true) {
   UI.leadId = id; UI.currentView = 'lead'; UI.pendingFiles = []; UI.formDirty = false;
   updateLeadSaveUI('saved');
   $$('.view-section').forEach(el => el.classList.remove('active'));
-  // Синхронизируем подсветку навигации: карточка лида относится к разделу «Лиды»
-  // (иначе при открытии лида из поиска дашборда кнопка дашборда оставалась подсвеченной)
-  $$('.nav-item').forEach(el => el.classList.remove('active'));
+  // Снимаем подсветку кнопки дашборда: карточка лида — не дашборд
+  // (иначе при открытии лида из поиска дашборда кнопка оставалась подсвеченной)
   $('#nav-dashboard')?.classList.remove('active');
-  $('#nav-leads')?.classList.add('active');
   $('#detail-view').classList.add('active');
   fillLeadForm(still, true);
   renderLeadApps();

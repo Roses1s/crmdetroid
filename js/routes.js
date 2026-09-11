@@ -50,10 +50,8 @@ async function openRoute(id, updateHash = true) {
   if (!res || !res.success) { switchView('routes-view', updateHash); return; }
   UI.routeId = id; UI.currentView = 'route';
   $$('.view-section').forEach(el => el.classList.remove('active'));
-  $$('.nav-item').forEach(el => el.classList.remove('active'));
   $('#nav-dashboard')?.classList.remove('active');
   $('#route-view').classList.add('active');
-  $('#nav-routes')?.classList.add('active');
   const d = res.direction;
   $('#route-crumb').textContent = `${d.cityFrom} → ${d.cityTo}`;
   // Удалять направление может создатель или админ — остальным кнопку не показываем (сервер проверяет сам)
@@ -110,10 +108,8 @@ async function openCarrier(id, updateHash = true) {
   const c = res.carrier, d = res.direction;
   if (c.directionId) UI.routeId = c.directionId;
   $$('.view-section').forEach(el => el.classList.remove('active'));
-  $$('.nav-item').forEach(el => el.classList.remove('active'));
   $('#nav-dashboard')?.classList.remove('active');
   $('#carrier-view').classList.add('active');
-  $('#nav-routes')?.classList.add('active');
   $('#cf-name').value = c.name || '';
   $('#cf-phone').value = c.phone || '';
   $('#cf-company').value = c.company || '';

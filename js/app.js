@@ -5,21 +5,8 @@
 const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
 
 function syncAdminNav(user) {
-  const nav = $('#main-nav');
-  let el = $('#nav-users');
-  const admin = user?.role === 'admin';
-  if (admin) {
-    if (!el && nav) {
-      el = document.createElement('span');
-      el.className = 'nav-item';
-      el.id = 'nav-users';
-      el.dataset.action = 'go-users';
-      el.textContent = 'Сотрудники';
-      nav.appendChild(el);
-    }
-  } else if (el) el.remove();
-  // Плитка «Сотрудники» на дашборде — тоже только для админа
-  $('#tile-users')?.classList.toggle('hidden', !admin);
+  // Разделы переехали с шапки на дашборд: для админа осталось только показать/спрятать плитку «Сотрудники»
+  $('#tile-users')?.classList.toggle('hidden', user?.role !== 'admin');
 }
 
 function isReservedUserName(name) {
@@ -188,8 +175,8 @@ async function switchView(viewId, updateHash = true) {
   UI.currentView = viewId.replace('-view', '');
 
   $$('.view-section').forEach(el => el.classList.remove('active'));
-  $$('.nav-item').forEach(el => el.classList.remove('active'));
-  // Кнопка дашборда — не .nav-item: её подсветку снимаем отдельно, иначе она «залипала» активной
+  // Разделы в шапке убраны (переехали на дашборд) — подсвечиваем только кнопку дашборда,
+  // иначе она «залипала» активной при переходе в другие разделы
   $('#nav-dashboard')?.classList.remove('active');
   const viewEl = $('#'+viewId); if (viewEl) viewEl.classList.add('active');
 
@@ -197,20 +184,16 @@ async function switchView(viewId, updateHash = true) {
     $('#nav-dashboard')?.classList.add('active');
     if (updateHash) navTo('#dashboard');
   } else if (viewId === 'kanban-view') {
-    $('#nav-leads')?.classList.add('active');
     if (updateHash) navTo('#kanban');
     updateViewBanner();
     renderBoard();
   } else if (viewId === 'users-view') {
-    $('#nav-users')?.classList.add('active');
     if (updateHash) navTo('#users');
     loadUsers();
   } else if (viewId === 'routes-view') {
-    $('#nav-routes')?.classList.add('active');
     if (updateHash) navTo('#routes');
     loadRoutes();
   } else if (viewId === 'activity-view') {
-    $('#nav-activity')?.classList.add('active');
     if (updateHash) navTo('#activity');
     loadActivity();
   } else if (viewId === 'apps-view') {
