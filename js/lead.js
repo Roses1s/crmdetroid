@@ -125,7 +125,7 @@ async function openLead(id, updateHash = true) {
   fillLeadForm(still, true);
   renderLeadApps();
 
-  if (updateHash) navTo('#lead/' + encodeURIComponent(id));
+  if (updateHash) navTo('lead/' + encodeURIComponent(id));
 
   await loadLeadComments(id);
   renderDetailStages(); renderFiles(); renderLog();

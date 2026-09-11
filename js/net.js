@@ -7,7 +7,7 @@ const Net = {
   setOnline(v) { this.online = v; $('#conn-dot')?.classList.toggle('offline', !v); },
   async req(action, data = null, isFormData = false) {
     try {
-      let url = `api.php?action=${encodeURIComponent(action)}`;
+      let url = `/api.php?action=${encodeURIComponent(action)}`;
       if (action === 'get_data' && this.hash) {
         url += `&hash=${encodeURIComponent(this.hash)}`;
         // Дельта-синхронизация (ревью, п. 12): раз у нас есть hash — есть и снимок доски;

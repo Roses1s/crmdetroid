@@ -93,7 +93,9 @@ function crm_att_mime(string $storedType, string $dataUrl, string $origName = ''
 function crm_file_url(string $dataUrl): string {
     $name = crm_upload_name($dataUrl);
     if ($name === null) return '';
-    return 'api.php?action=file&f=' . rawurlencode($name);
+    // Абсолютный путь: с History API-роутингом страница может быть /lead/<id>,
+    // и относительный api.php резолвился бы в /lead/api.php
+    return '/api.php?action=file&f=' . rawurlencode($name);
 }
 
 function crm_serve_file(PDO $pdo, string $name, array $user): never {

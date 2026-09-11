@@ -69,7 +69,9 @@ function isImageAtt(a) {
  */
 function safeAttUrl(raw) {
   const s = String(raw || '');
-  if (s.startsWith('api.php?action=file&f=') || s.startsWith('api.php?action=file&amp;f=')) return escAttr(s);
+  if (s.startsWith('/api.php?action=file&f=') || s.startsWith('/api.php?action=file&amp;f=')) return escAttr(s);
+  // Относительная форма — от кэша старой серверной версии; чиним префиксом /
+  if (s.startsWith('api.php?action=file&f=') || s.startsWith('api.php?action=file&amp;f=')) return escAttr('/' + s);
   return '';
 }
 

@@ -38,7 +38,7 @@ async function viewUserBoard(id, name) {
   Store.viewUserName = name || '';
   Net.hash = null; Store.since = 0; resetBoardCache();
   updateViewBanner();
-  navTo(location.hash || '#kanban', true);
+  navTo(currentRoute() || 'kanban', true);
   if (UI.currentView !== 'kanban') await goHome(true);
   else renderBoard();
   await Store.load(true);
@@ -49,7 +49,7 @@ async function exitViewUser() {
   Store.viewUserId = null; Store.viewUserName = '';
   Net.hash = null; Store.since = 0; resetBoardCache();
   updateViewBanner();
-  navTo(location.hash || '#kanban', true);
+  navTo(currentRoute() || 'kanban', true);
   if (UI.currentView !== 'kanban') await goHome(true);
   if (had) await Store.load(true); else renderBoard();
 }
@@ -61,7 +61,9 @@ function handleLogoutUI(msg) {
   Store.state.user = null; Store.state.leads = []; Store.state.stages = [];
   Net.hash = null; Store.since = 0; resetBoardCache();
   clearSearch();
-  history.replaceState(null, '', location.pathname);
+  // Маршрут теперь в pathname — на форме входа сбрасываем URL в корень
+  // (search и битый путь тоже: ?as=… чужой доски не должен переживать разлогин)
+  history.replaceState(null, '', '/');
   $$('.view-section').forEach(el => el.classList.remove('active'));
   const kv = $('#kanban-view'); if (kv) kv.classList.add('active');
   document.body.classList.remove('booting');
@@ -76,19 +78,34 @@ function handleLogoutUI(msg) {
 function readAsParam() {
   return parseInt(new URLSearchParams(location.search).get('as') || '0', 10) || 0;
 }
-function appUrl(hash) {
-  hash = hash || '';
-  if (hash && hash[0] !== '#') hash = '#' + hash;
+/**
+ * Красивые ссылки без # (History API): маршрут — это путь от корня («/kanban», «/lead/<id>»).
+ * navTo принимает и старую форму «#lead/…» — ведущая решётка просто отбрасывается,
+ * чтобы не переписывать все вызовы одномоментно и не ломать чужие закладки.
+ */
+function routePath(route) {
+  route = String(route || '').replace(/^#/, '');
+  if (route && route[0] !== '/') route = '/' + route;
   const as = Store.viewUserId;
   const q = as ? ('?as=' + encodeURIComponent(as)) : '';
-  return location.pathname + q + hash;
+  return (route || '/kanban') + q;
 }
-function navTo(hash, push = true) {
-  const url = appUrl(hash);
-  const now = location.pathname + location.search + location.hash;
+function navTo(route, push = true) {
+  const url = routePath(route);
+  const now = location.pathname + location.search;
   if (now === url) return;
   if (push) history.pushState(null, '', url);
   else history.replaceState(null, '', url);
+}
+/** Текущий маршрут: путь без ведущего слэша; старые ссылки с #маршрутом на любом пути тоже понимаем. */
+function currentRoute() {
+  const h = location.hash.replace(/^#/, '');
+  // Закладка старого формата (#lead/abc) — маршрут берём из hash и молча переписываем URL на новый вид
+  if (h && /^(kanban|dashboard|routes|activity|apps|users|lead\/|carrier\/|route\/)/.test(h)) {
+    history.replaceState(null, '', routePath(h));
+    return h;
+  }
+  return location.pathname.replace(/^\//, '');
 }
 async function syncViewUserFromUrl() {
   if (!Store.state.user || Store.state.user.role !== 'admin') {
@@ -125,30 +142,30 @@ async function syncViewUserFromUrl() {
 }
 
 /* === НАВИГАЦИЯ (РОУТЕР) === */
-// decodeURIComponent бросает URIError на битом хэше (#lead/%E0) — тогда просто идём на доску.
-function hashParam(hash, prefix) {
-  try { return decodeURIComponent(hash.slice(prefix.length)); } catch (e) { return ''; }
+// decodeURIComponent бросает URIError на битом пути (lead/%E0) — тогда просто идём на доску.
+function routeParam(route, prefix) {
+  try { return decodeURIComponent(route.slice(prefix.length)); } catch (e) { return ''; }
 }
 function handleHashRouting() {
-  const hash = window.location.hash;
-  if (hash.startsWith('#lead/')) {
-    const targetLeadId = hashParam(hash, '#lead/');
+  const route = currentRoute();
+  if (route.startsWith('lead/')) {
+    const targetLeadId = routeParam(route, 'lead/');
     if (targetLeadId && Store.getLead(targetLeadId)) { openLead(targetLeadId, false); return; }
-  } else if (hash.startsWith('#carrier/')) {
-    const cid = hashParam(hash, '#carrier/');
+  } else if (route.startsWith('carrier/')) {
+    const cid = routeParam(route, 'carrier/');
     if (cid) { openCarrier(cid, false); return; }
-  } else if (hash.startsWith('#route/')) {
-    const rid = hashParam(hash, '#route/');
+  } else if (route.startsWith('route/')) {
+    const rid = routeParam(route, 'route/');
     if (rid) { openRoute(rid, false); return; }
-  } else if (hash === '#dashboard') {
+  } else if (route === 'dashboard') {
     switchView('dashboard-view', false); return;
-  } else if (hash === '#routes') {
+  } else if (route === 'routes') {
     switchView('routes-view', false); return;
-  } else if (hash === '#activity') {
+  } else if (route === 'activity') {
     switchView('activity-view', false); return;
-  } else if (hash === '#apps') {
+  } else if (route === 'apps') {
     switchView('apps-view', false); return;
-  } else if (hash === '#users' && Store.state.user?.role === 'admin') {
+  } else if (route === 'users' && Store.state.user?.role === 'admin') {
     switchView('users-view', false); return;
   }
   switchView('kanban-view', false);
@@ -182,22 +199,22 @@ async function switchView(viewId, updateHash = true) {
 
   if (viewId === 'dashboard-view') {
     $('#nav-dashboard')?.classList.add('active');
-    if (updateHash) navTo('#dashboard');
+    if (updateHash) navTo('dashboard');
   } else if (viewId === 'kanban-view') {
-    if (updateHash) navTo('#kanban');
+    if (updateHash) navTo('kanban');
     updateViewBanner();
     renderBoard();
   } else if (viewId === 'users-view') {
-    if (updateHash) navTo('#users');
+    if (updateHash) navTo('users');
     loadUsers();
   } else if (viewId === 'routes-view') {
-    if (updateHash) navTo('#routes');
+    if (updateHash) navTo('routes');
     loadRoutes();
   } else if (viewId === 'activity-view') {
-    if (updateHash) navTo('#activity');
+    if (updateHash) navTo('activity');
     loadActivity();
   } else if (viewId === 'apps-view') {
-    if (updateHash) navTo('#apps');
+    if (updateHash) navTo('apps');
     loadApps();
   }
 }
@@ -400,9 +417,10 @@ function initAppEvents() {
   document.body.addEventListener('click', async e => {
     const actEl = e.target.closest('[data-action]'); if (!actEl) return;
     const act = actEl.dataset.action;
-    // Плитки дашборда — <a href="#..."> ради фокуса и Enter с клавиатуры; сам переход
-    // делает switchView (ниже), а браузерный дефолт гасим, иначе hash меняется дважды
-    if (actEl.tagName === 'A' && (actEl.getAttribute('href') || '').startsWith('#')) e.preventDefault();
+    // Плитки дашборда — <a href="/маршрут"> ради фокуса и Enter с клавиатуры; сам переход
+    // делает switchView (ниже), а браузерный дефолт гасим, иначе будет полная перезагрузка.
+    // Только для go-* навигации: ссылки вложений (open-image) обрабатываются своей веткой.
+    if (actEl.tagName === 'A' && act.startsWith('go-')) e.preventDefault();
 
     if (act === 'prompt-cancel') {
       const r = _promptResolver; _promptResolver = null;
@@ -942,7 +960,7 @@ async function loadAppShell() {
   try {
     const opts = { method: 'GET', headers: {}, keepalive: true };
     if (Net.csrf) opts.headers['X-CSRF-Token'] = Net.csrf;
-    const res = await fetch('api.php?action=ui', opts);
+    const res = await fetch('/api.php?action=ui', opts);
     const ctype = (res.headers.get('content-type') || '');
     if (!res.ok || ctype.includes('application/json')) {
       handleLogoutUI();

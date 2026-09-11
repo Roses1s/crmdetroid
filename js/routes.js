@@ -56,7 +56,7 @@ async function openRoute(id, updateHash = true) {
   $('#route-crumb').textContent = `${d.cityFrom} → ${d.cityTo}`;
   // Удалять направление может создатель или админ — остальным кнопку не показываем (сервер проверяет сам)
   $('[data-action="delete-direction"]')?.classList.toggle('hidden', !d.canManage);
-  if (updateHash) navTo('#route/' + encodeURIComponent(id));
+  if (updateHash) navTo('route/' + encodeURIComponent(id));
   renderCarriers(res.carriers || []);
 }
 
@@ -130,7 +130,7 @@ async function openCarrier(id, updateHash = true) {
   $('#carrier-crumb').textContent = c.name || '';
   $('#carrier-dir-crumb').textContent = d ? `${d.cityFrom} → ${d.cityTo}` : 'Направление';
   setupPhoneMask($('#cf-phone'));
-  if (updateHash) navTo('#carrier/' + encodeURIComponent(id));
+  if (updateHash) navTo('carrier/' + encodeURIComponent(id));
   renderCarrierLog();
   renderFiles();
   if (!_carriersCache.length || !_carriersCache.some(x => String(x.id).trim() === String(id).trim())) {
