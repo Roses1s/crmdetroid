@@ -156,6 +156,37 @@ check "заявка пережила передачу (count=1, маржа 1500)
 R=$(get "$JI" "get_lead&id=$LTR"); check "A после передачи лид не видит" "r.get('error')=='Лид не найден'" "$R"
 post "$JP" "$TP" delete_lead "{\"id\":\"$LTR\"}" >/dev/null
 
+# --- 8б. теги лидов (v17): справочник, привязка, изоляция, чистка ------------
+R=$(post "$JI" "$TI" save_tag '{"name":"Смоук срочно","color":"#ef4444"}'); TG1=$(jget "$R" "r['tag']['id']")
+check "тег создан с цветом из палитры" "r.get('success') is True and r['tag']['color']=='#ef4444'" "$R"
+R=$(post "$JI" "$TI" save_tag '{"name":"Смоук цвет","color":"#bad бяка"}')
+TG2=$(jget "$R" "r['tag']['id']")
+check "цвет не из палитры заменён на дефолтный" "r['tag']['color']=='#6366f1'" "$R"
+R=$(post "$JI" "$TI" save_tag '{"name":"Смоук срочно","color":"#3b82f6"}')
+check "дубль названия тега отклонён" "r.get('error')=='Тег с таким названием уже есть'" "$R"
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke лид с тегами"}'); LTG=$(jget "$R" "r['id']")
+R=$(post "$JI" "$TI" set_lead_tags "{\"leadId\":\"$LTG\",\"tagIds\":[$TG1,$TG2,999999]}")
+check "теги назначены лиду (несуществующий id отброшен)" "r.get('success') is True and sorted(t['id'] for t in r['leadTags'])==sorted([$TG1,$TG2])" "$R"
+R=$(get "$JI" "get_data&hash=x")
+check "get_data отдаёт справочник и карту тегов" "any(t['id']==$TG1 for t in r.get('tags',[])) and any(t['id']==$TG1 for t in r.get('leadTags',{}).get('$LTG',[]))" "$R"
+# чужой тег нельзя назначить своему лиду
+R=$(post "$JP" "$TP" save_tag '{"name":"Смоук чужой","color":"#22c55e"}'); TGB=$(jget "$R" "r['tag']['id']")
+R=$(post "$JI" "$TI" set_lead_tags "{\"leadId\":\"$LTG\",\"tagIds\":[$TGB]}")
+check "чужой тег отброшен при назначении" "r.get('success') is True and r['leadTags']==[]" "$R"
+post "$JI" "$TI" set_lead_tags "{\"leadId\":\"$LTG\",\"tagIds\":[$TG1,$TG2]}" >/dev/null
+R=$(post "$JP" "$TP" delete_tag "{\"id\":$TG1}")
+check "чужой тег нельзя удалить" "r.get('error')=='Тег не найден'" "$R"
+# передача лида снимает теги прежнего владельца
+R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LTG\",\"title\":\"Smoke лид с тегами\",\"transferTo\":$UB}")
+check "лид с тегами передан B" "r.get('transferred') is True" "$R"
+R=$(get "$JP" "get_data&hash=x")
+check "у B на переданном лиде нет чужих тегов" "r.get('leadTags',{}).get('$LTG',[])==[]" "$R"
+post "$JP" "$TP" delete_lead "{\"id\":\"$LTG\"}" >/dev/null
+# удаление тега чистит справочник
+R=$(post "$JI" "$TI" delete_tag "{\"id\":$TG1}"); check "тег удалён из справочника" "r.get('success') is True and all(t['id']!=$TG1 for t in r.get('tags',[]))" "$R"
+post "$JI" "$TI" delete_tag "{\"id\":$TG2}" >/dev/null
+post "$JP" "$TP" delete_tag "{\"id\":$TGB}" >/dev/null
+
 # --- 9. продавец по умолчанию и переименование ----------------------------
 R=$(post "$JA" "$TA" save_lead '{"title":"Smoke от админа"}' "&as=$UA"); LADM=$(jget "$R" "r['id']")
 R=$(get "$JI" "get_lead&id=$LADM"); check "лид, созданный админом через ?as=, имеет продавца = владелец доски" "r['lead']['manager']=='$A_NAME'" "$R"

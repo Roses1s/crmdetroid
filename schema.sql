@@ -1,6 +1,6 @@
 -- CRM «Детроид» — схема MySQL (utf8mb4 / InnoDB)
 -- На SpaceWeb таблицы создаются сами при первом запросе к api.php.
--- Этот файл совпадает с миграциями в migrations.php (schema version 16).
+-- Этот файл совпадает с миграциями в migrations.php (schema version 17).
 -- Импорт вручную не обязателен.
 
 SET NAMES utf8mb4;
@@ -180,6 +180,27 @@ CREATE TABLE IF NOT EXISTS crm_lead_apps (
   KEY idx_lead (lead_id),
   KEY idx_lead_created (lead_id, created_at),
   CONSTRAINT fk_lead_apps_lead FOREIGN KEY (lead_id) REFERENCES crm_leads (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v17: личные теги лидов. Справочник у каждого сотрудника свой (user_id);
+-- цвет — hex из фиксированной палитры (валидируется сервером, CRM_TAG_COLORS в actions/tags.php).
+CREATE TABLE IF NOT EXISTS crm_tags (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id INT UNSIGNED NOT NULL,
+  name VARCHAR(40) NOT NULL,
+  color VARCHAR(7) NOT NULL DEFAULT '#6366f1',
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_user_name (user_id, name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Привязка тегов к лидам (многие-ко-многим). Без FK — каскадные удаления в коде
+-- (crm_purge_lead, crm_purge_user, delete_tag), как и у остальных таблиц (см. TODO ниже).
+CREATE TABLE IF NOT EXISTS crm_lead_tags (
+  lead_id VARCHAR(80) NOT NULL,
+  tag_id INT UNSIGNED NOT NULL,
+  PRIMARY KEY (lead_id, tag_id),
+  KEY idx_tag (tag_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- v14: аудит-лог чувствительных действий (входы, управление сотрудниками, передачи лидов)

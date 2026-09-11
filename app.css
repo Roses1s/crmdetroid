@@ -153,6 +153,25 @@
   .card-meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 6px; gap: 5px;}
   .card-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card-apps { margin-top: 6px; font-size: 11px; font-weight: 700; color: var(--primary); }
+
+  /* Теги лидов (v17): чипы на канбан-карточке и в карточке лида, модалка выбора */
+  .tag-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 5px; }
+  .tag-chip { display: inline-flex; align-items: center; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #fff; line-height: 16px; }
+  .lead-tags-row { display: flex; align-items: center; gap: 10px; margin: 8px 0 14px; flex-wrap: wrap; }
+  .lead-tags-row .tag-chips { margin-bottom: 0; }
+  .lead-tags-row .tag-chip { font-size: 12px; line-height: 20px; max-width: 220px; }
+  .tags-list { margin-bottom: 16px; max-height: 40vh; overflow-y: auto; }
+  .tags-empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+  .tag-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .tag-pick { cursor: pointer; font-size: 13px; line-height: 24px; padding: 1px 12px; opacity: .55; transition: opacity .15s, transform .15s; user-select: none; }
+  .tag-pick.selected { opacity: 1; transform: scale(1.03); }
+  .tag-pick:hover { opacity: .85; }
+  .tag-del { cursor: pointer; color: var(--muted); font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+  .tag-del:hover { color: #ef4444; background: rgba(239,68,68,.1); }
+  .tag-palette { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .tag-color { width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; box-sizing: border-box; transition: transform .15s; }
+  .tag-color:hover { transform: scale(1.15); }
+  .tag-color.selected { border-color: var(--text, #1e293b); transform: scale(1.15); }
   .add-column { width: 260px; flex-shrink: 0; background: rgba(0,0,0,.05); border: 1px dashed #bbb; border-radius: 6px; padding: 10px; text-align: center; color: #666; cursor: pointer; font-weight: 700; font-size: 13px; }
 
   .lead-nav { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }

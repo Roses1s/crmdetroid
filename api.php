@@ -6,12 +6,13 @@
  * Архитектура (TODO #15/#18/#20 — выполнены, ревизия 2026-09-08):
  * Здесь остались middleware (сессии, auth, CSRF, лимиты запросов), общие хелперы
  * запроса (body_json/strv/intv, права, приём вложений, crm_apply_comment_*) и роутинг.
- * Сами действия — в actions/ (41 действие; каждое завершает запрос, поэтому never):
+ * Сами действия — в actions/ (44 действия; каждое завершает запрос, поэтому never):
  *   actions/auth.php    — csrf, login, logout, check_auth, file. Выполняются ДО общего
  *                         middleware ($user/$viewUid ещё нет), поэтому сигнатура другая:
  *                         crm_action_xxx(PDO $pdo, bool $hasSess): never
  *   actions/lead.php    — save_lead, move_lead, delete_lead, get_lead, get_data, get_activity,
  *                         save_lead_app, delete_lead_app
+ *   actions/tags.php    — save_tag, delete_tag, set_lead_tags (личные теги лидов, v17)
  *   actions/comment.php — add_comment, edit_comment, delete_comment, delete_attachment, get_comments
  *   actions/user.php    — register_user, update_user, delete_user, get_users, change_password, me
  *   actions/routes.php  — save_direction, delete_direction, get_directions, save_carrier, delete_carrier,
@@ -58,6 +59,7 @@ require __DIR__ . '/actions/user.php';
 require __DIR__ . '/actions/comment.php';
 require __DIR__ . '/actions/routes.php';
 require __DIR__ . '/actions/lead.php';
+require __DIR__ . '/actions/tags.php';
 
 // Старые config.php без новых констант
 if (!defined('CRM_TRUSTED_PROXIES')) define('CRM_TRUSTED_PROXIES', getenv('CRM_TRUSTED_PROXIES') ?: '');
@@ -561,6 +563,12 @@ switch ($action) {
     case 'save_lead_app': crm_action_save_lead_app($pdo, $user, $viewUid);
 
     case 'delete_lead_app': crm_action_delete_lead_app($pdo, $user, $viewUid);
+
+    case 'save_tag': crm_action_save_tag($pdo, $user, $viewUid);
+
+    case 'delete_tag': crm_action_delete_tag($pdo, $user, $viewUid);
+
+    case 'set_lead_tags': crm_action_set_lead_tags($pdo, $user, $viewUid);
 
     case 'search_leads': crm_action_search_leads($pdo, $user, $viewUid);
 

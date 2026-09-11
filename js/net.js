@@ -16,7 +16,7 @@ const Net = {
         // уже увидели более новый лид, — без зазора такое изменение проскочило бы мимо дельты.
         if (Store.since) url += `&since=${encodeURIComponent(Math.max(1, Store.since - 10000))}`;
       }
-      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1 };
+      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1, save_tag:1, delete_tag:1, set_lead_tags:1 };
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
@@ -65,7 +65,7 @@ const Net = {
 const Store = {
   viewUserId: null, viewUserName: '',
   since: 0, // максимальный виденный updatedAt/createdAt — курсор дельта-синхронизации
-  state: { stages: [], leads: [], user: null, colleagues: [] },
+  state: { stages: [], leads: [], user: null, colleagues: [], tags: [], leadTags: {} },
   async load(force = false) {
     if (force) Loading.show();
     try {
@@ -127,6 +127,10 @@ const Store = {
     // Курсор дельты — по фактическому состоянию (не Date.now(): часы клиента и сервера расходятся)
     this.since = this.state.leads.reduce((m, l) => Math.max(m, Number(l.updatedAt) || 0, Number(l.createdAt) || 0), 0);
     this.state.user = res.user;
+    // Теги (v17): сервер шлёт справочник и карту lead→теги целиком и в полном ответе,
+    // и в дельте (объёмы маленькие; изменение тегов меняет hash через tags_<uid>).
+    if (res.tags) this.state.tags = res.tags;
+    if (res.leadTags) this.state.leadTags = res.leadTags;
     if (res.colleagues) {
       this.state.colleagues = res.colleagues;
       const dl = $('#colleagues-list');

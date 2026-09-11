@@ -23,7 +23,9 @@ function crm_action_get_data(PDO $pdo, array $user, int $viewUid): never {
     }
     $c = count($allIds);
     $h = $c > 0 ? substr(hash('sha256', $idsConcat), 0, 16) : '0';
-    $revStr = $uid . '|' . $c . '|' . $u . '|' . $cr . '|' . $h . '|' . crm_meta_get($pdo, 'users') . '|' . implode("\n", $stages);
+    // tags_<uid> в ревизии: изменение справочника тегов или привязок (v17) не трогает
+    // updated_at лидов, но должно перерисовать доску на других вкладках.
+    $revStr = $uid . '|' . $c . '|' . $u . '|' . $cr . '|' . $h . '|' . crm_meta_get($pdo, 'users') . '|' . crm_meta_get($pdo, 'tags_' . $uid) . '|' . implode("\n", $stages);
     $hash = substr(hash('sha256', $revStr), 0, 32);
     $client = strv($_GET['hash'] ?? '', 64);
     if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
@@ -42,9 +44,11 @@ function crm_action_get_data(PDO $pdo, array $user, int $viewUid): never {
         $chSt->execute([$uid, $since, $since]);
         $changed = [];
         foreach ($chSt as $r) $changed[] = crm_lead_row_to_api($r, false);
-        ok(['hash' => $hash, 'delta' => true, 'ids' => $allIds, 'changed' => $changed, 'stages' => $stages, 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo)]);
+        ok(['hash' => $hash, 'delta' => true, 'ids' => $allIds, 'changed' => $changed, 'stages' => $stages, 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo),
+            'tags' => crm_tags_for_user($pdo, $uid), 'leadTags' => (object) crm_lead_tags_map($pdo, $uid)]);
     }
-    ok(['hash' => $hash, 'stages' => $stages, 'leads' => crm_leads_full($pdo, $uid), 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo)]);
+    ok(['hash' => $hash, 'stages' => $stages, 'leads' => crm_leads_full($pdo, $uid), 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo),
+        'tags' => crm_tags_for_user($pdo, $uid), 'leadTags' => (object) crm_lead_tags_map($pdo, $uid)]);
 }
 
 function crm_action_get_lead(PDO $pdo, array $user, int $viewUid): never {

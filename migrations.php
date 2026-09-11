@@ -10,7 +10,7 @@ declare(strict_types=1);
  * резолвятся в рантайме, когда все файлы уже подключены.
  */
 
-const CRM_SCHEMA_VERSION = 16;
+const CRM_SCHEMA_VERSION = 17;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -57,6 +57,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v14($pdo);
     crm_migrate_v15($pdo);
     crm_migrate_v16($pdo);
+    crm_migrate_v17($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -358,6 +359,31 @@ function crm_migrate_v16(PDO $pdo): void {
             crm_log_fail('migrate_v16 ft_title', $e);
         }
     }
+}
+
+/*
+ * v17: личные теги лидов. Справочник crm_tags у каждого сотрудника свой (user_id),
+ * привязка к лидам — crm_lead_tags (многие-ко-многим). Цвет — hex из фиксированной
+ * палитры (валидирует сервер, actions/tags.php). Без FK — каскадные удаления в коде,
+ * как у остальных таблиц (crm_purge_lead / crm_purge_user / delete_tag).
+ */
+function crm_migrate_v17(PDO $pdo): void {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_tags (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id INT UNSIGNED NOT NULL,
+      name VARCHAR(40) NOT NULL,
+      color VARCHAR(7) NOT NULL DEFAULT '#6366f1',
+      created_at BIGINT NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_user_name (user_id, name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_lead_tags (
+      lead_id VARCHAR(80) NOT NULL,
+      tag_id INT UNSIGNED NOT NULL,
+      PRIMARY KEY (lead_id, tag_id),
+      KEY idx_tag (tag_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
 function crm_migrate_owners(PDO $pdo): void {

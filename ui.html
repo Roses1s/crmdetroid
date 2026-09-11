@@ -94,6 +94,10 @@
   <div class="detail-body">
     <div class="form-panel">
       <input type="text" id="f-title" class="editable-title" placeholder="Название компании...">
+      <div class="lead-tags-row" id="lead-tags-row">
+        <span id="lead-tags-chips"></span>
+        <button type="button" class="btn btn-secondary btn-sm" data-action="open-lead-tags">🏷️ Теги</button>
+      </div>
       <div class="form-grid">
         <div>
           <div class="form-row"><div class="form-label">ИНН</div><input class="form-input" id="f-inn" placeholder="10 или 12 цифр" maxlength="12"></div>
@@ -285,6 +289,19 @@
     <div class="field"><label>Имя</label><input id="la-name" placeholder="Имя"></div>
     <div class="field"><label>Телефон</label><input id="la-phone"></div>
     <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-lead-app">Сохранить</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-tags">
+  <div class="modal">
+    <h2>Теги лида</h2>
+    <div id="tags-list" class="tags-list"></div>
+    <div class="field">
+      <label>Новый тег</label>
+      <input id="tag-new-name" maxlength="40" placeholder="Название тега">
+      <div class="tag-palette" id="tag-palette"></div>
+    </div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-lead-tags">Сохранить</button></div>
   </div>
 </div>
 

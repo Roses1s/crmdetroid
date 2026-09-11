@@ -1,7 +1,7 @@
 'use strict';
 // Лиды: доска (renderBoard), карточка лида, заявки лида (модалка, статистика), лог комментариев с вложениями (общий рендер renderLogInto используют и перевозчики), автосохранение формы. Вынесено из app.js (план CODE_REVIEW п. 10.9).
 /* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, setupPhoneMask */
-/* exported closeLeadAppModal, deleteLeadApp, editingCommentAttCount, goNeighborLead, openLeadAppModal, renderBoard, resetBoardCache, saveLeadAppFromModal, updateLeadSaveUI */
+/* exported addTagFromModal, closeLeadAppModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, openLeadAppModal, openLeadTagsModal, pickTagColor, renderBoard, resetBoardCache, saveLeadAppFromModal, submitLeadTags, toggleTagInModal, updateLeadSaveUI */
 
 function renderAttHtml(a, c) {
   const raw = String(a.dataUrl || '');
@@ -176,6 +176,7 @@ function fillLeadForm(lead, fromServer = false) {
   const ln = $('#f-logist-name'); if (ln && document.activeElement !== ln) ln.value = lead.logistName || '';
   const lp = $('#f-logist-phone'); if (lp && document.activeElement !== lp) lp.value = lead.logistPhone || '';
   $('#crumb-name').textContent = lead.title; setupPhoneMask($('#f-logist-phone'));
+  renderLeadTagsRow();
   renderLeadApps();
 }
 
@@ -396,6 +397,98 @@ function updateLeadSaveUI(state, ts = 0) {
   renderSaveStatus($('#lead-save-status'), $('#btn-save-lead'), state, ts);
 }
 
+/*
+ * Теги лида (v17). Палитра дублирует серверную CRM_TAG_COLORS (db.php): сервер всё равно
+ * отбрасывает цвет не из списка, здесь она нужна только для рисования кружков в модалке.
+ */
+const TAG_COLORS = ['#ef4444', '#f97316', '#f59e0b', '#22c55e', '#14b8a6', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#64748b'];
+let _tagModalSelected = new Set(); // id тегов, отмеченных в модалке
+let _tagModalColor = TAG_COLORS[6];
+
+// Строка тегов в карточке лида (под названием). Зовётся из fillLeadForm и после сохранения модалки.
+function renderLeadTagsRow() {
+  const box = $('#lead-tags-chips');
+  if (!box) return;
+  box.innerHTML = UI.leadId ? tagChipsHtml(leadTagsOf(UI.leadId)) : '';
+}
+
+function renderTagPalette() {
+  const pal = $('#tag-palette');
+  if (!pal) return;
+  pal.innerHTML = TAG_COLORS.map(c =>
+    `<span class="tag-color${c === _tagModalColor ? ' selected' : ''}" data-action="pick-tag-color" data-color="${c}" style="background:${c}" role="button" aria-label="Цвет ${c}"></span>`
+  ).join('') + `<button type="button" class="btn btn-secondary btn-sm" data-action="add-tag">+ Добавить</button>`;
+}
+
+function renderTagList() {
+  const list = $('#tags-list');
+  if (!list) return;
+  const tags = Store.state.tags || [];
+  if (!tags.length) { list.innerHTML = '<div class="tags-empty">Тегов пока нет — создайте первый ниже</div>'; return; }
+  list.innerHTML = tags.map(t => {
+    const on = _tagModalSelected.has(Number(t.id));
+    const c = /^#[0-9a-f]{6}$/i.test(String(t.color || '')) ? t.color : '#6366f1';
+    return `<div class="tag-row">
+      <span class="tag-chip tag-pick${on ? ' selected' : ''}" data-action="toggle-tag" data-id="${t.id}" style="background:${c}" role="checkbox" aria-checked="${on}">${on ? '✓ ' : ''}${esc(t.name)}</span>
+      <span class="tag-del" data-action="del-tag" data-id="${t.id}" title="Удалить тег из справочника">×</span>
+    </div>`;
+  }).join('');
+}
+
+function pickTagColor(c) {
+  if (TAG_COLORS.includes(c)) { _tagModalColor = c; renderTagPalette(); }
+}
+
+function toggleTagInModal(id) {
+  const n = Number(id);
+  if (_tagModalSelected.has(n)) _tagModalSelected.delete(n); else _tagModalSelected.add(n);
+  renderTagList();
+}
+
+function openLeadTagsModal() {
+  if (!UI.leadId) return;
+  _tagModalSelected = new Set(leadTagsOf(UI.leadId).map(t => Number(t.id)));
+  _tagModalColor = TAG_COLORS[6];
+  const inp = $('#tag-new-name'); if (inp) inp.value = '';
+  renderTagList(); renderTagPalette();
+  Modal.open('modal-tags');
+}
+
+// Создать тег из полей модалки (название + выбранный цвет). Тег сразу отмечается выбранным.
+async function addTagFromModal() {
+  const inp = $('#tag-new-name');
+  const name = (inp?.value || '').trim();
+  if (!name) return Toast.error('Укажите название тега');
+  const res = await Net.req('save_tag', { name, color: _tagModalColor });
+  if (!res?.success) return Toast.error(res?.error || 'Ошибка');
+  Store.state.tags = res.tags || Store.state.tags;
+  if (res.tag) _tagModalSelected.add(Number(res.tag.id));
+  if (inp) inp.value = '';
+  renderTagList();
+}
+
+async function deleteTagFromModal(id) {
+  if (!await askConfirm('Удалить тег?', 'Он снимется со всех лидов')) return;
+  const res = await Net.req('delete_tag', { id: Number(id) });
+  if (!res?.success) return Toast.error(res?.error || 'Ошибка');
+  Store.state.tags = res.tags || [];
+  _tagModalSelected.delete(Number(id));
+  // Убираем тег из локальной карты, не дожидаясь следующего get_data
+  const m = Store.state.leadTags || {};
+  Object.keys(m).forEach(k => { m[k] = (m[k] || []).filter(t => Number(t.id) !== Number(id)); });
+  renderTagList(); renderLeadTagsRow(); resetBoardCache();
+}
+
+async function submitLeadTags() {
+  if (!UI.leadId) return;
+  const res = await Net.req('set_lead_tags', { leadId: UI.leadId, tagIds: [..._tagModalSelected] });
+  if (!res?.success) return Toast.error(res?.error || 'Ошибка');
+  Store.state.leadTags = Store.state.leadTags || {};
+  Store.state.leadTags[String(UI.leadId)] = res.leadTags || [];
+  Modal.close('modal-tags');
+  renderLeadTagsRow(); resetBoardCache();
+}
+
 let _leadSaveChain = Promise.resolve();
 
 // См. saveCarrierForm: цепочка _leadSaveChain, первый аргумент ни на что не влияет.
@@ -473,9 +566,26 @@ let _lastBoardHash = null;
 // зовётся при входе/выходе и смене просматриваемого сотрудника, чтобы renderBoard не съел рендер.
 function resetBoardCache() { _lastBoardHash = null; }
 
+// Чипы тегов лида (канбан-карточка и карточка лида). Цвет приходит из фиксированной
+// палитры (сервер отбрасывает произвольные строки — см. crm_tag_color), но на всякий
+// случай в style попадает только строгий hex.
+function tagChipsHtml(tags, extraClass = '') {
+  if (!tags || !tags.length) return '';
+  const chips = tags.map(t => {
+    const c = /^#[0-9a-f]{6}$/i.test(String(t.color || '')) ? t.color : '#6366f1';
+    return `<span class="tag-chip ${extraClass}" style="background:${c}">${esc(t.name)}</span>`;
+  }).join('');
+  return `<div class="tag-chips">${chips}</div>`;
+}
+
+function leadTagsOf(id) {
+  const m = Store.state.leadTags || {};
+  return m[String(id)] || [];
+}
+
 function renderBoard() {
   if (UI.currentView !== 'kanban') return;
-  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.logistPhone, l.manager, l.inn, l.applicationsCount])]);
+  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.logistPhone, l.manager, l.inn, l.applicationsCount, leadTagsOf(l.id)])]);
   if (dataHash === _lastBoardHash) return; _lastBoardHash = dataHash;
 
   const board = $('#board'); if (!board) return; board.innerHTML = ''; const frag = document.createDocumentFragment();
@@ -489,7 +599,7 @@ function renderBoard() {
       const innLine = l.inn ? `<span>ИНН ${esc(l.inn)}</span>` : '<span></span>';
       const nApps = Number(l.applicationsCount || 0);
       const appsLine = nApps ? `<div class="card-apps">${nApps} ${appsWord(nApps)}</div>` : '';
-      card.innerHTML = `<div class="card-title">${esc(l.title)}</div><div class="card-meta">${innLine}<span>📱 ${esc(l.logistPhone || 'Нет')}</span></div>${appsLine}`;
+      card.innerHTML = `${tagChipsHtml(leadTagsOf(l.id))}<div class="card-title">${esc(l.title)}</div><div class="card-meta">${innLine}<span>📱 ${esc(l.logistPhone || 'Нет')}</span></div>${appsLine}`;
       cont.appendChild(card);
     });
     frag.appendChild(col);

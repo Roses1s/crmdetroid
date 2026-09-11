@@ -123,7 +123,9 @@ function crm_meta_get(PDO $pdo, string $k): string {
 }
 
 function crm_meta_bump(PDO $pdo, string $k): void {
-    if ($k !== 'routes' && $k !== 'users') return;
+    // 'tags_<uid>' — счётчик изменений тегов сотрудника (v17): любое изменение
+    // справочника или привязок меняет hash доски в get_data → клиенты перечитывают.
+    if ($k !== 'routes' && $k !== 'users' && !preg_match('/^tags_\d{1,10}$/', $k)) return;
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = CAST(v AS UNSIGNED) + 1')
             ->execute([$k, '1']);
@@ -389,6 +391,7 @@ function crm_purge_lead(PDO $pdo, string $id, bool $ownTxn = true): array {
         crm_delete_att_rows($pdo, 'crm_attachments', $cids);
         $pdo->prepare('DELETE FROM crm_comments WHERE lead_id = ?')->execute([$id]);
         try { $pdo->prepare('DELETE FROM crm_lead_apps WHERE lead_id = ?')->execute([$id]); } catch (PDOException $e) { /* v8 */ }
+        try { $pdo->prepare('DELETE FROM crm_lead_tags WHERE lead_id = ?')->execute([$id]); } catch (PDOException $e) { /* v17 */ }
         $pdo->prepare('DELETE FROM crm_leads WHERE id = ?')->execute([$id]);
         if ($start) $pdo->commit();
     } catch (Throwable $e) {
@@ -418,6 +421,9 @@ function crm_transfer_lead(PDO $pdo, string $leadId, int $fromUid, int $toId, st
     $tr = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
     $tr->execute([$toId, $newStage, $toName, $now, $leadId, $fromUid, $updatedAt]);
     if ($tr->rowCount() === 0) return null;
+    // Теги личные (v17): при передаче привязки прежнего владельца снимаются —
+    // получатель не видит чужой справочник, а «мёртвые» ссылки не копятся.
+    try { $pdo->prepare('DELETE FROM crm_lead_tags WHERE lead_id = ?')->execute([$leadId]); } catch (PDOException $e) { /* до v17 */ }
     $via = $viaName !== '' ? ' (передал ' . $viaName . ')' : '';
     crm_sys_comment($pdo, $leadId, 'Лид передан: ' . $fromName . ' → ' . $toName . $via);
     return $toName;
@@ -469,6 +475,11 @@ function crm_purge_user(PDO $pdo, int $id, int $transferTo = 0): int {
             }
         }
         $pdo->prepare('DELETE FROM crm_stages WHERE user_id = ?')->execute([$id]);
+        // Личные теги сотрудника и их привязки (v17): без чистки остались бы записи-сироты
+        try {
+            $pdo->prepare('DELETE lt FROM crm_lead_tags lt INNER JOIN crm_tags t ON t.id = lt.tag_id WHERE t.user_id = ?')->execute([$id]);
+            $pdo->prepare('DELETE FROM crm_tags WHERE user_id = ?')->execute([$id]);
+        } catch (PDOException $e) { /* до v17 */ }
         $pdo->prepare('UPDATE crm_directions SET created_by = 0 WHERE created_by = ?')->execute([$id]);
         $pdo->prepare('UPDATE crm_carriers SET created_by = 0 WHERE created_by = ?')->execute([$id]);
         $pdo->prepare('UPDATE crm_carrier_comments SET user_id = 0 WHERE user_id = ?')->execute([$id]);
@@ -724,6 +735,47 @@ function crm_leads_full(PDO $pdo, int $userId): array {
     $leads = [];
     foreach ($st as $r) $leads[] = crm_lead_row_to_api($r, false);
     return $leads;
+}
+
+// --- Теги лидов (v17) --------------------------------------------------------
+// Палитра фиксированная: сервер принимает только эти цвета (клиент подставляет цвет
+// в style-атрибут чипа, поэтому произвольные строки в color не допускаются),
+// клиент рисует ту же палитру в окне «Теги» (TAG_COLORS в js/lead.js).
+const CRM_TAG_COLORS = ['#ef4444', '#f97316', '#f59e0b', '#22c55e', '#14b8a6', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#64748b'];
+
+/** Цвет тега: значение из палитры или цвет по умолчанию (индиго). */
+function crm_tag_color(string $c): string {
+    return in_array($c, CRM_TAG_COLORS, true) ? $c : '#6366f1';
+}
+
+/** Личный справочник тегов сотрудника (для окна «Теги» и модалки выбора). */
+function crm_tags_for_user(PDO $pdo, int $uid): array {
+    try {
+        $st = $pdo->prepare('SELECT id, name, color FROM crm_tags WHERE user_id = ? ORDER BY name');
+        $st->execute([$uid]);
+        $out = [];
+        foreach ($st as $r) $out[] = ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'color' => (string) $r['color']];
+        return $out;
+    } catch (PDOException $e) {
+        return []; // до миграции v17
+    }
+}
+
+/**
+ * Карта lead_id → теги владельца $uid: один JOIN на все лиды доски (get_data),
+ * вместо запроса на каждый лид. INNER JOIN по t.user_id отсекает чужие теги,
+ * даже если в crm_lead_tags остались ссылки (их чистят передача/удаление).
+ */
+function crm_lead_tags_map(PDO $pdo, int $uid): array {
+    $map = [];
+    try {
+        $st = $pdo->prepare('SELECT lt.lead_id, t.id, t.name, t.color FROM crm_lead_tags lt INNER JOIN crm_tags t ON t.id = lt.tag_id WHERE t.user_id = ? ORDER BY t.name');
+        $st->execute([$uid]);
+        foreach ($st as $r) {
+            $map[(string) $r['lead_id']][] = ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'color' => (string) $r['color']];
+        }
+    } catch (PDOException $e) { /* до миграции v17 */ }
+    return $map;
 }
 
 function crm_admin_count(PDO $pdo): int {
