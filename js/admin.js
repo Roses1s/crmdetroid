@@ -1,7 +1,7 @@
 'use strict';
 // Админ-зона: список сотрудников (вкладка «Сотрудники»), удаление с передачей лидов, вкладка «Активность клиентов». Вынесено из app.js (план CODE_REVIEW п. 10.9).
-/* global $, Loading, Modal, Net, Store, Toast, esc, plural */
-/* exported activityShiftYear, confirmDeleteUser, openDeleteUser, setActivityUser, usersTableBusy */
+/* global $, Loading, Modal, Net, Store, Toast, esc, fmtMoney, fmtTime, plural */
+/* exported activityShiftYear, confirmDeleteUser, loadApps, openDeleteUser, setActivityUser, setAppsQuery, setAppsUser, usersTableBusy */
 
 let _usersCache = [];
 
@@ -171,6 +171,80 @@ function renderActivity() {
       }
     }
     tr.innerHTML = `<td class="activity-client"><span class="name-link" data-action="open-activity-client" data-inn="${esc(c.inn)}">${esc(c.title)}</span><div class="activity-inn">${esc(c.inn)}</div></td>${monthCells}<td class="activity-total">${totalTrips}</td>`;
+    frag.appendChild(tr);
+  });
+  tbody.appendChild(frag);
+}
+
+/* === ВКЛАДКА «ЗАЯВКИ» (реестр заявок менеджера) === */
+// Как «Активность»: выбор сотрудника локален для вкладки и не влияет на «Лиды».
+let _appsUserId = null;
+let _appsQuery = '';
+let _appsCache = null; // последний ответ get_apps (список + итоги)
+
+function setAppsUser(id) { _appsUserId = (!id || id === Store.state.user?.id) ? null : id; }
+function setAppsQuery(q) { _appsQuery = q; }
+
+async function loadApps() {
+  Loading.show();
+  try {
+    const res = await Net.req('get_apps', { q: _appsQuery, as: _appsUserId || 0 });
+    if (!res || !res.success) { if (res?.error) Toast.error(res.error); return; }
+    _appsCache = res;
+    renderApps();
+  } finally {
+    Loading.hide();
+  }
+}
+
+function renderApps() {
+  // Select сотрудников (только для админов) — по образцу вкладки «Активность»
+  const sel = $('#apps-employee');
+  if (sel) {
+    const isAdmin = Store.state.user?.role === 'admin';
+    sel.style.display = isAdmin ? '' : 'none';
+    if (isAdmin) {
+      const curId = _appsUserId || Store.state.user?.id;
+      sel.innerHTML = (Store.state.colleagues || []).map(u =>
+        `<option value="${esc(u.id)}">${esc(u.name)}</option>`
+      ).join('');
+      sel.value = String(curId);
+    }
+  }
+  const res = _appsCache;
+  const summary = $('#apps-summary');
+  if (summary) {
+    if (res && res.total > 0) {
+      const parts = [`${res.total} ${plural(res.total, 'заявка', 'заявки', 'заявок')}`];
+      if (res.sumRate) parts.push(`Ставки: ${fmtMoney(res.sumRate)} ₽`);
+      if (res.sumMargin) parts.push(`Маржа: ${fmtMoney(res.sumMargin)} ₽`);
+      summary.textContent = parts.join(' · ');
+    } else {
+      summary.textContent = '';
+    }
+  }
+  const tbody = $('#apps-tbody');
+  if (!tbody) return;
+  const apps = res?.apps || [];
+  if (!apps.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="cell-muted">${_appsQuery ? 'Ничего не найдено' : 'Пока нет заявок'}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  apps.forEach(a => {
+    const tr = document.createElement('tr');
+    const route = (a.cityFrom || a.cityTo) ? `${esc(a.cityFrom || '?')} → ${esc(a.cityTo || '?')}` : '<span class="apps-dim">—</span>';
+    const carrier = a.carrierCompany
+      ? `${esc(a.carrierCompany)}${a.carrierInn ? `<div class="apps-sub">${esc(a.carrierInn)}</div>` : ''}`
+      : '<span class="apps-dim">—</span>';
+    tr.innerHTML = `<td class="apps-date">${esc(fmtTime(a.createdAt).slice(0, 10))}</td>`
+      + `<td><span class="name-link" data-action="open-app-lead" data-id="${esc(a.leadId)}">${esc(a.leadTitle || '—')}</span>${a.leadInn ? `<div class="apps-sub">${esc(a.leadInn)}</div>` : ''}</td>`
+      + `<td>${route}</td>`
+      + `<td>${carrier}</td>`
+      + `<td class="apps-money">${a.rate ? esc(fmtMoney(a.rate)) : '<span class="apps-dim">—</span>'}</td>`
+      + `<td class="apps-money">${a.margin ? esc(fmtMoney(a.margin)) : '<span class="apps-dim">—</span>'}</td>`
+      + `<td class="apps-vat">${Number(a.vat) ? 'с НДС' : 'без'}</td>`;
     frag.appendChild(tr);
   });
   tbody.appendChild(frag);

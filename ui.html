@@ -35,6 +35,16 @@
       </div>
       <div class="tile-title">Направления</div>
     </a>
+    <a class="tile" data-action="go-apps">
+      <div class="tile-icon tile-icon-apps">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 4h9a1.5 1.5 0 0 1 1.5 1.5v14A1.5 1.5 0 0 1 18 21H7.5A1.5 1.5 0 0 1 6 19.5V7z"/>
+          <path d="M9 4v3H6"/>
+          <path d="M9.5 11h6.5M9.5 14.2h6.5M9.5 17.4h4"/>
+        </svg>
+      </div>
+      <div class="tile-title">Заявки</div>
+    </a>
     <a class="tile" data-action="go-activity">
       <div class="tile-icon tile-icon-activity">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -245,6 +255,39 @@
           </tr>
         </thead>
         <tbody id="activity-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="apps-view" class="view-section users-view">
+  <div class="users-wrap apps-wrap">
+    <div class="users-head">
+      <h2>Заявки</h2>
+      <div class="activity-controls">
+        <select class="form-select activity-employee-select" id="apps-employee" aria-label="Выберите сотрудника"></select>
+      </div>
+    </div>
+    <div class="apps-toolbar">
+      <div class="board-search apps-search-wrap">
+        <input type="text" class="apps-search-input" id="apps-search" placeholder="Поиск: клиент, ИНН, город, перевозчик" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="apps-summary" id="apps-summary"></div>
+    </div>
+    <div class="activity-table-wrap">
+      <table class="users-table apps-table">
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Клиент</th>
+            <th>Маршрут</th>
+            <th>Перевозчик</th>
+            <th>Ставка</th>
+            <th>Маржа</th>
+            <th>НДС</th>
+          </tr>
+        </thead>
+        <tbody id="apps-tbody"></tbody>
       </table>
     </div>
   </div>

@@ -33,6 +33,12 @@ const Net = {
         if (data && data.as) url += `&as=${encodeURIComponent(data.as)}`;
         data = null;
       }
+      if (action === 'get_apps') {
+        // q — поиск по реестру заявок; as — локальный выбор сотрудника на вкладке «Заявки»
+        if (data && data.q) url += `&q=${encodeURIComponent(data.q)}`;
+        if (data && data.as) url += `&as=${encodeURIComponent(data.as)}`;
+        data = null;
+      }
       const extra = arguments[3] || {};
       const opts = { method: data ? 'POST' : 'GET', headers: {} };
       if (extra.keepalive) opts.keepalive = true;

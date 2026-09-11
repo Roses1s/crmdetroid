@@ -514,7 +514,7 @@ if (crm_session_throttled()) err('Слишком много запросов. П
 
 // Только чтение — разрешён GET. Всё остальное меняет данные: строго POST + CSRF-токен.
 // (Раньше мутация проходила и по GET без CSRF — например, GET save_lead создавал пустой лид.)
-$readActions = ['ui', 'me', 'whoami', 'get_data', 'get_lead', 'get_comments', 'search_leads', 'get_directions', 'get_carriers', 'get_carrier', 'get_users', 'integrity_check', 'get_activity', 'get_audit'];
+$readActions = ['ui', 'me', 'whoami', 'get_data', 'get_lead', 'get_comments', 'search_leads', 'get_directions', 'get_carriers', 'get_carrier', 'get_users', 'integrity_check', 'get_activity', 'get_apps', 'get_audit'];
 if (!in_array($action, $readActions, true)) {
     if ($method !== 'POST') err('Метод не поддерживается: нужен POST');
     require_csrf();
@@ -543,6 +543,8 @@ switch ($action) {
     case 'integrity_check': crm_action_integrity_check($pdo, $user, $viewUid);
 
     case 'get_activity': crm_action_get_activity($pdo, $user, $viewUid);
+
+    case 'get_apps': crm_action_get_apps($pdo, $user, $viewUid);
 
     case 'ui': {
         $path = __DIR__ . '/ui.html';

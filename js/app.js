@@ -1,5 +1,5 @@
 'use strict';
-/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
+/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
 /* exported syncAdminNav, updateSearchPlaceholder */
 
 const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
@@ -159,6 +159,8 @@ function handleHashRouting() {
     switchView('routes-view', false); return;
   } else if (hash === '#activity') {
     switchView('activity-view', false); return;
+  } else if (hash === '#apps') {
+    switchView('apps-view', false); return;
   } else if (hash === '#users' && Store.state.user?.role === 'admin') {
     switchView('users-view', false); return;
   }
@@ -211,6 +213,9 @@ async function switchView(viewId, updateHash = true) {
     $('#nav-activity')?.classList.add('active');
     if (updateHash) navTo('#activity');
     loadActivity();
+  } else if (viewId === 'apps-view') {
+    if (updateHash) navTo('#apps');
+    loadApps();
   }
 }
 
@@ -268,6 +273,14 @@ function initAppEvents() {
     setActivityUser(parseInt(e.target.value, 10));
     loadActivity();
   });
+  $('#apps-employee')?.addEventListener('change', (e) => {
+    setAppsUser(parseInt(e.target.value, 10));
+    loadApps();
+  });
+  $('#apps-search')?.addEventListener('input', debounce((e) => {
+    setAppsQuery(e.target.value.trim());
+    loadApps();
+  }, 350));
 
   window.addEventListener('beforeunload', e => {
     if (!UI.formDirty) return;
@@ -448,6 +461,15 @@ function initAppEvents() {
       case 'go-routes': switchView('routes-view', true); break;
       case 'go-users': if (Store.state.user?.role === 'admin') switchView('users-view', true); break;
       case 'go-activity': switchView('activity-view', true); break;
+      case 'go-apps': switchView('apps-view', true); break;
+      case 'open-app-lead': {
+        const lid = actEl.dataset.id; if (!lid) break;
+        // Лид чужого сотрудника (админ смотрит реестр через as) в Store отсутствует —
+        // openLead молча ушёл бы на доску; вместо этого объясняем, как посмотреть.
+        if (Store.getLead(lid)) await openLead(lid, true);
+        else Toast.error('Лид другого сотрудника — откройте его доску через «Сотрудники»');
+        break;
+      }
       case 'open-activity-client': {
         const inn = actEl.dataset.inn;
         if (!inn) break;

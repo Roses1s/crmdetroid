@@ -598,6 +598,21 @@
   .activity-cell.active { background: #e8f5e9; color: #2e7d32; font-weight: 700; border-radius: 4px; cursor: default; }
   html[data-theme="dark"] .activity-cell.active { background: #1b3a26; color: #66bb6a; }
   .activity-total { text-align: center; font-weight: 700; color: var(--primary); font-size: 13px; }
+
+  /* === РЕЕСТР ЗАЯВОК (вкладка «Заявки») === */
+  .apps-wrap { max-width: 1100px; }
+  .apps-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
+  .apps-search-wrap { flex: 1; min-width: 220px; max-width: 380px; }
+  .apps-search-input { width: 100%; padding: 8px 12px; font-size: 13px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--input-bg, #fff); color: var(--text); }
+  .apps-search-input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(113,75,103,.1); }
+  .apps-summary { font-size: 13px; font-weight: 600; color: var(--primary); white-space: nowrap; }
+  .apps-table { min-width: 760px; }
+  .apps-table td { vertical-align: top; }
+  .apps-date { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .apps-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .apps-money { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  .apps-vat { white-space: nowrap; color: var(--muted); }
+  .apps-dim { color: var(--muted); }
   .name-link[data-action="open-activity-client"] { cursor: pointer; color: var(--primary); }
   .name-link[data-action="open-activity-client"]:hover { text-decoration: underline; }
 
@@ -665,6 +680,7 @@
 /* Палитра плиток в духе Odoo */
 .tile-icon-clients  { background: linear-gradient(160deg, #a24689, #7d2f68); }
 .tile-icon-routes   { background: linear-gradient(160deg, #35b5ac, #1f8f87); }
+.tile-icon-apps     { background: linear-gradient(160deg, #5aa860, #3d7f44); }
 .tile-icon-activity { background: linear-gradient(160deg, #e2a63d, #c8862a); }
 .tile-icon-users    { background: linear-gradient(160deg, #6b7fd7, #4a5cb8); }
 

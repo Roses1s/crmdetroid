@@ -297,6 +297,46 @@ function crm_action_delete_lead_app(PDO $pdo, array $user, int $viewUid): never 
     ]);
 }
 
+/**
+ * Реестр заявок менеджера (вкладка «Заявки» на дашборде): все заявки всех его лидов,
+ * новые сверху. Итоги (кол-во, суммы ставок и маржи) считаются отдельным запросом
+ * по ПОЛНОЙ выборке — список ограничен LIMIT 500, и суммирование по нему занижало бы итог.
+ * Просмотр чужих заявок — через ?as= (только админ, проверяет crm_view_uid).
+ */
+function crm_action_get_apps(PDO $pdo, array $user, int $viewUid): never {
+    $q = strv($_GET['q'] ?? '', 80);
+    $where = 'l.user_id = ?';
+    $params = [$viewUid];
+    if ($q !== '') {
+        $like = crm_like_pat($q);
+        $where .= ' AND (l.title LIKE ? OR l.inn LIKE ? OR a.city_from LIKE ? OR a.city_to LIKE ? OR a.carrier_company LIKE ? OR a.carrier_inn LIKE ?)';
+        array_push($params, $like, $like, $like, $like, $like, $like);
+    }
+    try {
+        $tot = $pdo->prepare("SELECT COUNT(*) AS c, COALESCE(SUM(a.rate), 0) AS r, COALESCE(SUM(a.margin), 0) AS m FROM crm_lead_apps a JOIN crm_leads l ON l.id = a.lead_id WHERE $where");
+        $tot->execute($params);
+        $t = $tot->fetch() ?: ['c' => 0, 'r' => 0, 'm' => 0];
+        $st = $pdo->prepare("SELECT a.*, l.title AS lead_title, l.inn AS lead_inn FROM crm_lead_apps a JOIN crm_leads l ON l.id = a.lead_id WHERE $where ORDER BY a.created_at DESC, a.id DESC LIMIT 500");
+        $st->execute($params);
+    } catch (PDOException $e) {
+        crm_log_fail('get_apps', $e);
+        err('Не удалось загрузить заявки');
+    }
+    $apps = [];
+    foreach ($st as $r) {
+        $row = crm_lead_app_to_api($r);
+        $row['leadTitle'] = $r['lead_title'];
+        $row['leadInn'] = $r['lead_inn'];
+        $apps[] = $row;
+    }
+    ok([
+        'apps' => $apps,
+        'total' => (int) $t['c'],
+        'sumRate' => crm_money_out($t['r']),
+        'sumMargin' => crm_money_out($t['m']),
+    ]);
+}
+
 function crm_action_get_activity(PDO $pdo, array $user, int $viewUid): never {
     $year = intv($_GET['year'] ?? date('Y'));
     if ($year < 2020 || $year > 2099) $year = (int) date('Y');
