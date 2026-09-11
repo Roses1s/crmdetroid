@@ -203,6 +203,9 @@ function crm_action_delete_lead(PDO $pdo, array $user, int $viewUid): never {
         err('Карточка изменена в другом месте');
     }
     crm_purge_lead($pdo, $id);
+    // Удаление необратимо (лог, файлы, заявки, теги) — след в аудите обязателен,
+    // иначе «кто удалил лид» восстановить нельзя (ревью №3, п. про слепоту аудита).
+    crm_audit($pdo, $user, 'lead_delete', $id, (string) ($row['title'] ?? ''));
     ok();
 }
 

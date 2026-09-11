@@ -62,6 +62,8 @@ function crm_action_delete_direction(PDO $pdo, array $user, int $viewUid): never
     }
     crm_unlink_urls($urls);
     crm_meta_bump($pdo, 'routes');
+    // Каскадное удаление (перевозчики, логи, файлы) — след в аудите обязателен.
+    crm_audit($pdo, $user, 'direction_delete', $id, (string) $dir['city_from'] . ' → ' . (string) $dir['city_to']);
     ok();
 }
 
@@ -130,6 +132,8 @@ function crm_action_delete_carrier(PDO $pdo, array $user, int $viewUid): never {
     if (!can_manage_ref($user, $car)) err('Удалить перевозчика может тот, кто его добавил, или администратор');
     crm_purge_carrier($pdo, $id);
     crm_meta_bump($pdo, 'routes');
+    // Удаление с логом и файлами — след в аудите обязателен.
+    crm_audit($pdo, $user, 'carrier_delete', $id, (string) $car['name']);
     ok();
 }
 
