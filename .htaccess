@@ -44,9 +44,13 @@ ServerSignature Off
   # Красивые ссылки без # (History API): известные маршруты SPA отдаём index.html,
   # роутер в js/app.js разбирает путь сам. Белый список, а не «всё несуществующее»:
   # опечатка в имени файла статики должна давать честный 404, а не index.html.
+  # Якоря обязательны: без $ маршрутом считался бы и /kanbanfoo (ревью №7).
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule ^(kanban|dashboard|routes|activity|apps|users|lead/|carrier/|route/) index.html [L]
+  RewriteRule ^(kanban|dashboard|routes|activity|apps|users)$ index.html [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(lead|carrier|route)/[^/]+$ index.html [L]
 </IfModule>
 
 # Сжатие текстовых ответов (код-ревью п. 6.4): app.js ~90 КБ и app.css ~39 КБ ужимаются в 3–4 раза

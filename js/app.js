@@ -100,8 +100,9 @@ function navTo(route, push = true) {
 /** Текущий маршрут: путь без ведущего слэша; старые ссылки с #маршрутом на любом пути тоже понимаем. */
 function currentRoute() {
   const h = location.hash.replace(/^#/, '');
-  // Закладка старого формата (#lead/abc) — маршрут берём из hash и молча переписываем URL на новый вид
-  if (h && /^(kanban|dashboard|routes|activity|apps|users|lead\/|carrier\/|route\/)/.test(h)) {
+  // Закладка старого формата (#lead/abc) — маршрут берём из hash и молча переписываем URL на новый вид.
+  // Якоря как в .htaccess: #kanbanfoo — не маршрут, а обычный якорь, его не трогаем.
+  if (h && /^((kanban|dashboard|routes|activity|apps|users)$|(lead|carrier|route)\/[^/]+$)/.test(h)) {
     history.replaceState(null, '', routePath(h));
     return h;
   }
