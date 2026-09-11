@@ -144,3 +144,97 @@ jobs:
         run: |
           cat php-server.log || true
           tail -n 8 php-server.log 2>/dev/null | while IFS= read -r l; do echo "::warning::php -S: $l"; done
+
+  # --- 5. E2E клиентской логики (jsdom) против настоящего стенда ---------------
+  # Раньше tests/e2e-jsdom.mjs в CI только проверялся синтаксически (node --check);
+  # теперь выполняется целиком: вход, роутер, передача лида, вложения, пароли.
+  e2e:
+    name: E2E (jsdom, MySQL 8)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: crm_test
+          MYSQL_USER: crm
+          MYSQL_PASSWORD: crm_test_pass
+          MYSQL_ROOT_PASSWORD: root_test_pass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_test_pass"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Зависимости (jsdom)
+        run: |
+          npm ci
+          npm i --no-save jsdom
+      - name: config.php для тестовой БД
+        run: cp config.example.php config.php
+      - name: Стенд php -S, тестовые сотрудники, e2e
+        env:
+          CRM_DB_HOST: 127.0.0.1
+          CRM_DB_PORT: '3306'
+          CRM_DB_NAME: crm_test
+          CRM_DB_USER: crm
+          CRM_DB_PASS: crm_test_pass
+          CRM_ADMIN_EMAIL: admin@ci.local
+          CRM_ADMIN_PASS: CiAdminPass123
+        run: |
+          set -e
+          php -S 127.0.0.1:8089 -t . >php-server.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf "http://127.0.0.1:8089/api.php?action=csrf" >/dev/null && break
+            sleep 1
+          done
+          B=http://127.0.0.1:8089/api.php
+          # Снимаем must_change у админа (пароль из конфига) — как в smoke-джобе
+          T=$(curl -s "$B?action=csrf" | sed 's/.*"csrf":"\([^"]*\)".*/\1/')
+          T2=$(curl -s -c /tmp/jar -H "X-CSRF-Token: $T" -H 'Content-Type: application/json' \
+            -d '{"email":"admin@ci.local","password":"CiAdminPass123"}' \
+            "$B?action=login" | sed -n 's/.*"csrf":"\([^"]*\)".*/\1/p')
+          curl -s -b /tmp/jar -H "X-CSRF-Token: $T2" -H 'Content-Type: application/json' \
+            -d '{"old":"CiAdminPass123","password":"CiAdminPass123X"}' \
+            "$B?action=change_password" >/dev/null
+          # Сотрудники, которых ожидает e2e: ivan@x.ru и «Пётр Сидоров» (для передачи лида)
+          T3=$(curl -s -c /tmp/jar2 -H "X-CSRF-Token: $(curl -s "$B?action=csrf" | sed 's/.*"csrf":"\([^"]*\)".*/\1/')" \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"admin@ci.local","password":"CiAdminPass123X"}' \
+            "$B?action=login" | sed -n 's/.*"csrf":"\([^"]*\)".*/\1/p')
+          curl -s -b /tmp/jar2 -H "X-CSRF-Token: $T3" -H 'Content-Type: application/json' \
+            -d '{"name":"Иван Тестов","email":"ivan@x.ru","password":"IvanPass123","role":"user"}' \
+            "$B?action=register_user" >/dev/null
+          curl -s -b /tmp/jar2 -H "X-CSRF-Token: $T3" -H 'Content-Type: application/json' \
+            -d '{"name":"Пётр Сидоров","email":"petr@x.ru","password":"PetrPass123","role":"user"}' \
+            "$B?action=register_user" >/dev/null
+          # Тест 16 ожидает у ivan непустую доску — создаём один лид от его имени
+          TI=$(curl -s -c /tmp/jar3 -H "X-CSRF-Token: $(curl -s "$B?action=csrf" | sed 's/.*"csrf":"\([^"]*\)".*/\1/')" \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ivan@x.ru","password":"IvanPass123"}' \
+            "$B?action=login" | sed -n 's/.*"csrf":"\([^"]*\)".*/\1/p')
+          curl -s -b /tmp/jar3 -H "X-CSRF-Token: $TI" -H 'Content-Type: application/json' \
+            -d '{"title":"CI стартовый лид"}' "$B?action=save_lead" >/dev/null
+          set +e
+          CRM_URL=http://127.0.0.1:8089 ADMIN_EMAIL=admin@ci.local ADMIN_PASS='CiAdminPass123X' \
+            node tests/e2e-jsdom.mjs | tee e2e.log
+          RC=${PIPESTATUS[0]}
+          if [ "$RC" != "0" ]; then
+            grep -m 10 '^FAIL' e2e.log | while IFS= read -r l; do echo "::error::$l"; done
+          fi
+          exit "$RC"
+      - name: Лог PHP-сервера при провале
+        if: failure()
+        run: |
+          tail -n 20 php-server.log 2>/dev/null | while IFS= read -r l; do echo "::warning::php -S: $l"; done
