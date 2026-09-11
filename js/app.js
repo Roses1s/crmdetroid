@@ -234,9 +234,26 @@ function initEvents() {
   $('#login-email').addEventListener('keydown', e => { if (e.key === 'Enter') $('#login-password').focus(); });
 }
 
+/**
+ * Оркестратор подписок на события приложения. Сами обработчики разнесены по
+ * тематическим функциям ниже — раньше всё лежало одной простынёй в 600 строк.
+ */
 function initAppEvents() {
   if (UI.appEvents) return;
   UI.appEvents = true;
+  initViewControlEvents();
+  initAutosaveEvents();
+  initLeadTransferEvents();
+  initComposerEvents();
+  initActionDispatch();
+  initBoardClick();
+  initKeyboardShortcuts();
+  initDashboardSearch();
+  initDragDrop();
+}
+
+/** Маски телефонов/ИНН, живой поиск, стрелки соседних карточек, фильтры «Активности» и «Заявок». */
+function initViewControlEvents() {
   setupPhoneMask($('#m-phone')); setupPhoneMask($('#f-logist-phone'));
   $('#m-inn').addEventListener('input', e => { formatInnInput(e.target); checkLeadDupDebounced(); });
   $('#f-inn').addEventListener('input', e => formatInnInput(e.target));
@@ -282,7 +299,10 @@ function initAppEvents() {
     setAppsQuery(e.target.value.trim());
     loadApps();
   }, 350));
+}
 
+/** Автосохранение форм лида и перевозчика: input-грязь, debounce и страховка beforeunload. */
+function initAutosaveEvents() {
   window.addEventListener('beforeunload', e => {
     if (!UI.formDirty) return;
     if (UI.carrierId) saveCarrierForm(false, true); else saveLeadForm(false, true);
@@ -293,6 +313,11 @@ function initAppEvents() {
   $('#la-inn')?.addEventListener('input', e => formatInnInput(e.target));
   $('#la-rate')?.addEventListener('input', e => formatMarginInput(e.target));
   $('#la-margin')?.addEventListener('input', e => formatMarginInput(e.target));
+  $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title') && UI.carrierCanManage) { UI.formDirty = true; updateCarrierSaveUI('dirty'); saveCarrierDebounced(); } });
+}
+
+/** Передача лида другому продавцу через поле «Продавец». */
+function initLeadTransferEvents() {
   /*
    * Передача лида через поле «Продавец»: срабатывает СРАЗУ при вводе полного имени коллеги
    * (вручную или выбором из подсказки), а не только при уходе из поля. Пауза 400 мс после
@@ -340,8 +365,10 @@ function initAppEvents() {
     const handled = await promptManagerTransfer();
     if (!handled) await saveLeadForm(true);
   });
-  $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title') && UI.carrierCanManage) { UI.formDirty = true; updateCarrierSaveUI('dirty'); saveCarrierDebounced(); } });
+}
 
+/** Composer комментариев: Enter-отправка, авторост поля, выбор/вставка/валидация вложений. */
+function initComposerEvents() {
   // Enter в поле нового тега — создать тег (а не «ничего»)
   $('#tag-new-name')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addTagFromModal(); } });
   $('#comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-comment"]').click(); } });
@@ -414,7 +441,10 @@ function initAppEvents() {
     e.preventDefault();
     addPendingFiles(imgs);
   });
+}
 
+/** Главный делегат кликов по data-action: навигация, модалки, CRUD-действия. */
+function initActionDispatch() {
   document.body.addEventListener('click', async e => {
     const actEl = e.target.closest('[data-action]'); if (!actEl) return;
     const act = actEl.dataset.action;
@@ -445,8 +475,29 @@ function initAppEvents() {
       return;
     }
 
-    await withLock(async () => {
-    switch (act) {
+    await withLock(() => dispatchAction(act, actEl))();
+  });
+}
+
+/**
+ * Разводит data-action по тематическим обработчикам: первый распознавший — выполняет.
+ * Обработчик возвращает false ТОЛЬКО из default-ветки («не моё действие»); любые другие
+ * значения — включая undefined от ранних `return;` при провале валидации — значат
+ * «действие распознано», и дальше по цепочке оно не идёт.
+ */
+async function dispatchAction(act, actEl) {
+  if (await handleNavAction(act, actEl) !== false) return;
+  if (await handleDirectoryAction(act, actEl) !== false) return;
+  if (await handleSessionAction(act) !== false) return;
+  if (await handleCreateAction(act, actEl) !== false) return;
+  if (await handleAdminAction(act, actEl) !== false) return;
+  if (await handleLeadCardAction(act, actEl) !== false) return;
+  await handleChatterAction(act, actEl);
+}
+
+/** Навигация: живой поиск, доски сотрудников, соседние карточки, разделы, маршруты. */
+async function handleNavAction(act, actEl) {
+  switch (act) {
       case 'open-search-lead':
         if (actEl.dataset.id) { closeSearchDrop(); await openLead(actEl.dataset.id, true); }
         break;
@@ -484,7 +535,14 @@ function initAppEvents() {
         break;
       }
       case 'open-route': if (actEl.dataset.id) openRoute(actEl.dataset.id, true); break;
+      default: return false;
+  }
+  return true;
+}
 
+/** Справочник перевозчиков: направления, карточка перевозчика и его лог. */
+async function handleDirectoryAction(act, actEl) {
+  switch (act) {
       case 'new-direction':
         $('#d-from').value = ''; $('#d-to').value = '';
         Modal.open('modal-direction'); setTimeout(() => $('#d-from').focus(), 50);
@@ -551,6 +609,14 @@ function initAppEvents() {
         else Toast.error(resPCC?.error || 'Ошибка');
         break;
       }
+      default: return false;
+  }
+  return true;
+}
+
+/** Сеанс и оформление: тема, смена пароля, выход. */
+async function handleSessionAction(act) {
+  switch (act) {
       case 'toggle-theme': Theme.toggle(); break;
       case 'submit-password': {
         const np = $('#pw-new')?.value || '', n2 = $('#pw-new2')?.value || '';
@@ -569,6 +635,14 @@ function initAppEvents() {
         break;
       }
       case 'logout': execLogout(); break;
+      default: return false;
+  }
+  return true;
+}
+
+/** Создание сущностей: заявки лида, новый лид. */
+async function handleCreateAction(act, actEl) {
+  switch (act) {
       case 'new-lead-app':
         if (!UI.leadId) return;
         openLeadAppModal(null);
@@ -611,7 +685,14 @@ function initAppEvents() {
         if (resL?.success) { Modal.closeAll(); await Store.load(true); } else Toast.error(resL?.error || 'Ошибка');
         break;
       }
+      default: return false;
+  }
+  return true;
+}
 
+/** Администрирование: сотрудники и этапы воронки. */
+async function handleAdminAction(act, actEl) {
+  switch (act) {
       case 'submit-user': {
         const n = $('#u-name').value.trim(), ue = $('#u-email').value.trim(), p = $('#u-pass').value;
         if (!n || !ue || !p) return Toast.error('Все поля');
@@ -676,7 +757,14 @@ function initAppEvents() {
         if (resESt?.success) await Store.load(true); else Toast.error(resESt?.error || 'Ошибка');
         break;
       }
+      default: return false;
+  }
+  return true;
+}
 
+/** Карточка лида/перевозчика: сохранение, теги, удаление, смена этапа. */
+async function handleLeadCardAction(act, actEl) {
+  switch (act) {
       case 'save-lead-now': {
         if (!UI.leadId) return;
         // Немедленное сохранение без ожидания debounce (кнопка активна только при formDirty)
@@ -720,7 +808,14 @@ function initAppEvents() {
         else Toast.error(resMS?.error || 'Ошибка');
         break;
       }
+      default: return false;
+  }
+  return true;
+}
 
+/** Лог (chatter): комментарии, их правка и вложения. */
+async function handleChatterAction(act, actEl) {
+  switch (act) {
       case 'post-comment': {
         const txt = $('#comment-input').value.trim(); if (!txt && !UI.pendingFiles.length) return;
         const fd = new FormData(); fd.append('lead_id', UI.leadId); fd.append('text', txt);
@@ -823,21 +918,16 @@ function initAppEvents() {
         } else Toast.error(resDC?.error || 'Ошибка');
         break;
       }
-    }
-    })();
-  });
+  }
+}
 
+/** Клик по канбан-карточке открывает лид (кроме кликов по кнопкам колонок и сразу после drag). */
+function initBoardClick() {
   $('#board').addEventListener('click', e => {
     if (e.target.closest('.col-edit') || e.target.closest('.add-column')) return;
     if (Date.now() < (UI.dragSuppressUntil || 0)) return;
     const card = e.target.closest('.card'); if (card) openLead(card.dataset.id, true);
   });
-
-  initKeyboardShortcuts();
-
-  initDashboardSearch();
-
-  initDragDrop();
 }
 
 /** Глобальные клавиатурные сокращения (#16: вынесено из initAppEvents). */
