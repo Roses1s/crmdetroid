@@ -400,6 +400,9 @@ function initAppEvents() {
   document.body.addEventListener('click', async e => {
     const actEl = e.target.closest('[data-action]'); if (!actEl) return;
     const act = actEl.dataset.action;
+    // Плитки дашборда — <a href="#..."> ради фокуса и Enter с клавиатуры; сам переход
+    // делает switchView (ниже), а браузерный дефолт гасим, иначе hash меняется дважды
+    if (actEl.tagName === 'A' && (actEl.getAttribute('href') || '').startsWith('#')) e.preventDefault();
 
     if (act === 'prompt-cancel') {
       const r = _promptResolver; _promptResolver = null;

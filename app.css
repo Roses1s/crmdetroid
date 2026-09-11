@@ -603,6 +603,7 @@
   .apps-summary { font-size: 13px; font-weight: 600; color: var(--primary); white-space: nowrap; }
   .apps-table { min-width: 760px; }
   .apps-table td { vertical-align: top; }
+  .apps-table .th-money { text-align: right; }
   .apps-date { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
   .apps-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .apps-money { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }

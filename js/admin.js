@@ -127,20 +127,7 @@ async function loadActivity(year) {
 function renderActivity() {
   const yearEl = $('#activity-year');
   if (yearEl) yearEl.textContent = String(_activityYear);
-  // Select сотрудников (только для админов)
-  const sel = $('#activity-employee');
-  if (sel) {
-    const isAdmin = Store.state.user?.role === 'admin';
-    sel.style.display = isAdmin ? '' : 'none';
-    if (isAdmin) {
-      const curId = _activityUserId || Store.state.user?.id;
-      const opts = (Store.state.colleagues || []).map(u =>
-        `<option value="${esc(u.id)}">${esc(u.name)}</option>`
-      ).join('');
-      sel.innerHTML = opts;
-      sel.value = String(curId);
-    }
-  }
+  renderEmployeeSelect($('#activity-employee'), _activityUserId || Store.state.user?.id);
   const tbody = $('#activity-tbody');
   if (!tbody) return;
   const cacheKey = _activityYear + ':' + (_activityUserId || 'me');
@@ -181,14 +168,29 @@ function renderActivity() {
 let _appsUserId = null;
 let _appsQuery = '';
 let _appsCache = null; // последний ответ get_apps (список + итоги)
+let _appsGen = 0; // защита от гонки ответов при быстром наборе в поиске (как _searchGen)
 
 function setAppsUser(id) { _appsUserId = (!id || id === Store.state.user?.id) ? null : id; }
 function setAppsQuery(q) { _appsQuery = q; }
 
+// Селект сотрудника в шапке вкладки (только для админов) — общий для «Активности» и «Заявок»
+function renderEmployeeSelect(sel, curId) {
+  if (!sel) return;
+  const isAdmin = Store.state.user?.role === 'admin';
+  sel.style.display = isAdmin ? '' : 'none';
+  if (!isAdmin) return;
+  sel.innerHTML = (Store.state.colleagues || []).map(u =>
+    `<option value="${esc(u.id)}">${esc(u.name)}</option>`
+  ).join('');
+  sel.value = String(curId);
+}
+
 async function loadApps() {
+  const gen = ++_appsGen;
   Loading.show();
   try {
     const res = await Net.req('get_apps', { q: _appsQuery, as: _appsUserId || 0 });
+    if (gen !== _appsGen) return; // пришёл ответ на устаревший запрос — новее уже в пути
     if (!res || !res.success) { if (res?.error) Toast.error(res.error); return; }
     _appsCache = res;
     renderApps();
@@ -198,19 +200,7 @@ async function loadApps() {
 }
 
 function renderApps() {
-  // Select сотрудников (только для админов) — по образцу вкладки «Активность»
-  const sel = $('#apps-employee');
-  if (sel) {
-    const isAdmin = Store.state.user?.role === 'admin';
-    sel.style.display = isAdmin ? '' : 'none';
-    if (isAdmin) {
-      const curId = _appsUserId || Store.state.user?.id;
-      sel.innerHTML = (Store.state.colleagues || []).map(u =>
-        `<option value="${esc(u.id)}">${esc(u.name)}</option>`
-      ).join('');
-      sel.value = String(curId);
-    }
-  }
+  renderEmployeeSelect($('#apps-employee'), _appsUserId || Store.state.user?.id);
   const res = _appsCache;
   const summary = $('#apps-summary');
   if (summary) {
@@ -218,6 +208,8 @@ function renderApps() {
       const parts = [`${res.total} ${plural(res.total, 'заявка', 'заявки', 'заявок')}`];
       if (res.sumRate) parts.push(`Ставки: ${fmtMoney(res.sumRate)} ₽`);
       if (res.sumMargin) parts.push(`Маржа: ${fmtMoney(res.sumMargin)} ₽`);
+      // Список ограничен на сервере (LIMIT 500) — честно говорим, что показана не вся выборка
+      if ((res.apps || []).length < res.total) parts.push(`показаны первые ${res.apps.length}`);
       summary.textContent = parts.join(' · ');
     } else {
       summary.textContent = '';
