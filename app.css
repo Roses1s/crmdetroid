@@ -154,7 +154,20 @@
   .card-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card-apps { margin-top: 6px; font-size: 11px; font-weight: 700; color: var(--primary); }
 
-  /* Теги лидов (v17): чипы на канбан-карточке и в карточке лида, модалка выбора */
+  /* Теги лидов (v17): чипы на канбан-карточке и в карточке лида, модалка выбора.
+     Цвет — ТОЛЬКО через классы .tag-c-<hex>: CSP (style-src 'self') запрещает inline-style,
+     атрибут style="background:..." браузер молча отбрасывает. Список классов = палитра
+     CRM_TAG_COLORS (db.php) и TAG_COLORS (js/lead.js). */
+  .tag-c-ef4444 { background: #ef4444; }
+  .tag-c-f97316 { background: #f97316; }
+  .tag-c-f59e0b { background: #f59e0b; }
+  .tag-c-22c55e { background: #22c55e; }
+  .tag-c-14b8a6 { background: #14b8a6; }
+  .tag-c-3b82f6 { background: #3b82f6; }
+  .tag-c-6366f1 { background: #6366f1; }
+  .tag-c-a855f7 { background: #a855f7; }
+  .tag-c-ec4899 { background: #ec4899; }
+  .tag-c-64748b { background: #64748b; }
   .tag-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 5px; }
   .tag-chip { display: inline-flex; align-items: center; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; color: #fff; line-height: 16px; }
   .lead-tags-row { display: flex; align-items: center; gap: 10px; margin: 8px 0 14px; flex-wrap: wrap; }

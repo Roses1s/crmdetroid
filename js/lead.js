@@ -416,7 +416,7 @@ function renderTagPalette() {
   const pal = $('#tag-palette');
   if (!pal) return;
   pal.innerHTML = TAG_COLORS.map(c =>
-    `<span class="tag-color${c === _tagModalColor ? ' selected' : ''}" data-action="pick-tag-color" data-color="${c}" style="background:${c}" role="button" aria-label="Цвет ${c}"></span>`
+    `<span class="tag-color ${tagColorClass(c)}${c === _tagModalColor ? ' selected' : ''}" data-action="pick-tag-color" data-color="${c}" role="button" aria-label="Цвет ${c}"></span>`
   ).join('') + `<button type="button" class="btn btn-secondary btn-sm" data-action="add-tag">+ Добавить</button>`;
 }
 
@@ -427,9 +427,8 @@ function renderTagList() {
   if (!tags.length) { list.innerHTML = '<div class="tags-empty">Тегов пока нет — создайте первый ниже</div>'; return; }
   list.innerHTML = tags.map(t => {
     const on = _tagModalSelected.has(Number(t.id));
-    const c = /^#[0-9a-f]{6}$/i.test(String(t.color || '')) ? t.color : '#6366f1';
     return `<div class="tag-row">
-      <span class="tag-chip tag-pick${on ? ' selected' : ''}" data-action="toggle-tag" data-id="${t.id}" style="background:${c}" role="checkbox" aria-checked="${on}">${on ? '✓ ' : ''}${esc(t.name)}</span>
+      <span class="tag-chip tag-pick ${tagColorClass(t.color)}${on ? ' selected' : ''}" data-action="toggle-tag" data-id="${t.id}" role="checkbox" aria-checked="${on}">${on ? '✓ ' : ''}${esc(t.name)}</span>
       <span class="tag-del" data-action="del-tag" data-id="${t.id}" title="Удалить тег из справочника">×</span>
     </div>`;
   }).join('');
@@ -569,15 +568,20 @@ let _lastBoardHash = null;
 // зовётся при входе/выходе и смене просматриваемого сотрудника, чтобы renderBoard не съел рендер.
 function resetBoardCache() { _lastBoardHash = null; }
 
-// Чипы тегов лида (канбан-карточка и карточка лида). Цвет приходит из фиксированной
-// палитры (сервер отбрасывает произвольные строки — см. crm_tag_color), но на всякий
-// случай в style попадает только строгий hex.
+// Чипы тегов лида (канбан-карточка и карточка лида). Цвет задаётся CSS-классом
+// .tag-c-<hex> (см. app.css): CSP style-src 'self' запрещает inline-атрибут style,
+// поэтому style="background:..." браузер отбрасывал — чипы оставались без фона.
+// Класс существует только для цветов палитры → мусор из БД сводится к дефолту.
+function tagColorClass(color) {
+  const c = String(color || '').toLowerCase();
+  return 'tag-c-' + (TAG_COLORS.includes(c) ? c.slice(1) : '6366f1');
+}
+
 function tagChipsHtml(tags, extraClass = '') {
   if (!tags || !tags.length) return '';
-  const chips = tags.map(t => {
-    const c = /^#[0-9a-f]{6}$/i.test(String(t.color || '')) ? t.color : '#6366f1';
-    return `<span class="tag-chip ${extraClass}" style="background:${c}">${esc(t.name)}</span>`;
-  }).join('');
+  const chips = tags.map(t =>
+    `<span class="tag-chip ${tagColorClass(t.color)} ${extraClass}">${esc(t.name)}</span>`
+  ).join('');
   return `<div class="tag-chips">${chips}</div>`;
 }
 
