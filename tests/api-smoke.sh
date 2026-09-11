@@ -138,6 +138,24 @@ R=$(get "$JP" "get_comments&id=$LA1"); check "у B в логе запись «Л
 R=$(post "$JI" "$TI" save_lead "{\"title\":\"Smoke новый с передачей\",\"transferTo\":$UB}"); LNEW=$(jget "$R" "r.get('id','')"); check "новый лид с transferTo сразу передан (не 500)" "r.get('transferred') is True" "$R"
 [ -n "$LNEW" ] && post "$JP" "$TP" delete_lead "{\"id\":\"$LNEW\"}" >/dev/null
 
+# --- 8а. при передаче лида сохраняются комментарии, файлы и заявки ----------
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke передача с содержимым"}'); LTR=$(jget "$R" "r['id']")
+upload "$JI" "$TI" -F lead_id="$LTR" -F text="комментарий до передачи" -F "files[]=@$TMP/t.png;filename=до-передачи.png" "$B?action=add_comment" >/dev/null
+post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LTR\",\"cityFrom\":\"Пермь\",\"cityTo\":\"Казань\",\"rate\":\"7 000\",\"margin\":\"1 500\"}" >/dev/null
+R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LTR\",\"title\":\"Smoke передача с содержимым\",\"transferTo\":$UB}"); check "лид с логом, файлом и заявкой передан B" "r.get('transferred') is True" "$R"
+R=$(get "$JP" "get_comments&id=$LTR")
+check "у B после передачи виден комментарий A" "any(c['text']=='комментарий до передачи' for c in r.get('comments',[]))" "$R"
+check "у B после передачи видно вложение" "any(a['name']=='до-передачи.png' for c in r.get('comments',[]) for a in c.get('attachments',[]))" "$R"
+FURL=$(jget "$R" "[a['dataUrl'] for c in r['comments'] for a in c.get('attachments',[]) if a['name']=='до-передачи.png'][0]")
+HTTPB=$(curl -s -o /dev/null -w '%{http_code}' -b "$JP" "${B%api.php}$FURL")
+check "B скачивает файл переданного лида (200)" "'$HTTPB'=='200'" '{}'
+HTTPA=$(curl -s -o /dev/null -w '%{http_code}' -b "$JI" "${B%api.php}$FURL")
+check "A после передачи файл больше не доступен (404)" "'$HTTPA'=='404'" '{}'
+R=$(get "$JP" "get_lead&id=$LTR")
+check "заявка пережила передачу (count=1, маржа 1500)" "r['lead']['applicationsCount']==1 and r['lead']['appsStats']['margin']==1500" "$R"
+R=$(get "$JI" "get_lead&id=$LTR"); check "A после передачи лид не видит" "r.get('error')=='Лид не найден'" "$R"
+post "$JP" "$TP" delete_lead "{\"id\":\"$LTR\"}" >/dev/null
+
 # --- 9. продавец по умолчанию и переименование ----------------------------
 R=$(post "$JA" "$TA" save_lead '{"title":"Smoke от админа"}' "&as=$UA"); LADM=$(jget "$R" "r['id']")
 R=$(get "$JI" "get_lead&id=$LADM"); check "лид, созданный админом через ?as=, имеет продавца = владелец доски" "r['lead']['manager']=='$A_NAME'" "$R"
