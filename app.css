@@ -236,7 +236,7 @@
   .composer textarea:focus { outline: none; }
   .composer .files-preview { margin: 0; }
   .composer .files-preview:not(:empty) { margin: 6px 0 2px; }
-  .composer-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; }
+  .composer-actions { display: flex; align-items: center; justify-content: flex-start; gap: 4px; margin-top: 4px; }
   .composer-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: none; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
   .composer-btn svg { width: 17px; height: 17px; }
   .composer-btn:hover { background: var(--hover); color: var(--text); }
