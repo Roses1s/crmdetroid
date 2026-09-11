@@ -11,7 +11,6 @@
   html[data-theme="dark"] {
     /* Odoo 17/18 Enterprise dark: navbar stays #714B67, warm charcoal UI */
     --primary: #714B67; --primary-dark: #5a3b52; --success: #28a745; --danger: #dc3545;
-    --action: #017e84;
     --bg: #1f1f1f; --panel: #2b2b2b; --border: #454545; --text: #e4e4e4; --muted: #a3a3a3;
     --column-bg: #323232; --surface: #3a3a3a; --surface-2: #2f2f2f; --surface-3: #454545;
     --input-bg: #2b2b2b; --hover: #404040; --text-2: #cfcfcf; --chip: #404040;

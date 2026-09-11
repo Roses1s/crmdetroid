@@ -34,8 +34,15 @@ function crm_action_register_user(PDO $pdo, array $user, int $viewUid): never {
     if (crm_user_by_email($pdo, $email)) err('E-mail уже занят');
     $role = strv($in['role'] ?? 'user', 16);
     if ($role !== 'admin') $role = 'user';
-    $pdo->prepare('INSERT INTO crm_users (name, email, password, role, created_at) VALUES (?,?,?,?,?)')
-        ->execute([$name, $email, crm_password_hash($pass), $role, now_ms()]);
+    try {
+        $pdo->prepare('INSERT INTO crm_users (name, email, password, role, created_at) VALUES (?,?,?,?,?)')
+            ->execute([$name, $email, crm_password_hash($pass), $role, now_ms()]);
+    } catch (PDOException $e) {
+        // Гонка с параллельной регистрацией: проверка «занят» выше не атомарна с INSERT —
+        // нарушение uq_email отдаём тем же сообщением, а не 500 (тот же паттерн, что в save_tag).
+        if ((int) ($e->errorInfo[1] ?? 0) === 1062) err('E-mail уже занят');
+        throw $e;
+    }
     $newId = (int) $pdo->lastInsertId();
     crm_ensure_user_stages($pdo, $newId);
     crm_meta_bump($pdo, 'users');
@@ -73,12 +80,18 @@ function crm_action_update_user(PDO $pdo, array $user, int $viewUid): never {
     // отвалятся на следующем запросе (crm_pw_fingerprint включает token_version).
     // Раньше снятый админ сохранял привилегии до истечения сессии (до 8 часов).
     $roleChanged = ($target['role'] ?? '') !== $role;
-    if ($roleChanged) {
-        $pdo->prepare('UPDATE crm_users SET name = ?, email = ?, role = ?, token_version = token_version + 1 WHERE id = ?')
-            ->execute([$name, $email, $role, $id]);
-    } else {
-        $pdo->prepare('UPDATE crm_users SET name = ?, email = ?, role = ? WHERE id = ?')
-            ->execute([$name, $email, $role, $id]);
+    try {
+        if ($roleChanged) {
+            $pdo->prepare('UPDATE crm_users SET name = ?, email = ?, role = ?, token_version = token_version + 1 WHERE id = ?')
+                ->execute([$name, $email, $role, $id]);
+        } else {
+            $pdo->prepare('UPDATE crm_users SET name = ?, email = ?, role = ? WHERE id = ?')
+                ->execute([$name, $email, $role, $id]);
+        }
+    } catch (PDOException $e) {
+        // Гонка: e-mail заняли между проверкой выше и UPDATE — uq_email, а не 500
+        if ((int) ($e->errorInfo[1] ?? 0) === 1062) err('E-mail уже занят');
+        throw $e;
     }
     if ($name !== (string) $target['name']) {
         $pdo->prepare('UPDATE crm_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);

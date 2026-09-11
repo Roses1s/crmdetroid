@@ -24,8 +24,14 @@ function crm_action_save_direction(PDO $pdo, array $user, int $viewUid): never {
         $dup->execute([$from, $to]);
         if ($dup->fetch()) err('Такое направление уже есть');
         $id = crm_new_id($pdo, 'd_', 'crm_directions');
-        $pdo->prepare('INSERT INTO crm_directions (id, city_from, city_to, created_by, created_at) VALUES (?,?,?,?,?)')
-            ->execute([$id, $from, $to, $uid, now_ms()]);
+        try {
+            $pdo->prepare('INSERT INTO crm_directions (id, city_from, city_to, created_by, created_at) VALUES (?,?,?,?,?)')
+                ->execute([$id, $from, $to, $uid, now_ms()]);
+        } catch (PDOException $e) {
+            // Гонка: направление добавили между проверкой и INSERT — uq_dir, а не 500
+            if ((int) ($e->errorInfo[1] ?? 0) === 1062) err('Такое направление уже есть');
+            throw $e;
+        }
     } else {
         $dir = crm_direction_by_id($pdo, $id);
         if (!$dir) err('Направление не найдено');
@@ -33,7 +39,13 @@ function crm_action_save_direction(PDO $pdo, array $user, int $viewUid): never {
         $dup = $pdo->prepare('SELECT id FROM crm_directions WHERE city_from = ? AND city_to = ? AND id <> ?');
         $dup->execute([$from, $to, $id]);
         if ($dup->fetch()) err('Такое направление уже есть');
-        $pdo->prepare('UPDATE crm_directions SET city_from = ?, city_to = ? WHERE id = ?')->execute([$from, $to, $id]);
+        try {
+            $pdo->prepare('UPDATE crm_directions SET city_from = ?, city_to = ? WHERE id = ?')->execute([$from, $to, $id]);
+        } catch (PDOException $e) {
+            // Гонка: такую пару городов создали между проверкой и UPDATE — uq_dir, а не 500
+            if ((int) ($e->errorInfo[1] ?? 0) === 1062) err('Такое направление уже есть');
+            throw $e;
+        }
     }
     crm_meta_bump($pdo, 'routes');
     ok(['id' => $id]);
