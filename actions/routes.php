@@ -176,8 +176,7 @@ function crm_action_get_carrier(PDO $pdo, array $user, int $viewUid): never {
 }
 
 function crm_action_add_carrier_comment(PDO $pdo, array $user, int $viewUid): never {
-    $carrierId = strv($_POST['carrier_id'] ?? '', 80);
-    $text = strv($_POST['text'] ?? '', 20000);
+    [$carrierId, $text] = crm_comment_input('carrier_id');
     if (!crm_carrier_by_id($pdo, $carrierId)) err('Контакт не найден');
     crm_apply_comment_add($pdo, 'crm_carrier_comments', 'crm_carrier_attachments', 'carrier_id', $carrierId, $text, $user, 'cc_', 'add_carrier_comment');
     $rev = crm_touch_carrier($pdo, $carrierId);
@@ -186,7 +185,7 @@ function crm_action_add_carrier_comment(PDO $pdo, array $user, int $viewUid): ne
 }
 
 function crm_action_edit_carrier_comment(PDO $pdo, array $user, int $viewUid): never {
-    [$cid, $text] = crm_edit_comment_input();
+    [$cid, $text] = crm_comment_input('id');
     $c = crm_carrier_comment_by_id($pdo, $cid);
     if (!$c) err('Комментарий не найден');
     if (!can_edit_comment($user, $c)) err('Нет прав');

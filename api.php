@@ -402,12 +402,16 @@ function crm_take_uploads(int $max): array {
     }
     return $atts;
 }
-function crm_edit_comment_input(): array {
-    if (crm_want_json()) {
-        $in = body_json();
-        return [strv($in['id'] ?? '', 80), strv($in['text'] ?? '', 20000)];
-    }
-    return [strv($_POST['id'] ?? '', 80), strv($_POST['text'] ?? '', 20000)];
+/*
+ * Единый приём тела для всех действий с комментариями: и добавление, и правка понимают
+ * оба формата — multipart/FormData (обычный путь: клиент шлёт файлы) и JSON (для правок
+ * без файлов и вызовов API «руками»). Раньше add_comment принимал только $_POST, а
+ * edit_comment — оба формата: непоследовательность, отмеченная в ревью (TODO #4).
+ * $idField — имя поля-владельца: 'id' (правка), 'lead_id' или 'carrier_id' (добавление).
+ */
+function crm_comment_input(string $idField): array {
+    $in = crm_want_json() ? body_json() : $_POST;
+    return [strv($in[$idField] ?? '', 80), strv($in['text'] ?? '', 20000)];
 }
 /*
  * Общие тела add/edit/delete для комментариев лидов и перевозчиков.

@@ -14,12 +14,7 @@ function crm_action_get_comments(PDO $pdo, array $user, int $viewUid): never {
 }
 
 function crm_action_add_comment(PDO $pdo, array $user, int $viewUid): never {
-    // TODO(архитектура): add_comment принимает FormData ($_POST), а edit_comment — и JSON и FormData
-    // (через crm_edit_comment_input). add_carrier_comment — только FormData. Непоследовательность
-    // усложняет поддержку. При рефакторинге — унифицировать: либо все через multipart (т.к. файлы),
-    // либо загружать файлы отдельным action'ом, а комментарии — всегда JSON.
-    $leadId = strv($_POST['lead_id'] ?? '', 80);
-    $text = strv($_POST['text'] ?? '', 20000);
+    [$leadId, $text] = crm_comment_input('lead_id');
     if (!crm_lead_for_user($pdo, $leadId, $viewUid)) err('Лид не найден');
     crm_apply_comment_add($pdo, 'crm_comments', 'crm_attachments', 'lead_id', $leadId, $text, $user, 'c_', 'add_comment');
     $rev = crm_touch_lead($pdo, $leadId);
@@ -27,7 +22,7 @@ function crm_action_add_comment(PDO $pdo, array $user, int $viewUid): never {
 }
 
 function crm_action_edit_comment(PDO $pdo, array $user, int $viewUid): never {
-    [$cid, $text] = crm_edit_comment_input();
+    [$cid, $text] = crm_comment_input('id');
     $c = crm_comment_for_user($pdo, $cid, $viewUid);
     if (!$c) err('Комментарий не найден');
     if (!can_edit_comment($user, $c)) err('Нет прав');
