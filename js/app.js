@@ -279,29 +279,52 @@ function initAppEvents() {
   $('#la-inn')?.addEventListener('input', e => formatInnInput(e.target));
   $('#la-rate')?.addEventListener('input', e => formatMarginInput(e.target));
   $('#la-margin')?.addEventListener('input', e => formatMarginInput(e.target));
-  $('#f-manager').addEventListener('blur', async () => {
-    if (!UI.leadId) return;
-    saveLeadDebounced.cancel();
+  /*
+   * Передача лида через поле «Продавец»: срабатывает СРАЗУ при вводе полного имени коллеги
+   * (вручную или выбором из подсказки), а не только при уходе из поля. Пауза 400 мс после
+   * последней буквы — чтобы окно не выскакивало посреди набора, если имя одного сотрудника
+   * начинается с имени другого. Передача — только при полном совпадении имени (без регистра):
+   * одна фамилия не переводит лид («Иванов» могло уйти не тому Иванову).
+   * _transferPrompting — защита от двойного окна: при открытии подтверждения фокус уходит
+   * из поля, и blur-обработчик (страховка для «ввёл и сразу кликнул мимо») сработал бы вторым.
+   */
+  let _transferPrompting = false;
+  async function promptManagerTransfer() {
+    if (_transferPrompting || !UI.leadId) return false;
     const lead = Store.getLead(UI.leadId);
     const typed = ($('#f-manager').value || '').trim();
     const prev = (lead && lead.manager) || '';
-    // Передача — только при полном совпадении с именем сотрудника из подсказки (без регистра).
-    // Одна фамилия больше не переводит лид: «Иванов» могло уйти не тому Иванову.
-    let transferTo = 0;
-    if (typed && typed !== prev && Store.state.colleagues) {
-      const q = typed.toLowerCase().replace(/\s+/g, ' ');
-      const hits = Store.state.colleagues.filter(u => String(u.name || '').toLowerCase().replace(/\s+/g, ' ') === q);
-      const ownerId = Store.viewUserId || (Store.state.user && Store.state.user.id);
-      if (hits.length === 1 && +hits[0].id !== +ownerId) {
-        if (!await askConfirm('Передать лид?', 'Лид уйдёт сотруднику «' + hits[0].name + '» вместе с логом и файлами')) {
-          $('#f-manager').value = prev;
-          return;
-        }
-        transferTo = +hits[0].id;
+    if (!typed || typed === prev || !Store.state.colleagues) return false;
+    const q = typed.toLowerCase().replace(/\s+/g, ' ');
+    const hits = Store.state.colleagues.filter(u => String(u.name || '').toLowerCase().replace(/\s+/g, ' ') === q);
+    const ownerId = Store.viewUserId || (Store.state.user && Store.state.user.id);
+    if (!(hits.length === 1 && +hits[0].id !== +ownerId)) return false;
+    _transferPrompting = true;
+    try {
+      saveLeadDebounced.cancel();
+      if (!await askConfirm('Вы точно хотите передать карточку?', 'Лид уйдёт сотруднику «' + hits[0].name + '» вместе с логом и файлами')) {
+        $('#f-manager').value = prev;
+        // Остальные правки формы (если были) сохраняем штатно — уже со старым продавцом
+        if (UI.formDirty) await saveLeadForm(true);
+        return true; // обработано: пользователь отказался, имя возвращено
       }
+      saveLeadDebounced.cancel();
+      const res = await saveLeadForm(true, false, +hits[0].id);
+      if (res && res.transferred) { await Store.load(true); await goHome(true); }
+      return true;
+    } finally {
+      _transferPrompting = false;
     }
-    const res = await saveLeadForm(true, false, transferTo);
-    if (res && res.transferred) { await Store.load(true); await goHome(true); }
+  }
+  const promptManagerTransferDebounced = debounce(() => promptManagerTransfer(), 400);
+  $('#f-manager').addEventListener('input', promptManagerTransferDebounced);
+  $('#f-manager').addEventListener('blur', async () => {
+    if (!UI.leadId || _transferPrompting) return;
+    promptManagerTransferDebounced.cancel();
+    saveLeadDebounced.cancel();
+    // Страховка: имя введено и фокус ушёл раньше, чем сработала пауза 400 мс
+    const handled = await promptManagerTransfer();
+    if (!handled) await saveLeadForm(true);
   });
   $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title') && UI.carrierCanManage) { UI.formDirty = true; updateCarrierSaveUI('dirty'); saveCarrierDebounced(); } });
 
