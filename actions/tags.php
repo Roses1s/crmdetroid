@@ -19,6 +19,12 @@ function crm_action_save_tag(PDO $pdo, array $user, int $viewUid): never {
     if ($name === '') err('Укажите название тега');
     $color = crm_tag_color(strv($in['color'] ?? '', 7));
     try {
+        if ($id <= 0) {
+            // Предел справочника: защита от захламления и раздувания ответа get_data
+            $cnt = $pdo->prepare('SELECT COUNT(*) FROM crm_tags WHERE user_id = ?');
+            $cnt->execute([$viewUid]);
+            if ((int) $cnt->fetchColumn() >= 100) err('Достигнут предел тегов (100) — удалите неиспользуемые');
+        }
         if ($id > 0) {
             $st = $pdo->prepare('UPDATE crm_tags SET name = ?, color = ? WHERE id = ? AND user_id = ?');
             $st->execute([$name, $color, $id, $viewUid]);
@@ -86,16 +92,29 @@ function crm_action_set_lead_tags(PDO $pdo, array $user, int $viewUid): never {
         }
     }
     $ids = array_slice(array_keys($ids), 0, 20); // здравый предел на лид
-    // Только собственные теги владельца доски
-    $valid = [];
-    if ($ids) {
-        $ph = implode(',', array_fill(0, count($ids), '?'));
-        $st = $pdo->prepare("SELECT id FROM crm_tags WHERE user_id = ? AND id IN ($ph)");
-        $st->execute(array_merge([$viewUid], $ids));
-        $valid = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
-    }
     $pdo->beginTransaction();
     try {
+        // Владелец перепроверяется ПОД блокировкой строки лида: параллельная передача
+        // (crm_transfer_lead) держит ту же строку — либо мы вставим привязки до передачи
+        // (и её чистка их снимет), либо дождёмся коммита и честно получим «Лид не найден».
+        // Без FOR UPDATE проверка выше — TOCTOU: привязки могли вставиться уже после чистки.
+        $own = $pdo->prepare('SELECT user_id FROM crm_leads WHERE id = ? FOR UPDATE');
+        $own->execute([$leadId]);
+        $ownerRow = $own->fetch();
+        if (!$ownerRow || (int) $ownerRow['user_id'] !== $viewUid) {
+            $pdo->rollBack();
+            err('Лид не найден');
+        }
+        // Только собственные теги владельца доски. FOR UPDATE и здесь: параллельный
+        // delete_tag ждёт нашего коммита — иначе между SELECT и INSERT тег могли удалить,
+        // и в crm_lead_tags появилась бы ссылка-сирота на несуществующий тег.
+        $valid = [];
+        if ($ids) {
+            $ph = implode(',', array_fill(0, count($ids), '?'));
+            $st = $pdo->prepare("SELECT id FROM crm_tags WHERE user_id = ? AND id IN ($ph) FOR UPDATE");
+            $st->execute(array_merge([$viewUid], $ids));
+            $valid = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+        }
         $pdo->prepare('DELETE FROM crm_lead_tags WHERE lead_id = ?')->execute([$leadId]);
         if ($valid) {
             $ins = $pdo->prepare('INSERT INTO crm_lead_tags (lead_id, tag_id) VALUES (?,?)');

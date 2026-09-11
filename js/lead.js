@@ -469,6 +469,9 @@ async function addTagFromModal() {
 
 async function deleteTagFromModal(id) {
   if (!await askConfirm('Удалить тег?', 'Он снимется со всех лидов')) return;
+  // Кнопка «ОК» подтверждения делает Modal.closeAll() и закрывает и окно тегов —
+  // возвращаем его на место, чтобы не терять отмеченные галочки.
+  Modal.open('modal-tags');
   const res = await Net.req('delete_tag', { id: Number(id) });
   if (!res?.success) return Toast.error(res?.error || 'Ошибка');
   Store.state.tags = res.tags || [];

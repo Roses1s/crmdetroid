@@ -135,6 +135,13 @@ t('CrmError: needLogin по умолчанию false', (new CrmError('x'))->need
 t('CrmError: needLogin=true переносится', (new CrmError('Сессия истекла', true))->needLogin, true);
 t('CrmError: это RuntimeException (ловится общим catch)', new CrmError('x') instanceof RuntimeException, true);
 
+// --- crm_tag_color (v17): только hex из палитры ---------------------------------
+t('tag color: из палитры', crm_tag_color('#ef4444'), '#ef4444');
+t('tag color: не из палитры → дефолт', crm_tag_color('#123456'), '#6366f1');
+t('tag color: мусор → дефолт', crm_tag_color('red; xss'), '#6366f1');
+t('tag color: пусто → дефолт', crm_tag_color(''), '#6366f1');
+t('tag color: верхний регистр не проходит (палитра в нижнем)', crm_tag_color('#EF4444'), '#6366f1');
+
 // --- crm_is_sys_comment --------------------------------------------------------
 t('sys: user_id=0 + Система', crm_is_sys_comment(['user_id' => 0, 'author' => 'Система']), true);
 t('sys: user_id=0 но не Система', crm_is_sys_comment(['user_id' => 0, 'author' => 'Иван']), false);

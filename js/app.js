@@ -328,6 +328,8 @@ function initAppEvents() {
   });
   $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title') && UI.carrierCanManage) { UI.formDirty = true; updateCarrierSaveUI('dirty'); saveCarrierDebounced(); } });
 
+  // Enter в поле нового тега — создать тег (а не «ничего»)
+  $('#tag-new-name')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addTagFromModal(); } });
   $('#comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-comment"]').click(); } });
   $('#carrier-comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-carrier-comment"]').click(); } });
   const bindLogEnter = el => el.addEventListener('keydown', e => { if (e.target.matches('.inline-editor textarea') && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $(`[data-action="save-comment"][data-cid="${e.target.dataset.inp}"]`).click(); } });
@@ -835,7 +837,9 @@ function initKeyboardShortcuts() {
     }
     if ((UI.currentView === 'lead' || UI.currentView === 'carrier') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       const tag = (document.activeElement && document.activeElement.tagName) || '';
-      if (!/^(INPUT|TEXTAREA|SELECT)$/.test(tag) && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      // Не листаем соседние карточки, пока открыто модальное окно (например, «Теги лида»):
+      // стрелки при фокусе вне input переключали бы лид под модалкой.
+      if (!$('.modal-backdrop.open') && !/^(INPUT|TEXTAREA|SELECT)$/.test(tag) && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         if (UI.currentView === 'carrier') goNeighborCarrier(e.key === 'ArrowLeft' ? -1 : 1);
         else goNeighborLead(e.key === 'ArrowLeft' ? -1 : 1);

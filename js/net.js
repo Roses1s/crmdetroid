@@ -1,6 +1,6 @@
 'use strict';
 // Сетевой слой и клиентское хранилище: Net (запросы к api.php, CSRF, offline-индикатор) и Store (стейт доски: user/stages/leads, загрузка get_data). Вынесено из app.js (план CODE_REVIEW п. 10.9).
-/* global $, Loading, UI, ensureLeadFull, esc, fillLeadForm, goHome, handleLogoutUI, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openRoute, renderBoard, renderDetailStages, renderLeadApps, renderLog, showMustChangePassword, syncAdminNav, updateLeadNav, updateSearchPlaceholder, usersTableBusy */
+/* global $, Loading, UI, ensureLeadFull, esc, fillLeadForm, goHome, handleLogoutUI, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openRoute, renderBoard, renderDetailStages, renderLeadApps, renderLeadTagsRow, renderLog, showMustChangePassword, syncAdminNav, updateLeadNav, updateSearchPlaceholder, usersTableBusy */
 
 const Net = {
   csrf: null, hash: null, online: true,
@@ -149,6 +149,9 @@ const Store = {
       await ensureLeadFull(UI.leadId);
       await loadLeadComments(UI.leadId);
       renderDetailStages(); renderLog();
+      // Теги перерисовываем всегда: fillLeadForm ниже пропускается при formDirty,
+      // а строка тегов не зависит от несохранённых правок формы.
+      renderLeadTagsRow();
       if (!UI.formDirty) fillLeadForm(lead);
       renderLeadApps();
       updateLeadNav();

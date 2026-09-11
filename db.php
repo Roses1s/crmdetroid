@@ -187,6 +187,17 @@ function crm_integrity_check(PDO $pdo): array {
             $issues[] = ['crm_lead_apps', $id, 'заявка без лида'];
         }
     } catch (PDOException $e) { /* v8 table may not exist */ }
+    // Привязки тегов без лида или без тега (v17)
+    try {
+        $st = $pdo->query('SELECT CONCAT(lt.lead_id, \'/\', lt.tag_id) FROM crm_lead_tags lt LEFT JOIN crm_leads l ON l.id = lt.lead_id WHERE l.id IS NULL LIMIT 100');
+        foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            $issues[] = ['crm_lead_tags', $id, 'привязка тега без лида'];
+        }
+        $st = $pdo->query('SELECT CONCAT(lt.lead_id, \'/\', lt.tag_id) FROM crm_lead_tags lt LEFT JOIN crm_tags t ON t.id = lt.tag_id WHERE t.id IS NULL LIMIT 100');
+        foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            $issues[] = ['crm_lead_tags', $id, 'привязка на несуществующий тег'];
+        }
+    } catch (PDOException $e) { /* до миграции v17 */ }
     // Перевозчики без направления
     $st = $pdo->query('SELECT c.id FROM crm_carriers c LEFT JOIN crm_directions d ON d.id = c.direction_id WHERE d.id IS NULL LIMIT 100');
     foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
