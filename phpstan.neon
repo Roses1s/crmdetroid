@@ -1,0 +1,45 @@
+# Статический анализ PHP (код-ревью п. 8.4). Запуск: phpstan analyse
+# Локально без composer: php phpstan.phar analyse (phar с github.com/phpstan/phpstan)
+parameters:
+    level: 6
+    parallel:
+        maximumNumberOfProcesses: 1
+    paths:
+        - api.php
+        - db.php
+        - http.php
+        - security.php
+        - files.php
+        - migrations.php
+        - actions
+        - tools/backup.php
+    bootstrapFiles:
+        - tests/phpstan-bootstrap.php
+    # Константы из config.php различаются между инсталляциями — их значения из bootstrap
+    # не должны констант-фолдиться (иначе «CRM_DB_PASS === 'CHANGE_ME' всегда ложно» и т.п.)
+    dynamicConstantNames:
+        - CRM_DB_HOST
+        - CRM_DB_PORT
+        - CRM_DB_NAME
+        - CRM_DB_USER
+        - CRM_DB_PASS
+        - CRM_DB_FALLBACK
+        - CRM_DEFAULT_ADMIN_EMAIL
+        - CRM_DEFAULT_ADMIN_PASS
+        - CRM_DEFAULT_ADMIN_NAME
+        - CRM_TRUSTED_PROXIES
+    ignoreErrors:
+        # Массивы из PDO::fetch() типизировать без value-object'ов невозможно —
+        # осознанное решение: value-object'ы не заводим, работаем с ассоциативными массивами.
+        -
+            identifier: missingType.iterableValue
+        # crm_boot: повторная проверка версии схемы после ожидания GET_LOCK — осознанная
+        # (другой процесс мог применить миграции, пока мы ждали блокировку). PHPStan считает
+        # второй вызов crm_schema_version() возвращающим то же значение — это не так: БД изменилась.
+        # (числа в сообщении — текущая и предыдущая версия схемы, растут с каждой миграцией)
+        -
+            message: '#Comparison operation ">=" between int<min, \d+> and \d+ is always false#'
+            path: migrations.php
+        -
+            message: '#Result of && is always false#'
+            path: migrations.php

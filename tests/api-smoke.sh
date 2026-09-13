@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+# Регрессионные проверки API на тестовом стенде (НЕ на проде: скрипт создаёт пользователей и лиды).
+#
+# Что нужно:
+#   - запущенный PHP-сервер с CRM и отдельной тестовой БД:
+#       php -S 127.0.0.1:8089 -t /путь/к/crm      (config.php должен смотреть в тестовую БД)
+#   - curl, python3
+#
+# Запуск:
+#   CRM_URL=http://127.0.0.1:8089 ADMIN_EMAIL=admin@detroid.local ADMIN_PASS='...' bash tests/api-smoke.sh
+#
+# Скрипт сам создаёт двух сотрудников (smoke-a@test.local / smoke-b@test.local) при первом запуске
+# и повторно использует их дальше. Каждая проверка печатает PASS/FAIL; код выхода 1, если есть FAIL.
+
+set -u
+B="${CRM_URL:-http://127.0.0.1:8089}/api.php"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@detroid.local}"
+ADMIN_PASS="${ADMIN_PASS:?Укажите ADMIN_PASS}"
+A_EMAIL="smoke-a@test.local"; A_PASS="SmokePassA1"; A_NAME="Смоук Первый"
+B_EMAIL="smoke-b@test.local"; B_PASS="SmokePassB1"; B_NAME="Смоук Второй"
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+FAILS=0
+
+pass() { echo "PASS | $1"; }
+fail() { echo "FAIL | $1 | $2"; FAILS=$((FAILS+1)); }
+check() { # check "имя" "условие-выражение-python над переменной r (JSON-строка)" "ответ"
+  if python3 -c "import sys,json
+raw=sys.argv[2]
+try: r=json.loads(raw)
+except Exception: r={'_raw': raw}
+sys.exit(0 if ($2) else 1)" "$1" "$3" 2>/dev/null; then pass "$1"; else fail "$1" "$3"; fi
+}
+jget() { python3 -c "import sys,json; r=json.loads(sys.argv[1]); print(eval(sys.argv[2]))" "$1" "$2" 2>/dev/null; }
+
+# --- helpers -------------------------------------------------------------
+csrf_login_token() { curl -s "$B?action=csrf" | jget "$(cat)" "r['csrf']" 2>/dev/null || curl -s "$B?action=csrf" | sed 's/.*"csrf":"\([^"]*\)".*/\1/'; }
+login() { # login <jar> <email> <pass>  → печатает session csrf
+  local T; T=$(curl -s "$B?action=csrf" | sed 's/.*"csrf":"\([^"]*\)".*/\1/')
+  curl -s -c "$1" -H "X-CSRF-Token: $T" -H 'Content-Type: application/json' -d "{\"email\":\"$2\",\"password\":\"$3\"}" "$B?action=login" | sed -n 's/.*"csrf":"\([^"]*\)".*/\1/p'
+}
+post() { curl -s -b "$1" -H "X-CSRF-Token: $2" -H 'Content-Type: application/json' -d "$4" "$B?action=$3${5:-}"; }
+get() { curl -s -b "$1" "$B?action=$2"; }
+upload() { curl -s -b "$1" -H "X-CSRF-Token: $2" "${@:3}"; }
+
+printf 'P\x89PNG\r\n\x1a\n' | tail -c 8 > "$TMP/t.png"  # PNG magic
+printf '%%PDF-1.4\n%%%%EOF\n' > "$TMP/t.pdf"
+
+# --- 0. вход админа, создание тестовых сотрудников ------------------------
+JA="$TMP/ja"; TA=$(login "$JA" "$ADMIN_EMAIL" "$ADMIN_PASS")
+[ -n "$TA" ] || { echo "Не удалось войти админом ($ADMIN_EMAIL)"; exit 2; }
+post "$JA" "$TA" register_user "{\"name\":\"$A_NAME\",\"email\":\"$A_EMAIL\",\"password\":\"$A_PASS\",\"role\":\"user\"}" >/dev/null
+post "$JA" "$TA" register_user "{\"name\":\"$B_NAME\",\"email\":\"$B_EMAIL\",\"password\":\"$B_PASS\",\"role\":\"user\"}" >/dev/null
+USERS=$(get "$JA" get_users)
+UA=$(jget "$USERS" "[u['id'] for u in r['users'] if u['email']=='$A_EMAIL'][0]")
+UB=$(jget "$USERS" "[u['id'] for u in r['users'] if u['email']=='$B_EMAIL'][0]")
+JI="$TMP/ji"; TI=$(login "$JI" "$A_EMAIL" "$A_PASS")
+JP="$TMP/jp"; TP=$(login "$JP" "$B_EMAIL" "$B_PASS")
+check "вход сотрудников A(id=$UA) и B(id=$UB)" "'$TI'!='' and '$TP'!=''" '{}'
+
+# --- 1. базовые запреты --------------------------------------------------
+R=$(curl -s "$B?action=save_lead&title=x"); check "GET-мутация без сессии отклонена" "r.get('need_login') or r.get('success') is False" "$R"
+R=$(get "$JI" "get_data&as=$UB"); check "?as= для не-админа → Нет прав" "r.get('error')=='Нет прав'" "$R"
+R=$(post "$JI" "$TI" save_lead '{bad json'); check "битый JSON → «Некорректный запрос», лид не создан" "r.get('error')=='Некорректный запрос'" "$R"
+R=$(post "$JI" "$TI" save_lead '{"title":["массив"],"inn":{"a":1}}'); check "массив вместо строки не ломает JSON-ответ" "r.get('success') is True" "$R"
+LJUNK=$(jget "$R" "r['id']"); post "$JI" "$TI" delete_lead "{\"id\":\"$LJUNK\"}" >/dev/null
+
+# --- 2. id лидов выдаёт сервер -------------------------------------------
+R=$(post "$JI" "$TI" save_lead '{"id":"../../evil","title":"Smoke A1","inn":"7701234567"}')
+LA1=$(jget "$R" "r['id']"); check "клиентский id игнорируется, сервер выдал свой (l_hex)" "r.get('id','').startswith('l_') and len(r['id'])==14" "$R"
+R=$(post "$JP" "$TP" save_lead '{"title":"Smoke B1","inn":"7809876543"}'); LB1=$(jget "$R" "r['id']")
+R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LB1\",\"title\":\"hijack\"}"); check "чужой лид через save_lead → Лид не найден" "r.get('error')=='Лид не найден'" "$R"
+
+# --- 2а. Код АТИ и Имя логиста при создании лида ---------------------------
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke ATI","ati":"ATI-12345","logistName":"Логист Смоук","phone":"+7 (912) 000-11-22","logistPhone":"+7 (912) 000-11-22"}'); LATI=$(jget "$R" "r['id']")
+R=$(get "$JI" "get_lead&id=$LATI")
+check "ati сохраняется при создании" "r['lead'].get('ati')=='ATI-12345'" "$R"
+check "logistName сохраняется при создании" "r['lead'].get('logistName')=='Логист Смоук'" "$R"
+# Окно создания шлёт телефон и в phone, и в logistPhone (контакт логиста)
+check "телефон из окна создания попал в контакт логиста" "r['lead'].get('logistPhone')=='+7 (912) 000-11-22'" "$R"
+R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LATI\",\"ati\":\"ATI-99\"}")
+R=$(get "$JI" "get_lead&id=$LATI"); check "ati обновляется через save_lead" "r['lead'].get('ati')=='ATI-99'" "$R"
+R=$(get "$JI" "get_data"); check "лёгкая выборка досок содержит logistPhone" "all('logistPhone' in l for l in r.get('leads',[]))" "$R"
+post "$JI" "$TI" delete_lead "{\"id\":\"$LATI\"}" >/dev/null
+
+# --- 3. пересечения в поиске только по точному запросу --------------------
+R=$(get "$JI" "search_leads&q=78"); check "поиск «78» — пересечений нет" "r.get('intersections')==[]" "$R"
+R=$(get "$JI" "search_leads&q=7809"); check "поиск «7809» — пересечение с лидом B найдено (индекс ИНН)" "any(i.get('inn')=='7809876543' for i in r.get('intersections',[]))" "$R"
+# v16: пересечения по названию идут через FULLTEXT (поиск по началу слов)
+R=$(get "$JI" "search_leads&q=Smok"); check "поиск «Smok» — пересечение по началу слова найдено (FULLTEXT)" "any(i.get('inn')=='7809876543' for i in r.get('intersections',[]))" "$R"
+R=$(get "$JI" "search_leads&q=SMOKE"); check "поиск «SMOKE» — регистр не важен" "any(i.get('inn')=='7809876543' for i in r.get('intersections',[]))" "$R"
+R=$(get "$JI" "search_leads&q=%2BSmok%2A%20%22x"); check "операторы BOOLEAN MODE в запросе не ломают поиск" "r.get('success') is True" "$R"
+
+# --- 4. вложения: kind обязателен, номера независимы ----------------------
+upload "$JI" "$TI" -F lead_id="$LA1" -F text=f -F "files[]=@$TMP/t.png;filename=a.png" "$B?action=add_comment" >/dev/null
+R=$(get "$JI" "get_comments&id=$LA1"); ATT=$(jget "$R" "[a['id'] for c in r['comments'] for a in c.get('attachments',[])][0]")
+check "вложение к лиду загружено" "'$ATT'!=''" "$R"
+R=$(post "$JI" "$TI" delete_attachment "{\"id\":$ATT}"); check "delete_attachment без kind отклонён" "r.get('error')=='Не указан тип вложения'" "$R"
+R=$(post "$JI" "$TI" delete_attachment "{\"id\":$ATT,\"kind\":\"carrier\"}"); check "delete_attachment с чужим kind не удаляет файл лида" "r.get('success') is not True" "$R"
+R=$(post "$JI" "$TI" delete_attachment "{\"id\":$ATT,\"kind\":\"lead\"}"); check "delete_attachment kind=lead удаляет" "r.get('success') is True" "$R"
+LONG=$(python3 -c 'print("ф"*290+".png")')
+R=$(upload "$JI" "$TI" -F lead_id="$LA1" -F text=long -F "files[]=@$TMP/t.png;filename=$LONG" "$B?action=add_comment"); check "файл с именем 294 символа принят (обрезан до 200)" "r.get('success') is True" "$R"
+upload "$JI" "$TI" -F lead_id="$LA1" -F text=pdf -F "files[]=@$TMP/t.pdf;filename=Договор.pdf" "$B?action=add_comment" >/dev/null
+URL=$(get "$JI" "get_comments&id=$LA1" | python3 -c 'import sys,json; d=json.load(sys.stdin); print([a["dataUrl"] for c in d["comments"] for a in c.get("attachments",[]) if a["name"].endswith(".pdf")][0])')
+HDR=$(curl -s -D - -o /dev/null -b "$JI" "${B%api.php}$URL")
+if echo "$HDR" | grep -q "filename\*=UTF-8''%D0%94"; then pass "скачивание: Content-Disposition с filename*=UTF-8"; else fail "скачивание: Content-Disposition с filename*=UTF-8" "$(echo "$HDR" | grep -i disposition)"; fi
+
+# --- 5. системные записи и записи уволенных ------------------------------
+R=$(get "$JI" "get_comments&id=$LA1"); SYS=$(jget "$R" "[c['id'] for c in r['comments'] if c['author']=='Система'][0]")
+R=$(post "$JI" "$TI" delete_comment "{\"id\":\"$SYS\"}"); check "владелец не может удалить системную запись" "r.get('error')=='Нет прав'" "$R"
+R=$(post "$JA" "$TA" delete_comment "{\"id\":\"$SYS\"}" "&as=$UA"); check "админ может удалить системную запись" "r.get('success') is True" "$R"
+
+# --- 6. справочник: удаление/переименование — создатель или админ ---------
+R=$(post "$JI" "$TI" save_direction '{"cityFrom":"Смоукград","cityTo":"Тестбург"}'); DID=$(jget "$R" "r['id']")
+R=$(post "$JI" "$TI" save_carrier "{\"directionId\":\"$DID\",\"name\":\"ИП Смоук\"}"); CID=$(jget "$R" "r['id']")
+R=$(post "$JP" "$TP" delete_direction "{\"id\":\"$DID\"}"); check "B не может удалить направление, созданное A" "'администратор' in r.get('error','')" "$R"
+R=$(post "$JP" "$TP" save_direction "{\"id\":\"$DID\",\"cityFrom\":\"Смоукград\",\"cityTo\":\"Другой\"}"); check "B не может переименовать направление A" "'администратор' in r.get('error','')" "$R"
+R=$(post "$JP" "$TP" delete_carrier "{\"id\":\"$CID\"}"); check "B не может удалить перевозчика A" "'администратор' in r.get('error','')" "$R"
+R=$(post "$JP" "$TP" save_carrier "{\"id\":\"$CID\",\"directionId\":\"$DID\",\"name\":\"Хайджек\"}"); check "B не может править карточку перевозчика A" "'администратор' in r.get('error','')" "$R"
+R=$(post "$JI" "$TI" save_carrier "{\"id\":\"$CID\",\"directionId\":\"$DID\",\"name\":\"ИП Смоук\"}"); check "создатель может править свою карточку перевозчика" "r.get('success') is True" "$R"
+R=$(upload "$JP" "$TP" -F carrier_id="$CID" -F text="запись B" "$B?action=add_carrier_comment"); check "B может писать в лог перевозчика A" "r.get('success') is True" "$R"
+R=$(get "$JP" "get_carriers&id=$DID"); check "canManage=false для B, у перевозчика A тоже" "r['direction']['canManage'] is False and all(c['canManage'] is False for c in r['carriers'])" "$R"
+R=$(post "$JA" "$TA" delete_carrier "{\"id\":\"$CID\"}"); check "админ удаляет перевозчика" "r.get('success') is True" "$R"
+R=$(post "$JI" "$TI" delete_direction "{\"id\":\"$DID\"}"); check "создатель удаляет направление" "r.get('success') is True" "$R"
+
+# --- 7. заявки: строгий парсинг денег, лимиты этапов ---------------------
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"12 500,50\",\"margin\":\"1 000\"}"); check "ставка «12 500,50» → 12500.50" "r.get('application',{}).get('rate')=='12500.50'" "$R"
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"abc\"}"); check "ставка «abc» отклонена" "'Ставка' in r.get('error','')" "$R"
+ST=$(python3 -c 'import json; print(json.dumps({"stages":["Э%d"%i for i in range(21)]}))')
+R=$(post "$JI" "$TI" save_stages "$ST"); check "21 этап → отказ" "'Не больше' in r.get('error','')" "$R"
+R=$(post "$JI" "$TI" save_stages '{"stages":["Новый","новый"]}'); check "дубликат этапа с разным регистром → Имя занято" "r.get('error')=='Имя занято'" "$R"
+
+# --- 8. передача лида только по id -----------------------------------------
+R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LA1\",\"title\":\"Smoke A1\",\"manager\":\"Второй\",\"transfer\":true}"); check "старый способ (manager+transfer) не передаёт" "r.get('success') is True and not r.get('transferred')" "$R"
+R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LA1\",\"title\":\"Smoke A1\",\"transferTo\":999999}"); check "transferTo на несуществующего → Сотрудник не найден" "r.get('error')=='Сотрудник не найден'" "$R"
+R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LA1\",\"title\":\"Smoke A1\",\"transferTo\":$UB}"); check "transferTo=B → передан" "r.get('transferred') is True" "$R"
+R=$(get "$JP" "get_comments&id=$LA1"); check "у B в логе запись «Лид передан»" "any('Лид передан' in c['text'] for c in r.get('comments',[]))" "$R"
+# Регрессия: новый лид с transferTo в одном запросе раньше падал в 500 ($row['updated_at'] при $row=null)
+R=$(post "$JI" "$TI" save_lead "{\"title\":\"Smoke новый с передачей\",\"transferTo\":$UB}"); LNEW=$(jget "$R" "r.get('id','')"); check "новый лид с transferTo сразу передан (не 500)" "r.get('transferred') is True" "$R"
+[ -n "$LNEW" ] && post "$JP" "$TP" delete_lead "{\"id\":\"$LNEW\"}" >/dev/null
+
+# --- 8а. при передаче лида сохраняются комментарии, файлы и заявки ----------
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke передача с содержимым"}'); LTR=$(jget "$R" "r['id']")
+upload "$JI" "$TI" -F lead_id="$LTR" -F text="комментарий до передачи" -F "files[]=@$TMP/t.png;filename=до-передачи.png" "$B?action=add_comment" >/dev/null
+post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LTR\",\"cityFrom\":\"Пермь\",\"cityTo\":\"Казань\",\"rate\":\"7 000\",\"margin\":\"1 500\"}" >/dev/null
+R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LTR\",\"title\":\"Smoke передача с содержимым\",\"transferTo\":$UB}"); check "лид с логом, файлом и заявкой передан B" "r.get('transferred') is True" "$R"
+R=$(get "$JP" "get_comments&id=$LTR")
+check "у B после передачи виден комментарий A" "any(c['text']=='комментарий до передачи' for c in r.get('comments',[]))" "$R"
+check "у B после передачи видно вложение" "any(a['name']=='до-передачи.png' for c in r.get('comments',[]) for a in c.get('attachments',[]))" "$R"
+FURL=$(jget "$R" "[a['dataUrl'] for c in r['comments'] for a in c.get('attachments',[]) if a['name']=='до-передачи.png'][0]")
+HTTPB=$(curl -s -o /dev/null -w '%{http_code}' -b "$JP" "${B%api.php}$FURL")
+check "B скачивает файл переданного лида (200)" "'$HTTPB'=='200'" '{}'
+HTTPA=$(curl -s -o /dev/null -w '%{http_code}' -b "$JI" "${B%api.php}$FURL")
+check "A после передачи файл больше не доступен (404)" "'$HTTPA'=='404'" '{}'
+R=$(get "$JP" "get_lead&id=$LTR")
+check "заявка пережила передачу (count=1, маржа 1500)" "r['lead']['applicationsCount']==1 and r['lead']['appsStats']['margin']==1500" "$R"
+R=$(get "$JI" "get_lead&id=$LTR"); check "A после передачи лид не видит" "r.get('error')=='Лид не найден'" "$R"
+post "$JP" "$TP" delete_lead "{\"id\":\"$LTR\"}" >/dev/null
+
+# --- 8б. теги лидов (v17): справочник, привязка, изоляция, чистка ------------
+R=$(post "$JI" "$TI" save_tag '{"name":"Смоук срочно","color":"#ef4444"}'); TG1=$(jget "$R" "r['tag']['id']")
+check "тег создан с цветом из палитры" "r.get('success') is True and r['tag']['color']=='#ef4444'" "$R"
+R=$(post "$JI" "$TI" save_tag '{"name":"Смоук цвет","color":"#bad бяка"}')
+TG2=$(jget "$R" "r['tag']['id']")
+check "цвет не из палитры заменён на дефолтный" "r['tag']['color']=='#6366f1'" "$R"
+R=$(post "$JI" "$TI" save_tag '{"name":"Смоук срочно","color":"#3b82f6"}')
+check "дубль названия тега отклонён" "r.get('error')=='Тег с таким названием уже есть'" "$R"
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke лид с тегами"}'); LTG=$(jget "$R" "r['id']")
+R=$(post "$JI" "$TI" set_lead_tags "{\"leadId\":\"$LTG\",\"tagIds\":[$TG1,$TG2,999999]}")
+check "теги назначены лиду (несуществующий id отброшен)" "r.get('success') is True and sorted(t['id'] for t in r['leadTags'])==sorted([$TG1,$TG2])" "$R"
+R=$(get "$JI" "get_data&hash=x")
+check "get_data отдаёт справочник и карту тегов" "any(t['id']==$TG1 for t in r.get('tags',[])) and any(t['id']==$TG1 for t in r.get('leadTags',{}).get('$LTG',[]))" "$R"
+# чужой тег нельзя назначить своему лиду
+R=$(post "$JP" "$TP" save_tag '{"name":"Смоук чужой","color":"#22c55e"}'); TGB=$(jget "$R" "r['tag']['id']")
+R=$(post "$JI" "$TI" set_lead_tags "{\"leadId\":\"$LTG\",\"tagIds\":[$TGB]}")
+check "чужой тег отброшен при назначении" "r.get('success') is True and r['leadTags']==[]" "$R"
+post "$JI" "$TI" set_lead_tags "{\"leadId\":\"$LTG\",\"tagIds\":[$TG1,$TG2]}" >/dev/null
+R=$(post "$JP" "$TP" delete_tag "{\"id\":$TG1}")
+check "чужой тег нельзя удалить" "r.get('error')=='Тег не найден'" "$R"
+# передача лида снимает теги прежнего владельца
+R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LTG\",\"title\":\"Smoke лид с тегами\",\"transferTo\":$UB}")
+check "лид с тегами передан B" "r.get('transferred') is True" "$R"
+R=$(get "$JP" "get_data&hash=x")
+check "у B на переданном лиде нет чужих тегов" "r.get('leadTags',{}).get('$LTG',[])==[]" "$R"
+post "$JP" "$TP" delete_lead "{\"id\":\"$LTG\"}" >/dev/null
+# удаление тега чистит справочник
+R=$(post "$JI" "$TI" delete_tag "{\"id\":$TG1}"); check "тег удалён из справочника" "r.get('success') is True and all(t['id']!=$TG1 for t in r.get('tags',[]))" "$R"
+post "$JI" "$TI" delete_tag "{\"id\":$TG2}" >/dev/null
+post "$JP" "$TP" delete_tag "{\"id\":$TGB}" >/dev/null
+
+# --- 9. продавец по умолчанию и переименование ----------------------------
+R=$(post "$JA" "$TA" save_lead '{"title":"Smoke от админа"}' "&as=$UA"); LADM=$(jget "$R" "r['id']")
+R=$(get "$JI" "get_lead&id=$LADM"); check "лид, созданный админом через ?as=, имеет продавца = владелец доски" "r['lead']['manager']=='$A_NAME'" "$R"
+post "$JA" "$TA" update_user "{\"id\":$UA,\"name\":\"$A_NAME Переим\",\"email\":\"$A_EMAIL\",\"role\":\"user\"}" >/dev/null
+R=$(get "$JI" "get_lead&id=$LADM"); check "переименование сотрудника обновило продавца на лиде" "r['lead']['manager']=='$A_NAME Переим'" "$R"
+post "$JA" "$TA" update_user "{\"id\":$UA,\"name\":\"$A_NAME\",\"email\":\"$A_EMAIL\",\"role\":\"user\"}" >/dev/null
+
+# --- 10. пароли и сессии --------------------------------------------------
+R=$(post "$JA" "$TA" update_user "{\"id\":$UB,\"name\":\"$B_NAME\",\"email\":\"$B_EMAIL\",\"role\":\"user\",\"password\":\"парольйц\"}"); check "пароль из 8 кириллических символов принят" "r.get('success') is True" "$R"
+R=$(post "$JA" "$TA" update_user "{\"id\":$UB,\"name\":\"$B_NAME\",\"email\":\"$B_EMAIL\",\"role\":\"user\",\"password\":\"$(python3 -c 'print("a"*65)')\"}"); check "пароль 65 символов отклонён" "'64' in r.get('error','')" "$R"
+R=$(get "$JP" get_data); check "смена пароля админом выбросила сессию B" "r.get('need_login') is True" "$R"
+post "$JA" "$TA" update_user "{\"id\":$UB,\"name\":\"$B_NAME\",\"email\":\"$B_EMAIL\",\"role\":\"user\",\"password\":\"$B_PASS\"}" >/dev/null
+JI2="$TMP/ji2"; TI2=$(login "$JI2" "$A_EMAIL" "$A_PASS")
+R=$(post "$JI" "$TI" change_password "{\"old\":\"$A_PASS\",\"password\":\"${A_PASS}x\"}"); check "смена своего пароля" "r.get('success') is True" "$R"
+R=$(get "$JI" get_data); check "своя сессия после смены пароля жива" "r.get('success') is True" "$R"
+R=$(get "$JI2" get_data); check "вторая сессия после смены пароля выброшена" "r.get('need_login') is True" "$R"
+TI=$(get "$JI" check_auth | sed -n 's/.*"csrf":"\([^"]*\)".*/\1/p'); post "$JI" "$TI" change_password "{\"old\":\"${A_PASS}x\",\"password\":\"$A_PASS\"}" >/dev/null
+
+# --- 11. хэш доски не зависит от справочника -------------------------------
+R=$(post "$JI" "$TI" save_direction '{"cityFrom":"Хэшград","cityTo":"Тестбург"}'); DID=$(jget "$R" "r['id']")
+R=$(post "$JI" "$TI" save_carrier "{\"directionId\":\"$DID\",\"name\":\"ИП Хэш\"}"); CID=$(jget "$R" "r['id']")
+H1=$(get "$JI" get_data | jget "$(cat)" "r['hash']")
+upload "$JI" "$TI" -F carrier_id="$CID" -F text="запись" "$B?action=add_carrier_comment" >/dev/null
+H2=$(get "$JI" get_data | jget "$(cat)" "r['hash']")
+check "комментарий к перевозчику не меняет хэш доски" "'$H1'=='$H2'" '{}'
+post "$JI" "$TI" delete_direction "{\"id\":\"$DID\"}" >/dev/null
+
+# --- 11а. дельта-синхронизация get_data (ревью, п. 12) ----------------------
+R=$(get "$JI" get_data); H1=$(jget "$R" "r['hash']")
+check "get_data отдаёт hash" "r.get('hash','')!=''" "$R"
+R=$(get "$JI" "get_data&hash=$H1"); check "повторный запрос с тем же hash → unchanged" "r.get('unchanged') is True" "$R"
+# создаём лид → hash меняется, дельта с since=1 должна принести его в changed + ids
+R=$(post "$JI" "$TI" save_lead '{"title":"Дельта-лид"}'); LD=$(jget "$R" "r.get('id','')")
+R=$(get "$JI" "get_data&hash=$H1&since=1")
+check "дельта: delta=true и есть ids" "r.get('delta') is True and isinstance(r.get('ids'),list)" "$R"
+check "дельта: новый лид в changed" "any(c['id']=='$LD' for c in r.get('changed',[]))" "$R"
+check "дельта: новый лид в ids" "'$LD' in r.get('ids',[])" "$R"
+H2=$(jget "$R" "r['hash']")
+DSINCE=$(jget "$R" "max([c['updatedAt'] for c in r.get('changed',[])]+[1])")
+# без изменений: дельта с актуальным since — changed пуст (или только сам лид при зазоре)
+R=$(get "$JI" "get_data&hash=badhash&since=$((DSINCE+1))")
+check "дельта: без изменений changed пуст" "r.get('delta') is True and r.get('changed')==[]" "$R"
+# удаляем лид: он должен исчезнуть из ids
+post "$JI" "$TI" delete_lead "{\"id\":\"$LD\"}" >/dev/null
+R=$(get "$JI" "get_data&hash=$H2&since=1")
+check "дельта: удалённый лид исчез из ids" "r.get('delta') is True and '$LD' not in r.get('ids',[])" "$R"
+# запрос без since (первый заход клиента) — по-прежнему полный ответ
+R=$(get "$JI" "get_data&hash=badhash")
+check "без since → полный ответ с leads" "r.get('delta') is None and isinstance(r.get('leads'),list)" "$R"
+
+# --- 12. админские сервисные действия --------------------------------------
+R=$(post "$JI" "$TI" sweep_uploads '{}'); check "sweep_uploads недоступен сотруднику" "r.get('error')=='Нет прав'" "$R"
+R=$(post "$JA" "$TA" sweep_uploads '{}'); check "sweep_uploads доступен админу" "r.get('success') is True and 'checked' in r" "$R"
+R=$(get "$JI" "get_audit"); check "get_audit недоступен сотруднику" "r.get('error')=='Нет прав'" "$R"
+# LIMIT через bindValue(PARAM_INT) — проверяем против настоящего MySQL, включая зажим limit
+R=$(get "$JA" "get_audit&limit=3"); check "get_audit: limit работает (события входов есть)" "r.get('success') is True and 0 < len(r.get('events',[])) <= 3" "$R"
+R=$(get "$JA" "get_audit&limit=99999"); check "get_audit: limit зажат до 500" "r.get('success') is True and len(r.get('events',[])) <= 500" "$R"
+
+# --- 13. HTTP-статусы ошибок (ревью, пп. 2.5 / 12.8) ------------------------
+# err() отдаёт честные коды: 401 need_login, 403 права, 404 не найдено, 405 метод, 200 успех.
+scode() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+C=$(scode "$B?action=get_data"); check "без сессии → 401" "'$C'=='401'" "{\"_raw\":\"$C\"}"
+C=$(scode -b "$JI" "$B?action=get_data&as=$UB"); check "чужая доска не-админом → 403" "'$C'=='403'" "{\"_raw\":\"$C\"}"
+C=$(scode -b "$JI" "$B?action=get_lead&id=l_000000000000"); check "несуществующий лид → 404" "'$C'=='404'" "{\"_raw\":\"$C\"}"
+C=$(scode -b "$JI" -H "X-CSRF-Token: $TI" "$B?action=save_lead"); check "GET-мутация → 405" "'$C'=='405'" "{\"_raw\":\"$C\"}"
+C=$(scode -b "$JI" "$B?action=get_data"); check "успешный запрос → 200" "'$C'=='200'" "{\"_raw\":\"$C\"}"
+
+# --- 14. невалидный UTF-8 во входных данных ---------------------------------
+# %FF%FE в query string и битые байты в FormData обходят json_decode; раньше они доходили
+# до MySQL (ошибка 1366 → 500) или, попав в БД, ломали json_encode ответа (пустое тело).
+C=$(scode -b "$JI" "$B?action=search_leads&q=%FF%FEsmoke"); check "битый UTF-8 в поиске → не 500" "'$C'!='500'" "{\"_raw\":\"$C\"}"
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke UTF8"}'); LU8=$(jget "$R" "r.get('id','')")
+R=$(upload "$JI" "$TI" -F "lead_id=$LU8" -F "text=битые байты: $(printf '\xff\xfe')" "$B?action=add_comment")
+check "битый UTF-8 в комментарии не роняет запрос (не 500)" "r.get('success') is True or r.get('error','')!=''" "$R"
+R=$(get "$JI" "get_comments&id=$LU8"); check "лог лида после битого комментария читается" "r.get('success') is True" "$R"
+[ -n "$LU8" ] && post "$JI" "$TI" delete_lead "{\"id\":\"$LU8\"}" >/dev/null
+
+# --- уборка ---------------------------------------------------------------
+post "$JI" "$TI" delete_lead "{\"id\":\"$LADM\"}" >/dev/null
+TP=$(login "$JP" "$B_EMAIL" "$B_PASS"); post "$JP" "$TP" delete_lead "{\"id\":\"$LA1\"}" >/dev/null; post "$JP" "$TP" delete_lead "{\"id\":\"$LB1\"}" >/dev/null
+
+echo
+if [ "$FAILS" -eq 0 ]; then echo "ALL PASSED"; else echo "$FAILS FAILED"; exit 1; fi

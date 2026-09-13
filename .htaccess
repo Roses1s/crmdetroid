@@ -1,0 +1,98 @@
+Options -Indexes
+DirectoryIndex index.html index.php
+ServerSignature Off
+
+<IfModule mod_mime.c>
+  AddType text/css .css
+  AddType application/javascript .js
+</IfModule>
+
+# Служебные файлы наружу не отдаём. Apache 2.4 (mod_authz_core) и 2.2 (mod_access_compat) —
+# обе ветки, чтобы на любом хостинге config.php / db.php / schema.sql не открывались по URL.
+<IfModule mod_authz_core.c>
+  <FilesMatch "^(config\.php|config\.example\.php|db\.php|http\.php|security\.php|files\.php|migrations\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$">
+    Require all denied
+  </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+  <FilesMatch "^(config\.php|config\.example\.php|db\.php|http\.php|security\.php|files\.php|migrations\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$">
+    Order allow,deny
+    Deny from all
+  </FilesMatch>
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # www → без www (AlphaSSL на crmdetroid.ru)
+  RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+  RewriteRule ^ https://%1%{REQUEST_URI} [R=301,L]
+  # HTTP → HTTPS. За прокси SpaceWeb HTTPS завершается на балансировщике, поэтому учитываем
+  # X-Forwarded-Proto — иначе редирект зациклится. Заголовок здесь используется ТОЛЬКО чтобы
+  # не редиректить (худшее, что получит подделавший его клиент, — страница по http); флаг
+  # Secure у cookie и HSTS выставляет PHP по crm_is_https() с проверкой CRM_TRUSTED_PROXIES.
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+  # Служебные каталоги и файлы наружу не отдаём (третья линия — на случай, если FilesMatch не сработал).
+  # actions/ закрыт заранее: план распила api.php (TODO #15) создаст его позже, и правило,
+  # добавленное «потом», однажды забыли бы — прямой запрос actions/lead.php исполнял бы код вне api.php.
+  # \.git[^/]* — не только .git/, но и .github/, .gitignore, .gitattributes (раньше «hub»
+  # не подпадал под (/|$) сразу после .git). На бой эти каталоги не деплоятся (deploy.sh
+  # заливает белый список), правило — на случай ручной заливки всего каталога.
+  RewriteRule ^(data|uploads|tests|actions|tools|\.git[^/]*)(/|$) - [F]
+  RewriteRule ^(config\.php|config\.example\.php|db\.php|http\.php|security\.php|files\.php|migrations\.php|schema\.sql|ui\.html|README\.md|CODE_REVIEW\.md|\.gitignore)$ - [F]
+  # Красивые ссылки без # (History API): известные маршруты SPA отдаём index.html,
+  # роутер в js/app.js разбирает путь сам. Белый список, а не «всё несуществующее»:
+  # опечатка в имени файла статики должна давать честный 404, а не index.html.
+  # Якоря обязательны: без $ маршрутом считался бы и /kanbanfoo (ревью №7).
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(kanban|dashboard|routes|activity|apps|users)$ index.html [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(lead|carrier|route)/[^/]+$ index.html [L]
+</IfModule>
+
+# Сжатие текстовых ответов (код-ревью п. 6.4): app.js ~90 КБ и app.css ~39 КБ ужимаются в 3–4 раза
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css text/csv application/json application/javascript image/svg+xml
+</IfModule>
+
+# Кэш статики (код-ревью п. 6.4). Неделя, а не год: версия ?v=fixNN поднимается вручную,
+# и забытая версия при годовом кэше означала бы неделю/месяцы устаревшего JS у клиентов.
+# После перехода на hash в имени файла можно поднять до года с immutable.
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 7 days"
+  ExpiresByType application/javascript "access plus 7 days"
+  ExpiresByType image/svg+xml "access plus 7 days"
+</IfModule>
+
+<IfModule mod_headers.c>
+  <FilesMatch "\.css$">
+    Header set Content-Type "text/css; charset=utf-8"
+  </FilesMatch>
+  Header unset Server
+  Header always unset Server
+  Header unset X-Powered-By
+  Header always unset X-Powered-By
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+  Header always set Cross-Origin-Resource-Policy "same-origin"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
+  # HSTS и для статики (index.html/CSS/JS отдаёт Apache, не PHP — api.php ставил заголовок
+  # только на свои ответы). Два случая: прямой HTTPS (env=HTTPS ставит mod_ssl) и HTTPS,
+  # завершённый на прокси SpaceWeb (CRM_HTTPS из X-Forwarded-Proto, см. mod_setenvif ниже).
+  # Подделка заголовка клиентом навязывает HSTS только ему самому — как и у редиректа выше.
+  # Без includeSubDomains: за поддомены домена CRM этот файл не отвечает.
+  Header always set Strict-Transport-Security "max-age=15552000" env=HTTPS
+  Header always set Strict-Transport-Security "max-age=15552000" env=CRM_HTTPS
+</IfModule>
+
+<IfModule mod_setenvif.c>
+  SetEnvIf X-Forwarded-Proto "^https$" CRM_HTTPS=1
+</IfModule>
+

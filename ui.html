@@ -1,0 +1,427 @@
+<section id="dashboard-view" class="view-section">
+  <div class="breadcrumb">
+    <span>CRM / Главное меню</span>
+  </div>
+  <div class="toolbar">
+    <div></div>
+    <div class="board-search" id="dashboard-search-wrap">
+      <div class="board-search-field">
+        <input type="text" id="dashboard-search" placeholder="Поиск по названию или ИНН" autocomplete="off" spellcheck="false">
+        <button type="button" class="search-clear" id="dashboard-search-clear" title="Очистить" aria-label="Очистить">×</button>
+      </div>
+      <div class="search-drop" id="dashboard-search-drop"></div>
+    </div>
+    <div></div>
+  </div>
+  <div class="dashboard-tiles" id="dashboard-tiles">
+    <a class="tile" data-action="go-kanban" href="/kanban">
+      <div class="tile-icon tile-icon-clients">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="9" cy="8" r="3.2"/>
+          <path d="M9 12.6c-3 0-5.5 1.5-5.5 3.4V18h11v-2c0-1.9-2.5-3.4-5.5-3.4z"/>
+          <circle cx="16.5" cy="8.6" r="2.4"/>
+          <path d="M16.5 12.4c-.6 0-1.2.1-1.7.3 1.1.8 1.7 1.9 1.7 3.3V18h4v-1.8c0-1.6-1.9-2.8-4-2.8z"/>
+        </svg>
+      </div>
+      <div class="tile-title">Клиенты</div>
+    </a>
+    <a class="tile" data-action="go-routes" href="/routes">
+      <div class="tile-icon tile-icon-routes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="6" cy="18" r="2.6"/>
+          <circle cx="18" cy="6" r="2.6"/>
+          <path d="M8.3 16.2 15.7 7.8" stroke-dasharray="2.6 2.4"/>
+        </svg>
+      </div>
+      <div class="tile-title">Направления</div>
+    </a>
+    <a class="tile" data-action="go-apps" href="/apps">
+      <div class="tile-icon tile-icon-apps">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 4h9a1.5 1.5 0 0 1 1.5 1.5v14A1.5 1.5 0 0 1 18 21H7.5A1.5 1.5 0 0 1 6 19.5V7z"/>
+          <path d="M9 4v3H6"/>
+          <path d="M9.5 11h6.5M9.5 14.2h6.5M9.5 17.4h4"/>
+        </svg>
+      </div>
+      <div class="tile-title">Заявки</div>
+    </a>
+    <a class="tile" data-action="go-activity" href="/activity">
+      <div class="tile-icon tile-icon-activity">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M7 3.5c.6 0 1 .4 1 1V5h8v-.5c0-.6.4-1 1-1s1 .4 1 1V5h.5A2.5 2.5 0 0 1 21 7.5v10A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10A2.5 2.5 0 0 1 5.5 5H6v-.5c0-.6.4-1 1-1zM5 9v8.5c0 .3.2.5.5.5h13c.3 0 .5-.2.5-.5V9H5zm2.2 2.2h2.2v2.2H7.2v-2.2zm3.7 0h2.2v2.2h-2.2v-2.2zm3.7 0h2.2v2.2h-2.2v-2.2zM7.2 14.9h2.2v2.2H7.2v-2.2zm3.7 0h2.2v2.2h-2.2v-2.2z"/>
+        </svg>
+      </div>
+      <div class="tile-title">Активность</div>
+    </a>
+    <a class="tile hidden" id="tile-users" data-action="go-users" href="/users">
+      <div class="tile-icon tile-icon-users">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="12" cy="7.5" r="3.5"/>
+          <path d="M12 12.8c-4 0-7 2-7 4.5V19h14v-1.7c0-2.5-3-4.5-7-4.5z"/>
+        </svg>
+      </div>
+      <div class="tile-title">Сотрудники</div>
+    </a>
+  </div>
+</section>
+
+<section id="kanban-view" class="view-section active">
+  <div class="breadcrumb">
+    <a data-action="go-home">CRM / Лиды</a>
+    <span class="view-user-banner" id="view-user-banner">
+      <span>Доска:</span><b id="view-user-name"></b>
+      <button type="button" class="btn btn-secondary btn-sm" data-action="exit-view-user">К своим</button>
+    </span>
+  </div>
+  <div class="toolbar">
+    <button class="btn btn-primary" data-action="new-lead">+ Создать лид</button>
+    <div class="board-search" id="board-search-wrap">
+      <div class="board-search-field">
+        <input type="text" id="board-search" placeholder="Поиск по названию или ИНН" autocomplete="off" spellcheck="false">
+        <button type="button" class="search-clear" id="board-search-clear" title="Очистить" aria-label="Очистить">×</button>
+      </div>
+      <div class="search-drop" id="search-drop"></div>
+    </div>
+    <div></div>
+  </div>
+  <div class="kanban-board" id="board"></div>
+</section>
+
+<section id="detail-view" class="view-section view-paper">
+  <div class="breadcrumb"><a data-action="go-home">CRM / Лиды</a><span>/</span><b id="crumb-name"></b></div>
+  <div class="toolbar toolbar-sub">
+    <button class="btn btn-secondary btn-sm" data-action="go-home">← Назад к лидам</button>
+    <div class="lead-nav" id="lead-nav">
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-prev-lead" data-action="prev-lead" title="Предыдущий лид" aria-label="Предыдущий лид">←</button>
+      <span class="lead-nav-pos" id="lead-nav-pos" aria-live="polite"></span>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-next-lead" data-action="next-lead" title="Следующий лид" aria-label="Следующий лид">→</button>
+    </div>
+    <div class="stages-row ml-15" id="stages-row"></div>
+    <span class="save-status ml-auto" id="lead-save-status" aria-live="polite"></span>
+    <button class="btn btn-primary btn-sm" id="btn-save-lead" data-action="save-lead-now" disabled>💾 Сохранить</button>
+    <button class="btn btn-danger btn-sm" data-action="delete-lead" aria-label="Удалить лид">🗑️ Удалить</button>
+  </div>
+  <div class="detail-body">
+    <div class="form-panel">
+      <input type="text" id="f-title" class="editable-title" placeholder="Название компании...">
+      <div class="lead-tags-row" id="lead-tags-row">
+        <span id="lead-tags-chips"></span>
+        <button type="button" class="btn btn-secondary btn-sm" data-action="open-lead-tags">🏷️ Теги</button>
+      </div>
+      <div class="form-grid">
+        <div>
+          <div class="form-row"><div class="form-label">ИНН</div><input class="form-input" id="f-inn" placeholder="10 или 12 цифр" maxlength="12"></div>
+          <div class="form-row"><div class="form-label">Продавец</div><input class="form-input" id="f-manager" list="colleagues-list" placeholder="Имя сотрудника из списка — передать лид" autocomplete="off"></div>
+          <datalist id="colleagues-list"></datalist>
+        </div>
+        <div>
+          <div class="form-row"><div class="form-label">Email</div><input class="form-input" id="f-email" type="email"></div>
+          <div class="form-row"><div class="form-label">Код АТИ</div><input class="form-input" id="f-ati" maxlength="300" placeholder="Код на ati.su"></div>
+        </div>
+      </div>
+      <h3 class="section-title">Контакт логиста</h3>
+      <div class="form-grid">
+        <div><div class="form-row"><div class="form-label">Имя</div><input class="form-input" id="f-logist-name" placeholder="Имя логиста"></div></div>
+        <div><div class="form-row"><div class="form-label">Телефон</div><input class="form-input" id="f-logist-phone"></div></div>
+      </div>
+      <div class="section-title-row">
+        <h3 class="section-title">Заявки</h3>
+        <button type="button" class="btn btn-primary btn-sm" data-action="new-lead-app">+ Заявка</button>
+      </div>
+      <div class="lead-apps-stats" id="lead-apps-stats">
+        <div class="lead-apps-stat"><span>Подписано заявок</span><b id="apps-stat-count">0</b></div>
+        <div class="lead-apps-stat"><span>Маржа с клиента</span><b id="apps-stat-margin">0 ₽</b></div>
+      </div>
+      <div class="lead-apps-stats-note" id="lead-apps-stats-note" hidden>За всё время по этому ИНН, включая другие лиды</div>
+      <div class="lead-apps-list" id="lead-apps-list"></div>
+    </div>
+    <div class="chatter">
+      <div class="chatter-header">
+        <div class="tab-title">Лог примечания</div>
+        <div class="apps-counter"><span>Заявки:</span><b id="f-apps">0</b></div>
+      </div>
+      <div class="comment-form">
+        <div class="composer">
+          <textarea id="comment-input" rows="1" placeholder="Написать примечание… Enter — отправить, Ctrl+V — скриншот"></textarea>
+          <div class="files-preview" id="files-preview"></div>
+          <div class="composer-actions">
+            <button type="button" class="composer-btn composer-send" data-action="post-comment" title="Записать в лог" aria-label="Записать в лог">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            </button>
+            <label class="composer-btn composer-attach" title="Прикрепить файлы" aria-label="Прикрепить файлы">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              <input type="file" id="file-input" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z">
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="chatter-log" id="chatter-log"></div>
+    </div>
+  </div>
+</section>
+
+<section id="routes-view" class="view-section">
+  <div class="breadcrumb"><a data-action="go-home">CRM</a><span>/</span><b>Направления</b></div>
+  <div class="toolbar">
+    <button class="btn btn-primary" data-action="new-direction">+ Добавить направление</button>
+    <div class="routes-toolbar-search">
+      <input type="text" id="routes-search" placeholder="Поиск города" autocomplete="off" spellcheck="false">
+    </div>
+    <div></div>
+  </div>
+  <div class="routes-grid" id="routes-grid"></div>
+</section>
+
+<section id="route-view" class="view-section view-paper">
+  <div class="breadcrumb"><a data-action="go-routes">CRM / Направления</a><span>/</span><b id="route-crumb"></b></div>
+  <div class="toolbar toolbar-sub">
+    <button class="btn btn-secondary btn-sm" data-action="go-routes">← К направлениям</button>
+    <button class="btn btn-primary btn-sm ml-10" data-action="new-carrier">+ Перевозчик</button>
+    <button class="btn btn-danger btn-sm ml-auto" data-action="delete-direction" aria-label="Удалить направление">🗑️ Удалить направление</button>
+  </div>
+  <div class="carriers-wrap">
+    <table class="users-table">
+      <thead><tr><th>Имя</th><th>Телефон</th><th>Компания</th><th>Лог</th><th>Кто добавил</th><th class="col-actions"></th></tr></thead>
+      <tbody id="carriers-tbody"></tbody>
+    </table>
+  </div>
+</section>
+
+<section id="carrier-view" class="view-section view-paper">
+  <div class="breadcrumb"><a data-action="back-carrier">CRM / Направления</a><span>/</span><a data-action="back-carrier" id="carrier-dir-crumb"></a><span>/</span><b id="carrier-crumb"></b></div>
+  <div class="toolbar toolbar-sub">
+    <button class="btn btn-secondary btn-sm" data-action="back-carrier">← К направлению</button>
+    <div class="lead-nav" id="carrier-nav">
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-prev-carrier" data-action="prev-carrier" title="Предыдущий перевозчик">←</button>
+      <span class="lead-nav-pos" id="carrier-nav-pos"></span>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-next-carrier" data-action="next-carrier" title="Следующий перевозчик">→</button>
+    </div>
+    <span class="save-status ml-auto" id="carrier-save-status" aria-live="polite"></span>
+    <button class="btn btn-primary btn-sm" id="btn-save-carrier" data-action="save-carrier-now" disabled>💾 Сохранить</button>
+    <button class="btn btn-danger btn-sm" data-action="delete-carrier" aria-label="Удалить перевозчика">🗑️ Удалить</button>
+  </div>
+  <div class="detail-body">
+    <div class="form-panel">
+      <input type="text" id="cf-name" class="editable-title" placeholder="Имя / название...">
+      <div class="form-row"><div class="form-label">Телефон</div><input class="form-input" id="cf-phone"></div>
+      <div class="form-row"><div class="form-label">Компания</div><input class="form-input" id="cf-company"></div>
+      <div class="form-row"><div class="form-label">Заметка</div><input class="form-input" id="cf-note" placeholder="Кратко о перевозчике"></div>
+    </div>
+    <div class="chatter">
+      <div class="chatter-header">
+        <div class="tab-title">Лог примечания</div>
+      </div>
+      <div class="comment-form">
+        <div class="composer">
+          <textarea id="carrier-comment-input" rows="1" placeholder="Написать примечание… Enter — отправить, Ctrl+V — скриншот"></textarea>
+          <div class="files-preview" id="carrier-files-preview"></div>
+          <div class="composer-actions">
+            <button type="button" class="composer-btn composer-send" data-action="post-carrier-comment" title="Записать в лог" aria-label="Записать в лог">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            </button>
+            <label class="composer-btn composer-attach" title="Прикрепить файлы" aria-label="Прикрепить файлы">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              <input type="file" id="carrier-file-input" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z">
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="chatter-log" id="carrier-chatter-log"></div>
+    </div>
+  </div>
+</section>
+
+<section id="activity-view" class="view-section users-view">
+  <div class="users-wrap">
+    <div class="users-head">
+      <h2>Активность клиентов</h2>
+      <div class="activity-controls">
+        <select class="form-select activity-employee-select" id="activity-employee" aria-label="Выберите сотрудника"></select>
+        <div class="activity-year-nav">
+          <button type="button" class="btn btn-secondary btn-sm" id="activity-prev-year" aria-label="Предыдущий год">←</button>
+          <span class="activity-year" id="activity-year"></span>
+          <button type="button" class="btn btn-secondary btn-sm" id="activity-next-year" aria-label="Следующий год">→</button>
+        </div>
+      </div>
+    </div>
+    <div class="activity-table-wrap">
+      <table class="users-table activity-table">
+        <thead>
+          <tr>
+            <th>Клиент</th>
+            <th>Янв</th><th>Фев</th><th>Мар</th><th>Апр</th><th>Май</th><th>Июн</th>
+            <th>Июл</th><th>Авг</th><th>Сен</th><th>Окт</th><th>Ноя</th><th>Дек</th>
+            <th>Итого</th>
+          </tr>
+        </thead>
+        <tbody id="activity-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="apps-view" class="view-section users-view">
+  <div class="users-wrap apps-wrap">
+    <div class="users-head">
+      <h2>Заявки</h2>
+      <div class="activity-controls">
+        <select class="form-select activity-employee-select" id="apps-employee" aria-label="Выберите сотрудника"></select>
+      </div>
+    </div>
+    <div class="apps-toolbar">
+      <div class="board-search apps-search-wrap">
+        <input type="text" class="apps-search-input" id="apps-search" placeholder="Поиск: клиент, ИНН, город, перевозчик" aria-label="Поиск по заявкам" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="apps-summary" id="apps-summary"></div>
+    </div>
+    <div class="activity-table-wrap">
+      <table class="users-table apps-table">
+        <thead>
+          <tr>
+            <th scope="col">Дата</th>
+            <th scope="col">Клиент</th>
+            <th scope="col">Маршрут</th>
+            <th scope="col">Перевозчик</th>
+            <th scope="col" class="th-money">Ставка</th>
+            <th scope="col" class="th-money">Маржа</th>
+            <th scope="col">НДС</th>
+          </tr>
+        </thead>
+        <tbody id="apps-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="users-view" class="view-section users-view">
+  <div class="users-wrap">
+    <div class="users-head">
+      <h2>Сотрудники</h2>
+      <button class="btn btn-primary" data-action="open-add-user">+ Добавить сотрудника</button>
+    </div>
+    <table class="users-table">
+      <thead><tr><th class="th-id">ID</th><th>Имя</th><th>E-mail</th><th>Роль</th><th class="th-leads">Лидов</th><th>Новый пароль</th><th class="th-actions">Действия</th></tr></thead>
+      <tbody id="users-tbody"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- МОДАЛКИ -->
+<div class="modal-backdrop" id="modal-direction">
+  <div class="modal">
+    <h2>Новое направление</h2>
+    <div class="field"><label>Откуда *</label><input id="d-from" placeholder="Челябинск"></div>
+    <div class="field"><label>Куда *</label><input id="d-to" placeholder="Уфа"></div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-direction">Создать</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-carrier">
+  <div class="modal">
+    <h2 id="carrier-modal-title">Новый перевозчик</h2>
+    <div class="field"><label>Имя / название *</label><input id="k-name"></div>
+    <div class="field"><label>Телефон</label><input id="k-phone"></div>
+    <div class="field"><label>Компания</label><input id="k-company"></div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-carrier">Создать</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-lead-app">
+  <div class="modal">
+    <h2 id="lead-app-modal-title">Новая заявка</h2>
+    <input type="hidden" id="la-id">
+    <div class="field"><label>Откуда *</label><input id="la-from" placeholder="Город"></div>
+    <div class="field"><label>Куда *</label><input id="la-to" placeholder="Город"></div>
+    <div class="field"><label>Ставка</label><input id="la-rate" inputmode="decimal" placeholder="например 45000"></div>
+    <div class="field"><label>Маржа с поездки</label><input id="la-margin" inputmode="decimal" placeholder="например 17608,65"></div>
+    <div class="field">
+      <label>НДС</label>
+      <div class="vat-row">
+        <label><input type="radio" name="la-vat" value="1"> с НДС</label>
+        <label><input type="radio" name="la-vat" value="0" checked> без НДС</label>
+      </div>
+    </div>
+    <div class="field"><label>Перевозчик — компания</label><input id="la-company" placeholder="Название фирмы"></div>
+    <div class="field"><label>ИНН</label><input id="la-inn" maxlength="12" placeholder="10 или 12 цифр"></div>
+    <div class="field"><label>Имя</label><input id="la-name" placeholder="Имя"></div>
+    <div class="field"><label>Телефон</label><input id="la-phone"></div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-lead-app">Сохранить</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-tags">
+  <div class="modal">
+    <h2>Теги лида</h2>
+    <div id="tags-list" class="tags-list"></div>
+    <div class="field">
+      <label>Новый тег</label>
+      <input id="tag-new-name" maxlength="40" placeholder="Название тега">
+      <div class="tag-palette" id="tag-palette"></div>
+    </div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-lead-tags">Сохранить</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-create">
+  <div class="modal">
+    <h2>Новый лид</h2>
+    <div class="field"><label>Название компании *</label><input id="m-title"></div>
+    <div class="field"><label>ИНН</label><input id="m-inn" maxlength="12"><div id="m-inn-warn" class="dup-warn hidden"></div></div>
+    <div class="field"><label>Имя логиста</label><input id="m-logist-name" maxlength="80"></div>
+    <div class="field"><label>Телефон логиста</label><input id="m-phone"></div>
+    <div class="field"><label>Email</label><input id="m-email" type="email"></div>
+    <div class="field"><label>Код АТИ</label><input id="m-ati" maxlength="300" placeholder="Код на ati.su"></div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-lead">Создать</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-add-user">
+  <div class="modal">
+    <h2>Добавить сотрудника</h2>
+    <div class="field"><label>Имя сотрудника</label><input id="u-name"></div>
+    <div class="field"><label>E-mail (логин)</label><input id="u-email" type="email"></div>
+    <div class="field"><label>Пароль (8–64 символа)</label><input id="u-pass" type="password" autocomplete="new-password"></div>
+    <div class="field"><label class="check-label"><input type="checkbox" id="u-admin"> Администратор</label></div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-user">Добавить</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-delete-user">
+  <div class="modal">
+    <h2>Удалить сотрудника</h2>
+    <p id="du-message" class="modal-msg"></p>
+    <div class="field" id="du-transfer-field">
+      <label>Что сделать с его лидами</label>
+      <select id="du-transfer" class="form-select"></select>
+      <p class="field-hint" id="du-hint"></p>
+    </div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-danger" data-action="confirm-delete-user">Удалить</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-prompt">
+  <div class="modal">
+    <h2 id="prompt-title"></h2>
+    <p id="prompt-message" class="modal-msg hidden"></p>
+    <div class="field"><input id="prompt-input"></div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="prompt-cancel">Отмена</button><button class="btn btn-primary" id="prompt-ok-btn">OK</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-password">
+  <div class="modal">
+    <h2>Смените пароль</h2>
+    <p class="modal-msg">Сейчас стоит временный пароль из инструкции. Задайте свой — не короче 8 символов.</p>
+    <div class="field"><label>Новый пароль</label><input id="pw-new" type="password" autocomplete="new-password"></div>
+    <div class="field"><label>Ещё раз</label><input id="pw-new2" type="password" autocomplete="new-password"></div>
+    <div class="modal-actions"><button class="btn btn-primary" data-action="submit-password">Сохранить</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-confirm">
+  <div class="modal">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-message" class="modal-msg"></p>
+    <div class="modal-actions"><button class="btn btn-secondary" data-action="confirm-cancel">Отмена</button><button class="btn btn-danger" id="confirm-ok-btn">Подтвердить</button></div>
+  </div>
+</div>
