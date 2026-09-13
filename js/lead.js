@@ -1,7 +1,7 @@
 'use strict';
 // Лиды: доска (renderBoard), карточка лида, заявки лида (модалка, статистика), лог комментариев с вложениями (общий рендер renderLogInto используют и перевозчики), автосохранение формы. Вынесено из app.js (план CODE_REVIEW п. 10.9).
 /* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, saveCarrierForm, setupPhoneMask */
-/* exported addTagFromModal, closeLeadAppModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, openLeadAppModal, openLeadTagsModal, pickTagColor, renderBoard, resetBoardCache, saveLeadAppFromModal, submitLeadTags, toggleTagInModal, updateLeadSaveUI */
+/* exported addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, openLeadAppModal, openLeadTagsModal, pickTagColor, renderBoard, resetBoardCache, saveLeadAppFromModal, submitLeadTags, toggleTagInModal, updateLeadSaveUI */
 
 function renderAttHtml(a, c) {
   const raw = String(a.dataUrl || '');
@@ -409,6 +409,7 @@ function updateLeadSaveUI(state, ts = 0) {
  */
 const TAG_COLORS = ['#ef4444', '#f97316', '#f59e0b', '#22c55e', '#14b8a6', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#64748b'];
 let _tagModalSelected = new Set(); // id тегов, отмеченных в модалке
+let _tagModalInitial = new Set(); // снимок на момент открытия — для dirty-гарда (п. 2.7)
 let _tagModalColor = TAG_COLORS[6];
 
 // Строка тегов в карточке лида (под названием). Зовётся из fillLeadForm и после сохранения модалки.
@@ -453,6 +454,7 @@ function toggleTagInModal(id) {
 function openLeadTagsModal() {
   if (!UI.leadId) return;
   _tagModalSelected = new Set(leadTagsOf(UI.leadId).map(t => Number(t.id)));
+  _tagModalInitial = new Set(_tagModalSelected);
   _tagModalColor = TAG_COLORS[6];
   const inp = $('#tag-new-name'); if (inp) inp.value = '';
   renderTagList(); renderTagPalette();
@@ -495,6 +497,19 @@ async function submitLeadTags() {
   Store.state.leadTags[String(UI.leadId)] = res.leadTags || [];
   Modal.close('modal-tags');
   renderLeadTagsRow(); resetBoardCache();
+}
+
+// Dirty-guard закрытия модалки тегов (ревью, п. 2.7): симметрично closeLeadAppModal —
+// неотправленные отметки подтверждаем, а не роняем молча (Отмена/Escape).
+async function closeLeadTagsModal() {
+  const box = $('#modal-tags');
+  if (!box || !box.classList.contains('open')) return true;
+  const dirty = _tagModalSelected.size !== _tagModalInitial.size
+    || [..._tagModalSelected].some(id => !_tagModalInitial.has(id))
+    || (($('#tag-new-name')?.value || '').trim() !== '');
+  if (dirty && !await askConfirm('Закрыть без сохранения?', 'Отметки тегов не сохранятся')) return false;
+  box.classList.remove('open');
+  return true;
 }
 
 let _leadSaveChain = Promise.resolve();

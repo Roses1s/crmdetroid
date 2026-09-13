@@ -100,13 +100,17 @@ let _activityYear = new Date().getFullYear();
 const _activityCache = {};
 
 let _activityUserId = null; // локальный для вкладки «Активность», не влияет на «Лиды»
+let _activityUserManual = false; // true — сотрудник выбран в селекте вручную, viewUserId не наследуем
 // Обёртки для обработчиков в app.js (кросс-файловая запись в let ломает ESLint и прячет зависимость):
 // листание года стрелками и выбор сотрудника в селекте вкладки.
 function activityShiftYear(delta) { return loadActivity(_activityYear + delta); }
-function setActivityUser(id) { _activityUserId = (!id || id === Store.state.user?.id) ? null : id; }
+function setActivityUser(id) { _activityUserId = (!id || id === Store.state.user?.id) ? null : id; _activityUserManual = true; }
 
 async function loadActivity(year) {
   if (year != null) _activityYear = year;
+  // Ревью, п. 2.2 (вариант «а»): при просмотре чужой доски вкладка по умолчанию показывает
+  // её владельца, а не себя; ручной выбор в селекте переопределяет и запоминается.
+  if (!_activityUserManual && Store.viewUserId) _activityUserId = Store.viewUserId;
   Loading.show();
   try {
     // Через Net.req: раньше здесь был голый fetch — need_login не разлогинивал,
@@ -166,11 +170,12 @@ function renderActivity() {
 /* === ВКЛАДКА «ЗАЯВКИ» (реестр заявок менеджера) === */
 // Как «Активность»: выбор сотрудника локален для вкладки и не влияет на «Лиды».
 let _appsUserId = null;
+let _appsUserManual = false; // true — сотрудник выбран в селекте вручную, viewUserId не наследуем
 let _appsQuery = '';
 let _appsCache = null; // последний ответ get_apps (список + итоги)
 let _appsGen = 0; // защита от гонки ответов при быстром наборе в поиске (как _searchGen)
 
-function setAppsUser(id) { _appsUserId = (!id || id === Store.state.user?.id) ? null : id; }
+function setAppsUser(id) { _appsUserId = (!id || id === Store.state.user?.id) ? null : id; _appsUserManual = true; }
 function setAppsQuery(q) { _appsQuery = q; }
 
 // Селект сотрудника в шапке вкладки (только для админов) — общий для «Активности» и «Заявок»
@@ -187,6 +192,8 @@ function renderEmployeeSelect(sel, curId) {
 
 async function loadApps() {
   const gen = ++_appsGen;
+  // Как в loadActivity (ревью, п. 2.2, вариант «а»): чужая доска — показываем её владельца.
+  if (!_appsUserManual && Store.viewUserId) _appsUserId = Store.viewUserId;
   Loading.show();
   try {
     const res = await Net.req('get_apps', { q: _appsQuery, as: _appsUserId || 0 });

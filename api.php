@@ -387,7 +387,16 @@ function crm_take_uploads(int $max): array {
     $errs  = is_array($files['error']) ? $files['error'] : [$files['error']];
     foreach ($names as $i => $name) {
         if (count($atts) >= $max) break;
-        if (($errs[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
+        $upErr = $errs[$i] ?? UPLOAD_ERR_NO_FILE;
+        // Молча пропускаем только пустой слот input'а; остальные ошибки приёма
+        // (лимит PHP, обрыв) раньше роняли файл без единого слова (ревью, п. 2.6)
+        if ($upErr === UPLOAD_ERR_NO_FILE) continue;
+        if ($upErr !== UPLOAD_ERR_OK) {
+            crm_discard_uploads($atts);
+            if ($upErr === UPLOAD_ERR_INI_SIZE || $upErr === UPLOAD_ERR_FORM_SIZE) err('Файл больше допустимого размера');
+            if ($upErr === UPLOAD_ERR_PARTIAL) err('Файл загружен не полностью, попробуйте ещё раз');
+            err('Не удалось принять файл');
+        }
         $size = (int) ($sizes[$i] ?? 0);
         if ($size > CRM_MAX_UPLOAD) { crm_discard_uploads($atts); err('Файл больше 5 МБ'); }
         $ext = crm_allowed_upload((string) $name);

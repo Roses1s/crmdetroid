@@ -1,5 +1,5 @@
 'use strict';
-/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
+/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeLeadTagsModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
 /* exported syncAdminNav, updateSearchPlaceholder */
 
 const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
@@ -468,6 +468,7 @@ function initActionDispatch() {
     }
     if (act === 'close-modals') {
       if ($('#modal-lead-app.open')) { await closeLeadAppModal(); return; }
+      if ($('#modal-tags.open')) { await closeLeadTagsModal(); return; }
       Modal.closeAll();
       return;
     }
@@ -983,6 +984,7 @@ function initKeyboardShortcuts() {
           Modal.close('modal-confirm'); if (cr) cr(false); return;
         }
         if ($('#modal-lead-app.open')) { closeLeadAppModal(); return; }
+        if ($('#modal-tags.open')) { closeLeadTagsModal(); return; }
         const pr = _promptResolver; _promptResolver = null;
         const cr = _confirmResolver; _confirmResolver = null;
         if (pr) pr(null); if (cr) cr(false); Modal.closeAll();
