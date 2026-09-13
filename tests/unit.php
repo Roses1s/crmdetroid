@@ -147,5 +147,18 @@ t('sys: user_id=0 + Система', crm_is_sys_comment(['user_id' => 0, 'author
 t('sys: user_id=0 но не Система', crm_is_sys_comment(['user_id' => 0, 'author' => 'Иван']), false);
 t('sys: Система но user_id>0', crm_is_sys_comment(['user_id' => 5, 'author' => 'Система']), false);
 
+// --- crm_money_in: значение для DECIMAL-колонки (ревью: покрыть юнитами) ------
+t('in: пусто → NULL', crm_money_in(''), null);
+t('in: целое проходит как есть', crm_money_in('45000'), '45000');
+t('in: с копейками проходит как есть', crm_money_in('12500.50'), '12500.50');
+
+// --- crm_mysql_targets: хост[:порт] + опциональный фолбэк (ревью: покрыть) ----
+t('targets: обычный хост', crm_mysql_targets('127.0.0.1', 3306), [['127.0.0.1', 3306]]);
+t('targets: порт в хосте перекрывает аргумент', crm_mysql_targets('db.local:3307', 3306), [['db.local', 3307]]);
+t('targets: формат ;port=', crm_mysql_targets('db.local;port=3309', 3306), [['db.local', 3309]]);
+t('targets: пробелы обрезаются', crm_mysql_targets('  spaced  ', 3306), [['spaced', 3306]]);
+t('targets: фолбэк добавляет две цели', crm_mysql_targets('db', 3306, true), [['db', 3306], ['127.0.0.1', 3308], ['localhost', 3308]]);
+t('targets: фолбэк не дублирует совпавшую цель', crm_mysql_targets('127.0.0.1:3308', 3306, true), [['127.0.0.1', 3308], ['localhost', 3308]]);
+
 echo "\n" . ($fails === 0 ? 'ALL PASSED' : "$fails FAILED") . "\n";
 exit($fails === 0 ? 0 : 1);

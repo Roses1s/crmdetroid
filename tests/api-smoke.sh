@@ -33,7 +33,6 @@ sys.exit(0 if ($2) else 1)" "$1" "$3" 2>/dev/null; then pass "$1"; else fail "$1
 jget() { python3 -c "import sys,json; r=json.loads(sys.argv[1]); print(eval(sys.argv[2]))" "$1" "$2" 2>/dev/null; }
 
 # --- helpers -------------------------------------------------------------
-csrf_login_token() { curl -s "$B?action=csrf" | jget "$(cat)" "r['csrf']" 2>/dev/null || curl -s "$B?action=csrf" | sed 's/.*"csrf":"\([^"]*\)".*/\1/'; }
 login() { # login <jar> <email> <pass>  → печатает session csrf
   local T; T=$(curl -s "$B?action=csrf" | sed 's/.*"csrf":"\([^"]*\)".*/\1/')
   curl -s -c "$1" -H "X-CSRF-Token: $T" -H 'Content-Type: application/json' -d "{\"email\":\"$2\",\"password\":\"$3\"}" "$B?action=login" | sed -n 's/.*"csrf":"\([^"]*\)".*/\1/p'
