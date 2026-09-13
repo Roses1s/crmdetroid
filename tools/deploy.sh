@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.."
 # Единый список заливаемого (папки — целиком)
 FILES=(
   api.php db.php http.php security.php files.php migrations.php
-  index.html ui.html app.css noscript.css icon.svg .htaccess
+  index.html ui.html app.css noscript.css icon.svg robots.txt .htaccess
 )
 DIRS=(actions js)
 
@@ -53,7 +53,12 @@ fi
 if [ -n "$LOCAL_TO" ]; then
   RSYNC_OPTS=(-rv --checksum)
   [ "$DRY_RUN" = "1" ] && RSYNC_OPTS+=(--dry-run)
-  rsync "${RSYNC_OPTS[@]}" "${FILES[@]}" "${DIRS[@]}" "$LOCAL_TO/"
+  # Файлы корня — без --delete: там же живут config.php/uploads/data, их сносить нельзя.
+  # Каталоги приложения — с --delete: снятые с деплоя файлы иначе вечно лежат на сайте (п. 6.2).
+  rsync "${RSYNC_OPTS[@]}" "${FILES[@]}" "$LOCAL_TO/"
+  for d in "${DIRS[@]}"; do
+    rsync "${RSYNC_OPTS[@]}" --delete "$d/" "$LOCAL_TO/$d/"
+  done
   echo "Готово: залито в $LOCAL_TO"
   exit 0
 fi
@@ -72,7 +77,9 @@ for f in "${FILES[@]}"; do
   LFTP_CMDS+=" put -O . '$f';"
 done
 for d in "${DIRS[@]}"; do
-  LFTP_CMDS+=" mirror -R --only-newer --no-perms '$d' '$d';"
+  # --delete: зеркало точное, снятые файлы удаляются (п. 6.2). Безопасно: внутри каталогов
+  # приложения чужих файлов нет — config.php/uploads/data лежат в корне, их mirror не трогает.
+  LFTP_CMDS+=" mirror -R --only-newer --delete --no-perms '$d' '$d';"
 done
 
 if [ "$DRY_RUN" = "1" ]; then
