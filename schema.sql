@@ -218,11 +218,10 @@ CREATE TABLE IF NOT EXISTS crm_audit (
   KEY idx_actor (actor_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- TODO(целостность): добавить внешние ключи после стабилизации схемы.
--- Сейчас каскадные удаления делаются в коде (crm_purge_lead, crm_purge_user, crm_purge_carrier).
--- Без FK при баге в коде возможны осиротевшие записи (crm_comments без crm_leads и т.п.).
--- Минимальный набор FK: crm_leads→crm_users, crm_comments→crm_leads, crm_attachments→crm_comments,
--- crm_carriers→crm_directions, crm_carrier_comments→crm_carriers, crm_carrier_attachments→crm_carrier_comments,
--- crm_lead_apps→crm_leads.
+-- Целостность (схема v15): внешние ключи стоят на всех связях выше (CASCADE у дочерних
+-- записей, RESTRICT у crm_leads.user_id — удаление сотрудника идёт через crm_purge_user).
+-- Код тоже удаляет каскады явно в транзакциях — ему нужно собрать URL файлов до удаления
+-- строк. Без FK только crm_tags/crm_lead_tags (личные теги) и этапы (stage хранится именем,
+-- а не id — см. докблок crm_migrate_v15): их держат код и ?action=integrity_check.
 
 SET FOREIGN_KEY_CHECKS = 1;

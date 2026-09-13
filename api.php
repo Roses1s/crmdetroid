@@ -6,7 +6,7 @@
  * Архитектура (TODO #15/#18/#20 — выполнены, ревизия 2026-09-08):
  * Здесь остались middleware (сессии, auth, CSRF, лимиты запросов), общие хелперы
  * запроса (body_json/strv/intv, права, приём вложений, crm_apply_comment_*) и роутинг.
- * Сами действия — в actions/ (44 действия; каждое завершает запрос, поэтому never):
+ * Сами действия — в actions/ (45 действий с 'ui'; каждое завершает запрос, поэтому never):
  *   actions/auth.php    — csrf, login, logout, check_auth, file. Выполняются ДО общего
  *                         middleware ($user/$viewUid ещё нет), поэтому сигнатура другая:
  *                         crm_action_xxx(PDO $pdo, bool $hasSess): never
@@ -665,4 +665,5 @@ switch ($action) {
     }
     echo json_encode(['success' => false, 'error' => 'Ошибка сервера'], JSON_UNESCAPED_UNICODE);
     exit;
+}
 }

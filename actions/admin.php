@@ -29,7 +29,7 @@ function crm_action_sweep_uploads(PDO $pdo, array $user, int $viewUid): never {
 }
 
 function crm_action_integrity_check(PDO $pdo, array $user, int $viewUid): never {
-    // Диагностика ссылочной целостности (замена FOREIGN KEY, которых нет в схеме).
+    // Диагностика ссылочной целостности поверх FOREIGN KEY (v15): сироты там, где FK нет (теги) или не встал.
     // Находит orphan-записи: комментарии без лида, вложения без комментария и т.д.
     require_admin($user);
     $issues = crm_integrity_check($pdo);

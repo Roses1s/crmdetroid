@@ -188,9 +188,10 @@ npm install && npx eslint .
 
 ### CI
 
-На каждый push GitHub Actions (`.github/workflows/ci.yml`) прогоняет:
-синтаксис (`php -l`, `node --check`, `bash -n`), юнит-тесты, PHPStan + ESLint
-и smoke-тесты API против настоящего MySQL 8 в контейнере. Файлы `tests/`,
+На каждый push GitHub Actions (`.github/workflows/ci.yml`) прогоняет 5 джобов:
+синтаксис (`php -l`, `node --check`, `bash -n`), юнит-тесты, PHPStan + ESLint,
+smoke-тесты API против настоящего MySQL 8 в контейнере и e2e-тест клиентской логики
+(`tests/e2e-jsdom.mjs`, jsdom против живого стенда с MySQL 8). Файлы `tests/`,
 `phpstan.neon`, `eslint.config.mjs`, `package.json` на прод не заливаются.
 
 ## Таблицы
