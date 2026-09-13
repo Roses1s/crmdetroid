@@ -210,6 +210,9 @@
   .lead-apps-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
   .lead-apps-empty { color: var(--muted); font-size: 13px; padding: 4px 0 8px; }
   .lead-app-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px 12px; background: var(--surface-2); }
+  /* Контентная часть карточки заявки (маршрут/ставка/мета): забирает свободное место, */
+  /* а min-width: 0 разрешает ужиматься — длинные телефоны/ИНН переносятся, а не распирают карточку (п. 4.2) */
+  .lead-app-main { flex: 1; min-width: 0; }
   .lead-app-route { font-weight: 700; font-size: 14px; }
   .lead-app-rate { font-size: 13px; color: var(--primary); font-weight: 600; margin-top: 2px; }
   .lead-app-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
@@ -242,7 +245,6 @@
   .files-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
   .file-chip { background: #eef1f6; border: 1px solid #cbd5e1; border-radius: var(--radius); padding: 4px 10px; font-size: 11px; display: flex; gap: 8px; align-items: center;}
   .chip-remove { cursor: pointer; color: #ef4444; font-weight: 700; font-size: 14px; line-height: 1; flex-shrink: 0;}
-  .form-actions { display: flex; justify-content: space-between; align-items: center; }
 
   .chatter-log { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
   .log-empty { text-align: center; color: var(--muted); padding: 30px; font-style: italic; }
