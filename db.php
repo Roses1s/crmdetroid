@@ -421,9 +421,9 @@ function crm_purge_lead(PDO $pdo, string $id, bool $ownTxn = true): array {
  * Передать один лид от $fromUid к $toId (внутри уже открытой транзакции).
  * Этап сохраняется, если такой есть у получателя, иначе — первый этап получателя.
  * $viaName — кто фактически передал (админ через ?as=), пусто если сам владелец.
- * Возвращает имя получателя или null при ошибке.
+ * Возвращает [имя получателя, записанная ревизия updated_at] или null при ошибке.
  */
-function crm_transfer_lead(PDO $pdo, string $leadId, int $fromUid, int $toId, string $fromName, string $stage, string $viaName = '', int $updatedAt = 0): ?string {
+function crm_transfer_lead(PDO $pdo, string $leadId, int $fromUid, int $toId, string $fromName, string $stage, string $viaName = '', int $updatedAt = 0): ?array {
     $to = crm_user_by_id($pdo, $toId);
     if (!$to) return null;
     $toName = (string) $to['name'];
@@ -438,7 +438,7 @@ function crm_transfer_lead(PDO $pdo, string $leadId, int $fromUid, int $toId, st
     try { $pdo->prepare('DELETE FROM crm_lead_tags WHERE lead_id = ?')->execute([$leadId]); } catch (PDOException $e) { /* до v17 */ }
     $via = $viaName !== '' ? ' (передал ' . $viaName . ')' : '';
     crm_sys_comment($pdo, $leadId, 'Лид передан: ' . $fromName . ' → ' . $toName . $via);
-    return $toName;
+    return [$toName, $now];
 }
 
 /**

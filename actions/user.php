@@ -80,6 +80,9 @@ function crm_action_update_user(PDO $pdo, array $user, int $viewUid): never {
     // отвалятся на следующем запросе (crm_pw_fingerprint включает token_version).
     // Раньше снятый админ сохранял привилегии до истечения сессии (до 8 часов).
     $roleChanged = ($target['role'] ?? '') !== $role;
+    // Все изменения пользователя — одна транзакция: раньше сбой посередине (роль сменилась,
+    // а авторы комментариев — нет) оставлял частично применённое состояние (ревью, п. 3.4).
+    $pdo->beginTransaction();
     try {
         if ($roleChanged) {
             $pdo->prepare('UPDATE crm_users SET name = ?, email = ?, role = ?, token_version = token_version + 1 WHERE id = ?')
@@ -88,27 +91,29 @@ function crm_action_update_user(PDO $pdo, array $user, int $viewUid): never {
             $pdo->prepare('UPDATE crm_users SET name = ?, email = ?, role = ? WHERE id = ?')
                 ->execute([$name, $email, $role, $id]);
         }
+        if ($name !== (string) $target['name']) {
+            $pdo->prepare('UPDATE crm_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
+            $pdo->prepare('UPDATE crm_carrier_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
+            // «Продавец» на карточках — то же имя; иначе на лидах остаётся старое, а передача по имени ломается
+            $pdo->prepare('UPDATE crm_leads SET manager = ? WHERE user_id = ? AND manager = ?')->execute([$name, $id, (string) $target['name']]);
+        }
+        if ($pass !== '') {
+            // Инкрементируем token_version при смене пароля: все существующие сессии этого
+            // пользователя инвалидируются. Раньше это работало неявно (хэш пароля входит в
+            // crm_pw_fingerprint), но явная инвалидация надёжнее — не зависит от состава fingerprint.
+            $pdo->prepare('UPDATE crm_users SET password = ?, token_version = token_version + 1 WHERE id = ?')
+                ->execute([crm_password_hash($pass), $id]);
+        }
+        $pdo->commit();
     } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
         // Гонка: e-mail заняли между проверкой выше и UPDATE — uq_email, а не 500
         if ((int) ($e->errorInfo[1] ?? 0) === 1062) err('E-mail уже занят');
         throw $e;
     }
-    if ($name !== (string) $target['name']) {
-        $pdo->prepare('UPDATE crm_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
-        $pdo->prepare('UPDATE crm_carrier_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
-        // «Продавец» на карточках — то же имя; иначе на лидах остаётся старое, а передача по имени ломается
-        $pdo->prepare('UPDATE crm_leads SET manager = ? WHERE user_id = ? AND manager = ?')->execute([$name, $id, (string) $target['name']]);
-    }
-    if ($pass !== '') {
-        // Инкрементируем token_version при смене пароля: все существующие сессии этого
-        // пользователя инвалидируются. Раньше это работало неявно (хэш пароля входит в
-        // crm_pw_fingerprint), но явная инвалидация надёжнее — не зависит от состава fingerprint.
-        $pdo->prepare('UPDATE crm_users SET password = ?, token_version = token_version + 1 WHERE id = ?')
-            ->execute([crm_password_hash($pass), $id]);
-        if ($id === (int) $user['id']) {
-            $fresh = crm_user_by_id($pdo, $id);
-            if ($fresh) $_SESSION['pw'] = crm_pw_fingerprint($fresh);
-        }
+    if ($pass !== '' && $id === (int) $user['id']) {
+        $fresh = crm_user_by_id($pdo, $id);
+        if ($fresh) $_SESSION['pw'] = crm_pw_fingerprint($fresh);
     }
     crm_meta_bump($pdo, 'users');
     $audit = [];

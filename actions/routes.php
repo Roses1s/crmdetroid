@@ -57,11 +57,13 @@ function crm_action_delete_direction(PDO $pdo, array $user, int $viewUid): never
     $dir = crm_direction_by_id($pdo, $id);
     if (!$dir) err('Направление не найдено');
     if (!can_manage_ref($user, $dir)) err('Удалить направление может тот, кто его добавил, или администратор');
-    $ids = $pdo->prepare('SELECT id FROM crm_carriers WHERE direction_id = ?');
-    $ids->execute([$id]);
     $urls = [];
     $pdo->beginTransaction();
     try {
+        // Чтение — внутри транзакции и под блокировкой: перевозчик, созданный между SELECT
+        // и DELETE направления, раньше ронял запрос на FOREIGN KEY (ревью, п. 3.2) — теперь ждёт нас.
+        $ids = $pdo->prepare('SELECT id FROM crm_carriers WHERE direction_id = ? FOR UPDATE');
+        $ids->execute([$id]);
         foreach ($ids->fetchAll(PDO::FETCH_COLUMN) as $cid) {
             $urls = array_merge($urls, crm_purge_carrier($pdo, (string) $cid, false));
         }

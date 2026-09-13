@@ -29,7 +29,12 @@ function crm_boot(PDO $pdo): void {
     $locked = false;
     try {
         $locked = (int) $pdo->query("SELECT GET_LOCK('crm_migrate', 30)")->fetchColumn() === 1;
-    } catch (PDOException $e) { /* без блокировки — как раньше */ }
+    } catch (PDOException $e) { /* без блокировки — как раньше, см. лог ниже */ }
+    if (!$locked) {
+        // Миграции пойдут без взаимного исключения: параллельные ALTER двух первых
+        // запросов могут конфликтовать (один получит 500). Редко, но должно быть видно (п. 3.5).
+        error_log('CRM: GET_LOCK(crm_migrate) не получен — миграции без блокировки');
+    }
     try {
         if ($locked && crm_schema_version($pdo) >= CRM_SCHEMA_VERSION) return;
         crm_run_migrations($pdo);

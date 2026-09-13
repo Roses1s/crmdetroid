@@ -133,13 +133,14 @@ function crm_action_save_lead(PDO $pdo, array $user, int $viewUid): never {
             // существующего (UPDATE выше ставит updated_at = $now). Раньше сюда передавался
             // старый $row['updated_at'] — WHERE не находил строку, и передача существующего
             // лида всегда падала «Карточка изменена в другом месте» (поймано smoke-тестами в CI).
-            $toName = crm_transfer_lead($pdo, $id, $uid, $toId, $ownerName, $stage, $via, $now);
-            if ($toName === null) {
+            // Возвращает и ревизию, записанную в БД: раньше ответ уходил со вторым now_ms(),
+            // отличавшимся от записанного на доли миллисекунды (ревью, п. 2.4).
+            $moved = crm_transfer_lead($pdo, $id, $uid, $toId, $ownerName, $stage, $via, $now);
+            if ($moved === null) {
                 $pdo->rollBack();
                 err('Карточка изменена в другом месте');
             }
-            $transferredTo = $toName;
-            $now = now_ms();
+            [$transferredTo, $now] = $moved;
         }
         $pdo->commit();
     } catch (Throwable $e) {
@@ -235,26 +236,36 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
     $now = now_ms();
     $existing = $id !== '' ? crm_lead_app_by_id($pdo, $id) : null;
     if ($id !== '' && (!$existing || (string) $existing['lead_id'] !== $leadId)) err('Заявка не найдена');
-    if ($id === '') {
-        $id = crm_new_id($pdo, 'a_', 'crm_lead_apps');
-        if (crm_sync_lead_apps_count($pdo, $leadId) >= CRM_MAX_APPS_PER_LEAD) err('Слишком много заявок в одном лиде');
-    }
+    if ($id === '') $id = crm_new_id($pdo, 'a_', 'crm_lead_apps');
     // Оптимистическая блокировка: если заявку изменили в другой вкладке — не перезаписывать молча.
     // Раньше updatedAt в заявках не проверялся, и параллельные сохранения затирали друг друга.
     if ($existing && array_key_exists('updatedAt', $in) && (int) $existing['updated_at'] !== intv($in['updatedAt'])) {
         err('Заявка изменена в другом месте');
     }
+    $pdo->beginTransaction();
     try {
         if (!$existing) {
+            // Строку лида блокируем до проверки лимита: два параллельных создания при
+            // 199 заявках иначе дали бы 201 — проверка и INSERT расходились бы (ревью, п. 3.1).
+            $pdo->prepare('SELECT id FROM crm_leads WHERE id = ? FOR UPDATE')->execute([$leadId]);
+            if (crm_sync_lead_apps_count($pdo, $leadId) >= CRM_MAX_APPS_PER_LEAD) {
+                $pdo->rollBack();
+                err('Слишком много заявок в одном лиде');
+            }
             $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, city_from, city_to, rate, margin, vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
                 ->execute([$id, $leadId, $from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $now]);
         } else {
             $rev = (int) $existing['updated_at'];
             $updApp = $pdo->prepare('UPDATE crm_lead_apps SET city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
             $updApp->execute([$from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $id, $leadId, $rev]);
-            if ($updApp->rowCount() === 0) err('Заявка изменена в другом месте');
+            if ($updApp->rowCount() === 0) {
+                $pdo->rollBack();
+                err('Заявка изменена в другом месте');
+            }
         }
+        $pdo->commit();
     } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
         crm_log_fail('save_lead_app', $e);
         err('Не удалось сохранить заявку');
     }

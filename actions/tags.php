@@ -21,12 +21,22 @@ function crm_action_save_tag(PDO $pdo, array $user, int $viewUid): never {
     $color = crm_tag_color(strv($in['color'] ?? '', 7));
     try {
         if ($id <= 0) {
-            // Предел справочника: защита от захламления и раздувания ответа get_data
-            $cnt = $pdo->prepare('SELECT COUNT(*) FROM crm_tags WHERE user_id = ?');
-            $cnt->execute([$viewUid]);
-            if ((int) $cnt->fetchColumn() >= 100) err('Достигнут предел тегов (100) — удалите неиспользуемые');
-        }
-        if ($id > 0) {
+            // Предел справочника: защита от захламления и раздувания ответа get_data.
+            // Подсчёт и вставка — в транзакции с блокирующим чтением: gap-блокировки InnoDB
+            // по индексу uq_user_name(user_id, name) не дают двум параллельным созданиям
+            // при 99 тегах получить 101 (ревью, п. 3.3).
+            $pdo->beginTransaction();
+            $rows = $pdo->prepare('SELECT id FROM crm_tags WHERE user_id = ? FOR UPDATE');
+            $rows->execute([$viewUid]);
+            if (count($rows->fetchAll(PDO::FETCH_COLUMN)) >= 100) {
+                $pdo->rollBack();
+                err('Достигнут предел тегов (100) — удалите неиспользуемые');
+            }
+            $st = $pdo->prepare('INSERT INTO crm_tags (user_id, name, color, created_at) VALUES (?,?,?,?)');
+            $st->execute([$viewUid, $name, $color, now_ms()]);
+            $id = (int) $pdo->lastInsertId();
+            $pdo->commit();
+        } else {
             $st = $pdo->prepare('UPDATE crm_tags SET name = ?, color = ? WHERE id = ? AND user_id = ?');
             $st->execute([$name, $color, $id, $viewUid]);
             if ($st->rowCount() === 0) {
@@ -35,12 +45,9 @@ function crm_action_save_tag(PDO $pdo, array $user, int $viewUid): never {
                 $chk->execute([$id, $viewUid]);
                 if (!$chk->fetch()) err('Тег не найден');
             }
-        } else {
-            $st = $pdo->prepare('INSERT INTO crm_tags (user_id, name, color, created_at) VALUES (?,?,?,?)');
-            $st->execute([$viewUid, $name, $color, now_ms()]);
-            $id = (int) $pdo->lastInsertId();
         }
     } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
         if ((int) ($e->errorInfo[1] ?? 0) === 1062) err('Тег с таким названием уже есть');
         crm_log_fail('save_tag', $e);
         err('Не удалось сохранить тег');
