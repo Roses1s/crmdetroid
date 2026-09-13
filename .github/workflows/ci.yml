@@ -32,6 +32,7 @@ jobs:
       - name: bash -n
         run: |
           bash -n tests/api-smoke.sh
+          bash -n tests/e2e-setup.sh
           bash -n tools/deploy.sh
 
   # --- 2. Юнит-тесты чистых функций (без БД) ---------------------------------
@@ -195,37 +196,10 @@ jobs:
         run: |
           set -e
           php -S 127.0.0.1:8089 -t . >php-server.log 2>&1 &
-          for i in $(seq 1 30); do
-            curl -sf "http://127.0.0.1:8089/api.php?action=csrf" >/dev/null && break
-            sleep 1
-          done
-          B=http://127.0.0.1:8089/api.php
-          # Снимаем must_change у админа (пароль из конфига) — как в smoke-джобе
-          T=$(curl -s "$B?action=csrf" | sed 's/.*"csrf":"\([^"]*\)".*/\1/')
-          T2=$(curl -s -c /tmp/jar -H "X-CSRF-Token: $T" -H 'Content-Type: application/json' \
-            -d '{"email":"admin@ci.local","password":"CiAdminPass123"}' \
-            "$B?action=login" | sed -n 's/.*"csrf":"\([^"]*\)".*/\1/p')
-          curl -s -b /tmp/jar -H "X-CSRF-Token: $T2" -H 'Content-Type: application/json' \
-            -d '{"old":"CiAdminPass123","password":"CiAdminPass123X"}' \
-            "$B?action=change_password" >/dev/null
-          # Сотрудники, которых ожидает e2e: ivan@x.ru и «Пётр Сидоров» (для передачи лида)
-          T3=$(curl -s -c /tmp/jar2 -H "X-CSRF-Token: $(curl -s "$B?action=csrf" | sed 's/.*"csrf":"\([^"]*\)".*/\1/')" \
-            -H 'Content-Type: application/json' \
-            -d '{"email":"admin@ci.local","password":"CiAdminPass123X"}' \
-            "$B?action=login" | sed -n 's/.*"csrf":"\([^"]*\)".*/\1/p')
-          curl -s -b /tmp/jar2 -H "X-CSRF-Token: $T3" -H 'Content-Type: application/json' \
-            -d '{"name":"Иван Тестов","email":"ivan@x.ru","password":"IvanPass123","role":"user"}' \
-            "$B?action=register_user" >/dev/null
-          curl -s -b /tmp/jar2 -H "X-CSRF-Token: $T3" -H 'Content-Type: application/json' \
-            -d '{"name":"Пётр Сидоров","email":"petr@x.ru","password":"PetrPass123","role":"user"}' \
-            "$B?action=register_user" >/dev/null
-          # Тест 16 ожидает у ivan непустую доску — создаём один лид от его имени
-          TI=$(curl -s -c /tmp/jar3 -H "X-CSRF-Token: $(curl -s "$B?action=csrf" | sed 's/.*"csrf":"\([^"]*\)".*/\1/')" \
-            -H 'Content-Type: application/json' \
-            -d '{"email":"ivan@x.ru","password":"IvanPass123"}' \
-            "$B?action=login" | sed -n 's/.*"csrf":"\([^"]*\)".*/\1/p')
-          curl -s -b /tmp/jar3 -H "X-CSRF-Token: $TI" -H 'Content-Type: application/json' \
-            -d '{"title":"CI стартовый лид"}' "$B?action=save_lead" >/dev/null
+          # Подготовка стенда вынесена в скрипт (ревью, п. 7.x): ожидание сервера,
+          # снятие must_change у админа, сотрудники ivan/petr, стартовый лид ivan'а
+          CRM_URL=http://127.0.0.1:8089 ADMIN_EMAIL=admin@ci.local ADMIN_PASS='CiAdminPass123' \
+            ADMIN_NEW_PASS='CiAdminPass123X' bash tests/e2e-setup.sh
           set +e
           CRM_URL=http://127.0.0.1:8089 ADMIN_EMAIL=admin@ci.local ADMIN_PASS='CiAdminPass123X' \
             node tests/e2e-jsdom.mjs | tee e2e.log

@@ -263,6 +263,47 @@ check "битый UTF-8 в комментарии не роняет запрос
 R=$(get "$JI" "get_comments&id=$LU8"); check "лог лида после битого комментария читается" "r.get('success') is True" "$R"
 [ -n "$LU8" ] && post "$JI" "$TI" delete_lead "{\"id\":\"$LU8\"}" >/dev/null
 
+# --- 15. оптимистическая блокировка, переименование этапов, чужие теги -----
+# move_lead со stale-ревизией: читаем ревизию, сохраняем лид (ревизия растёт), двигаем по старой
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke 409"}'); L409=$(jget "$R" "r.get('id','')")
+R=$(get "$JI" "get_lead&id=$L409"); REV409=$(jget "$R" "r['lead']['updatedAt']"); STG409=$(jget "$R" "r['lead']['stage']")
+post "$JI" "$TI" save_lead "{\"id\":\"$L409\",\"title\":\"Smoke 409b\"}" >/dev/null
+R=$(post "$JI" "$TI" move_lead "{\"id\":\"$L409\",\"stage\":\"$STG409\",\"updatedAt\":$REV409}")
+check "move_lead со старой ревизией → конфликт" "r.get('error')=='Карточка изменена в другом месте'" "$R"
+C=$(scode -b "$JI" -H "X-CSRF-Token: $TI" -H 'Content-Type: application/json' -d "{\"id\":\"$L409\",\"stage\":\"$STG409\",\"updatedAt\":$REV409}" "$B?action=move_lead")
+check "конфликт move_lead → HTTP 409" "'$C'=='409'" "{\"_raw\":\"$C\"}"
+# со свежей ревизией — двигается (позитивный контроль)
+R=$(get "$JI" "get_lead&id=$L409"); FRESH409=$(jget "$R" "r['lead']['updatedAt']")
+OTHERSTG=$(get "$JI" get_data | jget "$(cat)" "[s for s in r['stages'] if s!='$STG409'][0]")
+R=$(post "$JI" "$TI" move_lead "{\"id\":\"$L409\",\"stage\":\"$OTHERSTG\",\"updatedAt\":$FRESH409}")
+check "move_lead со свежей ревизией двигает" "r.get('success') is True" "$R"
+# save_lead_app со stale-ревизией заявки
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$L409\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"5 000\"}")
+APP409=$(jget "$R" "r['application']['id']"); AUREV1=$(jget "$R" "r['application']['updatedAt']")
+R=$(post "$JI" "$TI" save_lead_app "{\"id\":\"$APP409\",\"leadId\":\"$L409\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"5 000\",\"margin\":\"500\"}")
+check "обновление заявки без updatedAt проходит" "r.get('success') is True" "$R"
+R=$(post "$JI" "$TI" save_lead_app "{\"id\":\"$APP409\",\"leadId\":\"$L409\",\"cityFrom\":\"Москва\",\"cityTo\":\"Казань\",\"updatedAt\":$AUREV1}")
+check "save_lead_app со старой ревизией → конфликт" "r.get('error')=='Заявка изменена в другом месте'" "$R"
+C=$(scode -b "$JI" -H "X-CSRF-Token: $TI" -H 'Content-Type: application/json' -d "{\"id\":\"$APP409\",\"leadId\":\"$L409\",\"cityFrom\":\"Москва\",\"cityTo\":\"Казань\",\"updatedAt\":$AUREV1}" "$B?action=save_lead_app")
+check "конфликт save_lead_app → HTTP 409" "'$C'=='409'" "{\"_raw\":\"$C\"}"
+# переименование этапа тянет за собой лиды (и обратно при восстановлении)
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke rename"}'); LRN=$(jget "$R" "r.get('id','')")
+ST0=$(get "$JI" get_data | jget "$(cat)" "r['stages'][0]")
+R=$(get "$JI" "get_lead&id=$LRN"); check "новый лид на первом этапе" "r['lead']['stage']=='$ST0'" "$R"
+STAGES_JSON=$(get "$JI" get_data | jget "$(cat)" "json.dumps(r['stages'],ensure_ascii=False)")
+RENAMED=$(python3 -c "import sys,json; s=json.loads(sys.argv[1]); s[0]='Смоук Этап'; print(json.dumps({'stages':s},ensure_ascii=False))" "$STAGES_JSON")
+R=$(post "$JI" "$TI" save_stages "$RENAMED"); check "переименование этапа принято" "r.get('success') is True" "$R"
+R=$(get "$JI" "get_lead&id=$LRN"); check "лид переехал на переименованный этап" "r['lead']['stage']=='Смоук Этап'" "$R"
+RESTORE=$(python3 -c "import sys,json; print(json.dumps({'stages':json.loads(sys.argv[1])},ensure_ascii=False))" "$STAGES_JSON")
+R=$(post "$JI" "$TI" save_stages "$RESTORE"); check "этапы восстановлены" "r.get('success') is True" "$R"
+R=$(get "$JI" "get_lead&id=$LRN"); check "лид вернулся на исходный этап" "r['lead']['stage']=='$ST0'" "$R"
+post "$JI" "$TI" delete_lead "{\"id\":\"$LRN\"}" >/dev/null
+# чужой set_lead_tags: сессия B убита сменой пароля в §10 — входим заново
+TP=$(login "$JP" "$B_EMAIL" "$B_PASS")
+R=$(post "$JP" "$TP" set_lead_tags "{\"leadId\":\"$L409\",\"tagIds\":[1]}")
+check "чужой лид через set_lead_tags → Лид не найден" "r.get('error')=='Лид не найден'" "$R"
+post "$JI" "$TI" delete_lead "{\"id\":\"$L409\"}" >/dev/null
+
 # --- уборка ---------------------------------------------------------------
 post "$JI" "$TI" delete_lead "{\"id\":\"$LADM\"}" >/dev/null
 TP=$(login "$JP" "$B_EMAIL" "$B_PASS"); post "$JP" "$TP" delete_lead "{\"id\":\"$LA1\"}" >/dev/null; post "$JP" "$TP" delete_lead "{\"id\":\"$LB1\"}" >/dev/null
