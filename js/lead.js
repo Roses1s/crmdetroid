@@ -1,6 +1,6 @@
 'use strict';
 // Лиды: доска (renderBoard), карточка лида, заявки лида (модалка, статистика), лог комментариев с вложениями (общий рендер renderLogInto используют и перевозчики), автосохранение формы. Вынесено из app.js (план CODE_REVIEW п. 10.9).
-/* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, setupPhoneMask */
+/* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, saveCarrierForm, setupPhoneMask */
 /* exported addTagFromModal, closeLeadAppModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, openLeadAppModal, openLeadTagsModal, pickTagColor, renderBoard, resetBoardCache, saveLeadAppFromModal, submitLeadTags, toggleTagInModal, updateLeadSaveUI */
 
 function renderAttHtml(a, c) {
@@ -113,9 +113,17 @@ async function openLead(id, updateHash = true) {
     if (!persistOk(saved)) return;
     if (saved && saved.transferred) await Store.load(true);
   }
+  // Симметрично openRoute/openCarrier: уходя с карточки перевозчика (например, кнопкой
+  // «Назад» браузера), сохраняем и её форму, а контекст чистим — иначе formDirty сбрасывался,
+  // UI.carrierId висел на виде лида, а правки спасало только висящее debounce (ревью, п. 2.1).
+  if (UI.carrierId && UI.formDirty) {
+    const savedC = await saveCarrierForm(true);
+    if (!persistOk(savedC)) return;
+  }
   const still = Store.getLead(id); if (!still || !still._full) return goHome(updateHash);
 
   UI.leadId = id; UI.currentView = 'lead'; UI.pendingFiles = []; UI.formDirty = false;
+  UI.carrierId = null; UI.carrierComments = []; UI.editingCommentId = null;
   updateLeadSaveUI('saved');
   $$('.view-section').forEach(el => el.classList.remove('active'));
   // Снимаем подсветку кнопки дашборда: карточка лида — не дашборд

@@ -27,6 +27,9 @@ function updateViewBanner() {
 }
 
 async function viewUserBoard(id, name) {
+  // Пункты сотрудников в поиске рендерятся только админу, но прямой вызов из консоли
+  // раньше молча показывал пустую доску (сервер отвечал 403) — гард (ревью, п. 2.5)
+  if (Store.state.user?.role !== 'admin') return;
   id = parseInt(id, 10);
   closeSearchDrop();
   clearSearch();
@@ -801,7 +804,11 @@ async function handleLeadCardAction(act, actEl) {
 
       case 'set-stage': {
         const lead = Store.getLead(UI.leadId); if (!lead) return;
-        if (UI.formDirty) await saveLeadForm(true);
+        // Как в switchView: невалидная форма блокирует и смену этапа (ревью, п. 2.3)
+        if (UI.formDirty) {
+          const savedSt = await saveLeadForm(true);
+          if (!persistOk(savedSt)) return;
+        }
         const resMS = await Net.req('move_lead', { id: UI.leadId, stage: actEl.dataset.stage, updatedAt: lead._editRev ?? lead.updatedAt });
         if (resMS?.success) await Store.load(true);
         else if (resMS?.error === 'Карточка изменена в другом месте') { Toast.error('Карточку изменили в другой вкладке — обновляю'); await Store.load(true); }

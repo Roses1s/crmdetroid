@@ -1,7 +1,7 @@
 'use strict';
 // Справочник маршрутов: список направлений, карточка направления, перевозчики (список, карточка, автосохранение), их лог. Вынесено из app.js (план CODE_REVIEW п. 10.9).
 /* global $, $$, Net, Toast, UI, debounce, esc, navTo, persistOk, plural, renderFiles, renderLogInto, renderSaveStatus, saveLeadForm, setupPhoneMask, switchView */
-/* exported appsWord, goNeighborCarrier, loadRoutes, saveCarrierDebounced, setRoutesFilter, updateCarrierSaveUI */
+/* exported appsWord, goNeighborCarrier, loadRoutes, saveCarrierDebounced, saveCarrierForm, setRoutesFilter, updateCarrierSaveUI */
 
 let _routesCache = [];
 
@@ -45,7 +45,7 @@ async function openRoute(id, updateHash = true) {
     const savedC = await saveCarrierForm(true);
     if (!persistOk(savedC)) return;
   }
-  UI.leadId = null; UI.formDirty = false; UI.pendingFiles = [];
+  UI.leadId = null; UI.formDirty = false; UI.pendingFiles = []; UI.editingCommentId = null;
   const res = await Net.req('get_carriers', { id });
   if (!res || !res.success) { switchView('routes-view', updateHash); return; }
   UI.routeId = id; UI.currentView = 'route';
