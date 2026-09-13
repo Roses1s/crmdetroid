@@ -675,4 +675,3 @@ switch ($action) {
     echo json_encode(['success' => false, 'error' => 'Ошибка сервера'], JSON_UNESCAPED_UNICODE);
     exit;
 }
-}
