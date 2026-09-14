@@ -217,13 +217,10 @@
   /* Номер заявки в строке маршрута: приглушённый префикс «№ 125 · » */
   .lead-app-num { color: var(--muted); font-weight: 600; }
   .lead-app-rate { font-size: 13px; color: var(--primary); font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  /* Вторая финансовая строка карточки: «Перевозчику: 30 000 ₽ · НДС 5%» */
+  .lead-app-cost { font-size: 12px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
   .lead-app-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
   .lead-app-actions { display: flex; gap: 6px; flex-shrink: 0; }
-  /* НДС в модалке заявки: аккуратный бокс высотой с инпут, опции поровну (радио как были) */
-  .vat-row { display: flex; align-items: stretch; border: 1px solid #cbd5e1; border-radius: var(--radius); background: #fff; overflow: hidden; }
-  .vat-row label { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: 14px; cursor: pointer; padding: 10px 12px; color: var(--text-2); }
-  .vat-row label + label { border-left: 1px solid #cbd5e1; }
-  .vat-row input { width: auto; margin: 0; accent-color: var(--primary); }
 
   .chatter { flex: 1; background: #f9f9fb; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
   .chatter-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); background: #fff; padding-right: 15px; flex-shrink: 0; }
@@ -343,9 +340,12 @@
   /* Строгие заголовки секций модалки заявки: Маршрут / Финансы / Перевозчик */
   .modal-section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 6px; margin: 20px 0 14px; }
   .modal-section-title:first-of-type { margin-top: 0; }
-  /* Парные поля (Откуда/Куда, Ставка/Маржа, ИНН/Телефон) — в две колонки */
+  /* Парные поля (Откуда/Куда, Ставка/Налоги, ИНН/Телефон) — в две колонки */
   .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
   @media (max-width: 560px) { .field-grid { grid-template-columns: 1fr; } }
+  /* Финансы заявки: две стороны (заказчик/перевозчик) — ставка + налоги у каждой */
+  .finance-side { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 12px 0; margin-bottom: 14px; background: var(--surface-2); }
+  .finance-side-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); margin-bottom: 10px; }
   /* Красная звёздочка обязательности вместо «*» в тексте */
   .req { color: var(--danger); font-weight: 700; }
   /* Денежные поля: вправо и табличными цифрами, как в финансовых документах */
@@ -358,7 +358,6 @@
   .field-hint.danger { color: #b91c1c; }
   /* Предупреждение о дубле по ИНН в окне «Новый лид» (тона как у .search-item-warn) */
   .dup-warn { margin-top: 6px; padding: 8px 10px; font-size: 12px; font-weight: 600; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius); }
-  .field .vat-row input { width: auto; padding: 0; border: 0; box-shadow: none; }
   .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 30px; }
 
   .toast-container { position: fixed; top: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
@@ -472,8 +471,6 @@
   html[data-theme="dark"] .att-del { background: rgba(0,0,0,.75); }
   html[data-theme="dark"] .users-table th { background: var(--surface-2); color: var(--text-2); }
   html[data-theme="dark"] .apps-table thead th { color: var(--muted); }
-  html[data-theme="dark"] .vat-row { background: var(--input-bg); border-color: #5a5a5a; }
-  html[data-theme="dark"] .vat-row label + label { border-left-color: #5a5a5a; }
   html[data-theme="dark"] .users-table th,
   html[data-theme="dark"] .users-table td { border-bottom-color: var(--border); color: var(--text); }
   html[data-theme="dark"] .search-item { border-bottom-color: #4a4a4a; }
@@ -585,7 +582,6 @@
     .td-leads { display: none; }
     .routes-grid { gap: 8px; }
     .route-card { padding: 12px; }
-    .vat-row label { padding: 10px 6px; font-size: 13px; }
   }
 
   /* === LOADING OVERLAY (#2) === */
@@ -628,7 +624,7 @@
   .apps-search-input { width: 100%; padding: 8px 12px; font-size: 13px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--input-bg, #fff); color: var(--text); }
   .apps-search-input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(113,75,103,.1); }
   .apps-summary { font-size: 13px; font-weight: 600; color: var(--primary); white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .apps-table { min-width: 760px; }
+  .apps-table { min-width: 980px; }
   .apps-table td { vertical-align: top; }
   .apps-table .th-money { text-align: right; }
   /* Строгая шапка реестра: мелкие кегль-капс заголовки вместо обычных */

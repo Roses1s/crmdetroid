@@ -316,6 +316,7 @@ function initAutosaveEvents() {
   $('#la-inn')?.addEventListener('input', e => formatInnInput(e.target));
   $('#la-rate')?.addEventListener('input', e => formatMarginInput(e.target));
   $('#la-margin')?.addEventListener('input', e => formatMarginInput(e.target));
+  $('#la-carrier-rate')?.addEventListener('input', e => formatMarginInput(e.target));
   $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title') && UI.carrierCanManage) { UI.formDirty = true; updateCarrierSaveUI('dirty'); saveCarrierDebounced(); } });
 }
 

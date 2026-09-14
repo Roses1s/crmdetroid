@@ -1,7 +1,7 @@
 'use strict';
 // Утилиты без доменной логики: DOM-хелперы, экранирование, форматирование, маски ввода, Toast/Loading/Modal, prompt/confirm. Вынесено из app.js (план CODE_REVIEW п. 10.9). Файлы js/ — обычные скрипты (не модули): top-level объявления видны всем следующим <script> (порядок — в index.html).
 /* global UI */
-/* exported Loading, Theme, Toast, askConfirm, askPrompt, autoGrowComposer, closeImageLightbox, debounce, fmtBytes, fmtMoney, fmtTime, formatInnInput, formatMarginInput, isImageAtt, isValidEmail, moneyNum, moneyToInput, openImageLightbox, passwordError, plural, renderSaveStatus, safeAttUrl, setupPhoneMask, withLock */
+/* exported Loading, Theme, Toast, askConfirm, askPrompt, autoGrowComposer, closeImageLightbox, debounce, fmtBytes, fmtMoney, fmtTime, formatInnInput, formatMarginInput, isImageAtt, isValidEmail, moneyNum, moneyToInput, openImageLightbox, passwordError, plural, renderSaveStatus, safeAttUrl, setupPhoneMask, vatLabel, withLock */
 
 const Theme = {
   key: 'crm-theme',
@@ -242,6 +242,12 @@ function moneyNum(s) {
   if (!t) return 0;
   const n = Number(t);
   return Number.isFinite(n) ? n : 0;
+}
+
+// Подпись налогового режима заявки (v19): null/'' — без НДС, иначе «НДС N%»
+function vatLabel(v) {
+  if (v === null || v === undefined || v === '') return 'без НДС';
+  return `НДС ${v}%`;
 }
 
 function fmtMoney(s) {

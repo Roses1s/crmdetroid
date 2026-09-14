@@ -227,7 +227,16 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
     $margin = crm_parse_money(strv($in['margin'] ?? '', 40));
     if ($margin === null) err('Маржа: число, копейки через запятую');
     $margin = crm_money_in($margin);
-    $vat = !empty($in['vat']) ? 1 : 0;
+    // Налоги — строгий список режимов (v19); пусто = без НДС (NULL). Раньше был флаг 0/1.
+    $vatRaw = strv($in['vat'] ?? '', 3);
+    if (!in_array($vatRaw, ['', '0', '5', '7', '22'], true)) err('Налоги заказчика: выберите из списка');
+    $vat = $vatRaw === '' ? null : (int) $vatRaw;
+    $carrierVatRaw = strv($in['carrierVat'] ?? '', 3);
+    if (!in_array($carrierVatRaw, ['', '0', '5', '7', '22'], true)) err('Налоги перевозчика: выберите из списка');
+    $carrierVat = $carrierVatRaw === '' ? null : (int) $carrierVatRaw;
+    $carrierRate = crm_parse_money(strv($in['carrierRate'] ?? '', 40));
+    if ($carrierRate === null) err('Ставка перевозчику: число, копейки через запятую');
+    $carrierRate = crm_money_in($carrierRate);
     $company = strv($in['carrierCompany'] ?? '', 200);
     $inn = preg_replace('/\D/', '', strv($in['carrierInn'] ?? '', 12)) ?? '';
     if ($inn !== '' && strlen($inn) !== 10 && strlen($inn) !== 12) err('ИНН 10 или 12 цифр');
@@ -253,12 +262,12 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
                 $pdo->rollBack();
                 err('Слишком много заявок в одном лиде');
             }
-            $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, `number`, city_from, city_to, rate, margin, vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-                ->execute([$id, $leadId, $number, $from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $now]);
+            $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, `number`, city_from, city_to, rate, margin, vat, carrier_rate, carrier_vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$id, $leadId, $number, $from, $to, $rate, $margin, $vat, $carrierRate, $carrierVat, $company, $inn, $name, $phone, $now, $now]);
         } else {
             $rev = (int) $existing['updated_at'];
-            $updApp = $pdo->prepare('UPDATE crm_lead_apps SET `number`=?, city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
-            $updApp->execute([$number, $from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $id, $leadId, $rev]);
+            $updApp = $pdo->prepare('UPDATE crm_lead_apps SET `number`=?, city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_rate=?, carrier_vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
+            $updApp->execute([$number, $from, $to, $rate, $margin, $vat, $carrierRate, $carrierVat, $company, $inn, $name, $phone, $now, $id, $leadId, $rev]);
             if ($updApp->rowCount() === 0) {
                 $pdo->rollBack();
                 err('Заявка изменена в другом месте');

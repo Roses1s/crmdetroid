@@ -129,6 +129,13 @@ APPN=$(jget "$R" "r['application']['id']")
 R=$(post "$JI" "$TI" save_lead_app "{\"id\":\"$APPN\",\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"1 000\",\"number\":\"SMK-2\"}")
 check "v18: номер заявки обновляется" "r.get('application',{}).get('number')=='SMK-2'" "$R"
 R=$(get "$JI" "get_apps&q=SMK-2"); check "v18: поиск заявки по номеру" "any(a.get('number')=='SMK-2' for a in r.get('apps',[]))" "$R"
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"50 000\",\"vat\":\"22\",\"carrierRate\":\"30 000\",\"carrierVat\":\"5\"}")
+check "v19: ставка+налоги обеих сторон сохраняются" "r.get('application',{}).get('vat')==22 and r.get('application',{}).get('carrierRate')=='30000.00' and r.get('application',{}).get('carrierVat')==5" "$R"
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"vat\":\"13\"}"); check "v19: чужой налог заказчика отклонён" "'Налоги заказчика' in r.get('error','')" "$R"
+R=$(post "$JI" "$TI" save_lead_app "{\"id\":\"$APPN\",\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"1 000\",\"carrierRate\":\"25 000\",\"carrierVat\":\"0\"}")
+check "v19: обновление пишет ставку перевозчика и НДС 0%" "r.get('application',{}).get('carrierRate')=='25000.00' and r.get('application',{}).get('carrierVat')==0" "$R"
+R=$(post "$JI" "$TI" save_lead_app "{\"id\":\"$APPN\",\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"1 000\",\"vat\":\"\",\"carrierVat\":\"\"}")
+check "v19: пустые налоги → без НДС с обеих сторон" "r.get('application',{}).get('vat') is None and r.get('application',{}).get('carrierVat') is None" "$R"
 R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"abc\"}"); check "ставка «abc» отклонена" "'Ставка' in r.get('error','')" "$R"
 ST=$(python3 -c 'import json; print(json.dumps({"stages":["Э%d"%i for i in range(21)]}))')
 R=$(post "$JI" "$TI" save_stages "$ST"); check "21 этап → отказ" "'Не больше' in r.get('error','')" "$R"

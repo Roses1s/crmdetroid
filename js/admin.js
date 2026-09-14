@@ -1,6 +1,6 @@
 'use strict';
 // Админ-зона: список сотрудников (вкладка «Сотрудники»), удаление с передачей лидов, вкладка «Активность клиентов». Вынесено из app.js (план CODE_REVIEW п. 10.9).
-/* global $, Loading, Modal, Net, Store, Toast, esc, fmtMoney, fmtTime, plural */
+/* global $, Loading, Modal, Net, Store, Toast, esc, fmtMoney, fmtTime, plural, vatLabel */
 /* exported activityShiftYear, confirmDeleteUser, loadApps, openDeleteUser, setActivityUser, setAppsQuery, setAppsUser, usersTableBusy */
 
 let _usersCache = [];
@@ -226,7 +226,7 @@ function renderApps() {
   if (!tbody) return;
   const apps = res?.apps || [];
   if (!apps.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="cell-muted">${_appsQuery ? 'Ничего не найдено' : 'Пока нет заявок'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="cell-muted">${_appsQuery ? 'Ничего не найдено' : 'Пока нет заявок'}</td></tr>`;
     return;
   }
   tbody.innerHTML = '';
@@ -238,14 +238,18 @@ function renderApps() {
       ? `${esc(a.carrierCompany)}${a.carrierInn ? `<div class="apps-sub">${esc(a.carrierInn)}</div>` : ''}`
       : '<span class="apps-dim">—</span>';
     const numCell = a.number ? esc(a.number) : '<span class="apps-dim">—</span>';
+    const crate = fmtMoney(a.carrierRate);
+    const hasCVat = a.carrierVat !== null && a.carrierVat !== undefined && a.carrierVat !== '';
     tr.innerHTML = `<td class="apps-date">${esc(fmtTime(a.createdAt).slice(0, 10))}</td>`
       + `<td class="apps-num">${numCell}</td>`
       + `<td><span class="name-link" data-action="open-app-lead" data-id="${esc(a.leadId)}">${esc(a.leadTitle || '—')}</span>${a.leadInn ? `<div class="apps-sub">${esc(a.leadInn)}</div>` : ''}</td>`
       + `<td>${route}</td>`
       + `<td>${carrier}</td>`
       + `<td class="apps-money">${a.rate ? esc(fmtMoney(a.rate)) : '<span class="apps-dim">—</span>'}</td>`
-      + `<td class="apps-money">${a.margin ? esc(fmtMoney(a.margin)) : '<span class="apps-dim">—</span>'}</td>`
-      + `<td class="apps-vat">${Number(a.vat) ? 'с НДС' : 'без'}</td>`;
+      + `<td class="apps-vat">${vatLabel(a.vat)}</td>`
+      + `<td class="apps-money">${crate ? esc(crate) : '<span class="apps-dim">—</span>'}</td>`
+      + `<td class="apps-vat">${hasCVat ? vatLabel(a.carrierVat) : '<span class="apps-dim">—</span>'}</td>`
+      + `<td class="apps-money">${a.margin ? esc(fmtMoney(a.margin)) : '<span class="apps-dim">—</span>'}</td>`;
     frag.appendChild(tr);
   });
   tbody.appendChild(frag);

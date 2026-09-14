@@ -1,6 +1,6 @@
 'use strict';
 // Лиды: доска (renderBoard), карточка лида, заявки лида (модалка, статистика), лог комментариев с вложениями (общий рендер renderLogInto используют и перевозчики), автосохранение формы. Вынесено из app.js (план CODE_REVIEW п. 10.9).
-/* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, saveCarrierForm, setupPhoneMask */
+/* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, saveCarrierForm, setupPhoneMask, vatLabel */
 /* exported addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, openLeadAppModal, openLeadTagsModal, pickTagColor, renderBoard, resetBoardCache, saveLeadAppFromModal, submitLeadTags, toggleTagInModal, updateLeadSaveUI */
 
 function renderAttHtml(a, c) {
@@ -233,8 +233,13 @@ function renderLeadApps() {
   box.innerHTML = apps.map(a => {
     const route = [a.cityFrom, a.cityTo].filter(Boolean).join(' → ') || 'Без маршрута';
     const rate = fmtMoney(a.rate);
-    const vat = Number(a.vat) ? 'с НДС' : 'без НДС';
+    const vat = vatLabel(a.vat);
     const rateLine = rate ? `${esc(rate)} ₽ · ${vat}` : vat;
+    // Строка «Перевозчику» — только если есть ставка или выбранный налог перевозчика
+    const crate = fmtMoney(a.carrierRate);
+    const hasCVat = a.carrierVat !== null && a.carrierVat !== undefined && a.carrierVat !== '';
+    const costLine = (crate || hasCVat)
+      ? `<div class="lead-app-cost">Перевозчику: ${crate ? esc(crate) + ' ₽ · ' : ''}${vatLabel(a.carrierVat)}</div>` : '';
     const mar = fmtMoney(a.margin);
     const marLine = mar ? `маржа ${esc(mar)} ₽` : '';
     const who = [a.carrierCompany, a.carrierName].filter(Boolean).join(' · ');
@@ -246,6 +251,7 @@ function renderLeadApps() {
       <div class="lead-app-main">
         <div class="lead-app-route">${num}${esc(route)}</div>
         <div class="lead-app-rate">${rateLine}${marLine ? ' · ' + marLine : ''}</div>
+        ${costLine}
         ${meta ? `<div class="lead-app-meta">${esc(meta)}</div>` : ''}
       </div>
       <div class="lead-app-actions">
@@ -263,8 +269,10 @@ function leadAppSnapshot() {
     from: $('#la-from')?.value || '',
     to: $('#la-to')?.value || '',
     rate: $('#la-rate')?.value || '',
+    vat: $('#la-vat')?.value || '',
+    carrierRate: $('#la-carrier-rate')?.value || '',
+    carrierVat: $('#la-carrier-vat')?.value || '',
     margin: $('#la-margin')?.value || '',
-    vat: $('input[name="la-vat"]:checked')?.value || '0',
     company: $('#la-company')?.value || '',
     inn: $('#la-inn')?.value || '',
     name: $('#la-name')?.value || '',
@@ -284,8 +292,11 @@ function openLeadAppModal(app) {
   // из БД показывалась как 123450
   $('#la-rate').value = moneyToInput(app?.rate || '');
   if ($('#la-margin')) $('#la-margin').value = moneyToInput(app?.margin || '');
-  const vat = Number(app?.vat) ? '1' : '0';
-  $$('input[name="la-vat"]').forEach(r => { r.checked = r.value === vat; });
+  // Новая заявка — НДС 22% с обеих сторон (дефолт пользователя); у сохранённой — как
+  // было записано. ??, а не ||: НДС 0% — валидный режим и не должен падать в «Без НДС».
+  $('#la-vat').value = app ? (app.vat ?? '') : '22';
+  $('#la-carrier-rate').value = moneyToInput(app?.carrierRate || '');
+  $('#la-carrier-vat').value = app ? (app.carrierVat ?? '') : '22';
   $('#la-company').value = app?.carrierCompany || '';
   $('#la-inn').value = app?.carrierInn || '';
   $('#la-name').value = app?.carrierName || '';
@@ -318,7 +329,6 @@ async function saveLeadAppFromModal() {
   if (!from || !to) return Toast.error('Укажите откуда и куда');
   const inn = ($('#la-inn').value || '').replace(/\D/g, '');
   if (inn && inn.length !== 10 && inn.length !== 12) return Toast.error('ИНН 10 или 12 цифр');
-  const vatEl = $('input[name="la-vat"]:checked');
   // updatedAt для оптимистической блокировки: если заявку изменили в другой вкладке,
   // сервер ответит «Заявка изменена в другом месте» вместо молчаливой перезаписи.
   const editApp = ($('#la-id').value || '').trim()
@@ -332,7 +342,9 @@ async function saveLeadAppFromModal() {
     cityTo: to,
     rate: ($('#la-rate').value || '').trim(),
     margin: ($('#la-margin')?.value || '').trim(),
-    vat: vatEl && vatEl.value === '1' ? 1 : 0,
+    vat: $('#la-vat').value,
+    carrierRate: ($('#la-carrier-rate').value || '').trim(),
+    carrierVat: $('#la-carrier-vat').value,
     carrierCompany: ($('#la-company').value || '').trim(),
     carrierInn: inn,
     carrierName: ($('#la-name').value || '').trim(),

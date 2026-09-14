@@ -10,7 +10,7 @@ declare(strict_types=1);
  * резолвятся в рантайме, когда все файлы уже подключены.
  */
 
-const CRM_SCHEMA_VERSION = 18;
+const CRM_SCHEMA_VERSION = 19;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -64,6 +64,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v16($pdo);
     crm_migrate_v17($pdo);
     crm_migrate_v18($pdo);
+    crm_migrate_v19($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -404,6 +405,36 @@ function crm_migrate_v18(PDO $pdo): void {
         } catch (PDOException $e) {
             crm_log_fail('migrate_v18 number', $e);
         }
+    }
+}
+
+/*
+ * v19: двусторонние финансы заявки. Сторона перевозчика: carrier_rate (сколько платим)
+ * и carrier_vat; налог заказчика vat из флага 0/1 становится режимом NULL/0/5/7/22
+ * (NULL — без НДС). Старый «с НДС» (1) трактуем как 22% — действовавшую стандартную
+ * ставку; «без НДС» (0) — NULL. UPDATE идемпотентны: повтор ничего не находит.
+ */
+function crm_migrate_v19(PDO $pdo): void {
+    if (!crm_has_column($pdo, 'crm_lead_apps', 'carrier_rate')) {
+        try {
+            $pdo->exec('ALTER TABLE crm_lead_apps ADD COLUMN carrier_rate DECIMAL(15,2) NULL DEFAULT NULL AFTER vat');
+        } catch (PDOException $e) {
+            crm_log_fail('migrate_v19 carrier_rate', $e);
+        }
+    }
+    if (!crm_has_column($pdo, 'crm_lead_apps', 'carrier_vat')) {
+        try {
+            $pdo->exec('ALTER TABLE crm_lead_apps ADD COLUMN carrier_vat TINYINT NULL DEFAULT NULL AFTER carrier_rate');
+        } catch (PDOException $e) {
+            crm_log_fail('migrate_v19 carrier_vat', $e);
+        }
+    }
+    try {
+        $pdo->exec('ALTER TABLE crm_lead_apps MODIFY vat TINYINT NULL DEFAULT NULL');
+        $pdo->exec('UPDATE crm_lead_apps SET vat = 22 WHERE vat = 1');
+        $pdo->exec('UPDATE crm_lead_apps SET vat = NULL WHERE vat = 0');
+    } catch (PDOException $e) {
+        crm_log_fail('migrate_v19 vat', $e);
     }
 }
 

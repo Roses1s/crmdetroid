@@ -170,7 +170,9 @@ CREATE TABLE IF NOT EXISTS crm_lead_apps (
   rate_raw VARCHAR(40) NULL DEFAULT NULL,      -- исходная строка до миграции v10 (только у старых записей)
   margin DECIMAL(15,2) NULL DEFAULT NULL,
   margin_raw VARCHAR(40) NULL DEFAULT NULL,
-  vat TINYINT NOT NULL DEFAULT 0,
+  vat TINYINT NULL DEFAULT NULL,   -- v19: режим NULL/0/5/7/22 (NULL — без НДС), раньше флаг 0/1
+  carrier_rate DECIMAL(15,2) NULL DEFAULT NULL,   -- v19: сколько платим перевозчику
+  carrier_vat TINYINT NULL DEFAULT NULL,          -- v19: налог перевозчика, режимы как у vat
   carrier_company VARCHAR(200) NOT NULL DEFAULT '',
   carrier_inn VARCHAR(12) NOT NULL DEFAULT '',
   carrier_name VARCHAR(80) NOT NULL DEFAULT '',
