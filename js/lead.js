@@ -233,13 +233,15 @@ function renderLeadApps() {
   box.innerHTML = apps.map(a => {
     const route = [a.cityFrom, a.cityTo].filter(Boolean).join(' → ') || 'Без маршрута';
     const rate = fmtMoney(a.rate);
-    const vat = vatLabel(a.vat);
+    // esc() вокруг vatLabel — defense-in-depth (ревью v19, п. 2): значение серверное
+    // (int|null), но подпись уходит в innerHTML, и экранирование здесь обязательно.
+    const vat = esc(vatLabel(a.vat));
     const rateLine = rate ? `${esc(rate)} ₽ · ${vat}` : vat;
     // Строка «Перевозчику» — только если есть ставка или выбранный налог перевозчика
     const crate = fmtMoney(a.carrierRate);
     const hasCVat = a.carrierVat !== null && a.carrierVat !== undefined && a.carrierVat !== '';
     const costLine = (crate || hasCVat)
-      ? `<div class="lead-app-cost">Перевозчику: ${crate ? esc(crate) + ' ₽ · ' : ''}${vatLabel(a.carrierVat)}</div>` : '';
+      ? `<div class="lead-app-cost">Перевозчику: ${crate ? esc(crate) + ' ₽ · ' : ''}${esc(vatLabel(a.carrierVat))}</div>` : '';
     const mar = fmtMoney(a.margin);
     const marLine = mar ? `маржа ${esc(mar)} ₽` : '';
     const who = [a.carrierCompany, a.carrierName].filter(Boolean).join(' · ');

@@ -335,15 +335,15 @@
     <input type="hidden" id="la-id">
     <h3 class="modal-section-title">Маршрут</h3>
     <div class="field-grid">
-      <div class="field"><label>Откуда <span class="req">*</span></label><input id="la-from" placeholder="Город"></div>
-      <div class="field"><label>Куда <span class="req">*</span></label><input id="la-to" placeholder="Город"></div>
+      <div class="field"><label for="la-from">Откуда <span class="req">*</span></label><input id="la-from" placeholder="Город"></div>
+      <div class="field"><label for="la-to">Куда <span class="req">*</span></label><input id="la-to" placeholder="Город"></div>
     </div>
     <h3 class="modal-section-title">Финансы</h3>
     <div class="finance-side">
       <div class="finance-side-title">Заказчик</div>
       <div class="field-grid">
-        <div class="field"><label>Ставка, ₽</label><input id="la-rate" class="money" inputmode="decimal" placeholder="45000"></div>
-        <div class="field"><label>Налоги</label><select id="la-vat" class="form-select">
+        <div class="field"><label for="la-rate">Ставка, ₽</label><input id="la-rate" class="money" inputmode="decimal" placeholder="45000"></div>
+        <div class="field"><label for="la-vat">Налоги</label><select id="la-vat" class="form-select">
           <option value="22">НДС 22%</option>
           <option value="">Без НДС</option>
           <option value="5">НДС 5%</option>
@@ -355,8 +355,8 @@
     <div class="finance-side">
       <div class="finance-side-title">Перевозчик</div>
       <div class="field-grid">
-        <div class="field"><label>Ставка, ₽</label><input id="la-carrier-rate" class="money" inputmode="decimal" placeholder="30000"></div>
-        <div class="field"><label>Налоги</label><select id="la-carrier-vat" class="form-select">
+        <div class="field"><label for="la-carrier-rate">Ставка, ₽</label><input id="la-carrier-rate" class="money" inputmode="decimal" placeholder="30000"></div>
+        <div class="field"><label for="la-carrier-vat">Налоги</label><select id="la-carrier-vat" class="form-select">
           <option value="22">НДС 22%</option>
           <option value="">Без НДС</option>
           <option value="5">НДС 5%</option>
@@ -365,14 +365,14 @@
         </select></div>
       </div>
     </div>
-    <div class="field"><label>Маржа с поездки, ₽</label><input id="la-margin" class="money" inputmode="decimal" placeholder="17608,65"></div>
+    <div class="field"><label for="la-margin">Маржа с поездки, ₽</label><input id="la-margin" class="money" inputmode="decimal" placeholder="17608,65"></div>
     <h3 class="modal-section-title">Перевозчик</h3>
-    <div class="field"><label>Компания</label><input id="la-company" placeholder="Название фирмы"></div>
+    <div class="field"><label for="la-company">Компания</label><input id="la-company" placeholder="Название фирмы"></div>
     <div class="field-grid">
-      <div class="field"><label>ИНН</label><input id="la-inn" maxlength="12" inputmode="numeric" placeholder="10 или 12 цифр"></div>
-      <div class="field"><label>Телефон</label><input id="la-phone" inputmode="tel"></div>
+      <div class="field"><label for="la-inn">ИНН</label><input id="la-inn" maxlength="12" inputmode="numeric" placeholder="10 или 12 цифр"></div>
+      <div class="field"><label for="la-phone">Телефон</label><input id="la-phone" inputmode="tel"></div>
     </div>
-    <div class="field"><label>Контактное лицо</label><input id="la-name" placeholder="Имя"></div>
+    <div class="field"><label for="la-name">Контактное лицо</label><input id="la-name" placeholder="Имя"></div>
     <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-lead-app">Сохранить</button></div>
   </div>
 </div>

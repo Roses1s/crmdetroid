@@ -960,7 +960,9 @@ function initKeyboardShortcuts() {
       const tag = (document.activeElement && document.activeElement.tagName) || '';
       if (tag !== 'TEXTAREA' && document.activeElement && document.activeElement.closest('#modal-lead-app')) {
         e.preventDefault();
-        saveLeadAppFromModal();
+        // Как в диспетчере кликов — под глобальным withLock: иначе очередь Enter'ов
+        // при висящем сохранении плодит дубли новой заявки (ревью v19, п. 1).
+        withLock(() => saveLeadAppFromModal())();
         return;
       }
     }
