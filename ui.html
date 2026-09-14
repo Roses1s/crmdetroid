@@ -270,7 +270,7 @@
     </div>
     <div class="apps-toolbar">
       <div class="board-search apps-search-wrap">
-        <input type="text" class="apps-search-input" id="apps-search" placeholder="Поиск: клиент, ИНН, город, перевозчик" aria-label="Поиск по заявкам" autocomplete="off" spellcheck="false">
+        <input type="text" class="apps-search-input" id="apps-search" placeholder="Поиск: клиент, ИНН, город, перевозчик, номер" aria-label="Поиск по заявкам" autocomplete="off" spellcheck="false">
       </div>
       <div class="apps-summary" id="apps-summary"></div>
     </div>
@@ -279,6 +279,7 @@
         <thead>
           <tr>
             <th scope="col">Дата</th>
+            <th scope="col">№</th>
             <th scope="col">Клиент</th>
             <th scope="col">Маршрут</th>
             <th scope="col">Перевозчик</th>
@@ -327,13 +328,20 @@
 </div>
 
 <div class="modal-backdrop" id="modal-lead-app">
-  <div class="modal">
+  <div class="modal modal-wide">
     <h2 id="lead-app-modal-title">Новая заявка</h2>
     <input type="hidden" id="la-id">
-    <div class="field"><label>Откуда *</label><input id="la-from" placeholder="Город"></div>
-    <div class="field"><label>Куда *</label><input id="la-to" placeholder="Город"></div>
-    <div class="field"><label>Ставка</label><input id="la-rate" inputmode="decimal" placeholder="например 45000"></div>
-    <div class="field"><label>Маржа с поездки</label><input id="la-margin" inputmode="decimal" placeholder="например 17608,65"></div>
+    <div class="field"><label>Номер заявки</label><input id="la-number" maxlength="40" placeholder="125"></div>
+    <h3 class="modal-section-title">Маршрут</h3>
+    <div class="field-grid">
+      <div class="field"><label>Откуда <span class="req">*</span></label><input id="la-from" placeholder="Город"></div>
+      <div class="field"><label>Куда <span class="req">*</span></label><input id="la-to" placeholder="Город"></div>
+    </div>
+    <h3 class="modal-section-title">Финансы</h3>
+    <div class="field-grid">
+      <div class="field"><label>Ставка, ₽</label><input id="la-rate" class="money" inputmode="decimal" placeholder="45000"></div>
+      <div class="field"><label>Маржа с поездки, ₽</label><input id="la-margin" class="money" inputmode="decimal" placeholder="17608,65"></div>
+    </div>
     <div class="field">
       <label>НДС</label>
       <div class="vat-row">
@@ -341,10 +349,13 @@
         <label><input type="radio" name="la-vat" value="0" checked> без НДС</label>
       </div>
     </div>
-    <div class="field"><label>Перевозчик — компания</label><input id="la-company" placeholder="Название фирмы"></div>
-    <div class="field"><label>ИНН</label><input id="la-inn" maxlength="12" placeholder="10 или 12 цифр"></div>
-    <div class="field"><label>Имя</label><input id="la-name" placeholder="Имя"></div>
-    <div class="field"><label>Телефон</label><input id="la-phone"></div>
+    <h3 class="modal-section-title">Перевозчик</h3>
+    <div class="field"><label>Компания</label><input id="la-company" placeholder="Название фирмы"></div>
+    <div class="field-grid">
+      <div class="field"><label>ИНН</label><input id="la-inn" maxlength="12" inputmode="numeric" placeholder="10 или 12 цифр"></div>
+      <div class="field"><label>Телефон</label><input id="la-phone" inputmode="tel"></div>
+    </div>
+    <div class="field"><label>Контактное лицо</label><input id="la-name" placeholder="Имя"></div>
     <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-lead-app">Сохранить</button></div>
   </div>
 </div>

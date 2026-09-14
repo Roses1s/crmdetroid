@@ -241,9 +241,10 @@ function renderLeadApps() {
     const inn = a.carrierInn ? 'ИНН ' + a.carrierInn : '';
     const phone = a.carrierPhone || '';
     const meta = [who, inn, phone].filter(Boolean).join(' · ');
+    const num = a.number ? `<span class="lead-app-num">№ ${esc(a.number)}</span> · ` : '';
     return `<div class="lead-app-card">
       <div class="lead-app-main">
-        <div class="lead-app-route">${esc(route)}</div>
+        <div class="lead-app-route">${num}${esc(route)}</div>
         <div class="lead-app-rate">${rateLine}${marLine ? ' · ' + marLine : ''}</div>
         ${meta ? `<div class="lead-app-meta">${esc(meta)}</div>` : ''}
       </div>
@@ -258,6 +259,7 @@ function renderLeadApps() {
 function leadAppSnapshot() {
   return JSON.stringify({
     id: $('#la-id')?.value || '',
+    number: $('#la-number')?.value || '',
     from: $('#la-from')?.value || '',
     to: $('#la-to')?.value || '',
     rate: $('#la-rate')?.value || '',
@@ -275,6 +277,7 @@ let _leadAppSnap = '';
 function openLeadAppModal(app) {
   $('#la-id').value = app?.id || '';
   $('#lead-app-modal-title').textContent = app?.id ? 'Заявка' : 'Новая заявка';
+  $('#la-number').value = app?.number || '';
   $('#la-from').value = app?.cityFrom || '';
   $('#la-to').value = app?.cityTo || '';
   // Ставка и маржа — одинаковый денежный формат (копейки через запятую); раньше ставка «1234.50»
@@ -324,6 +327,7 @@ async function saveLeadAppFromModal() {
   const payload = {
     id: ($('#la-id').value || '').trim(),
     leadId: UI.leadId,
+    number: ($('#la-number').value || '').trim(),
     cityFrom: from,
     cityTo: to,
     rate: ($('#la-rate').value || '').trim(),

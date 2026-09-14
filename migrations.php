@@ -10,7 +10,7 @@ declare(strict_types=1);
  * резолвятся в рантайме, когда все файлы уже подключены.
  */
 
-const CRM_SCHEMA_VERSION = 17;
+const CRM_SCHEMA_VERSION = 18;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -63,6 +63,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v15($pdo);
     crm_migrate_v16($pdo);
     crm_migrate_v17($pdo);
+    crm_migrate_v18($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -389,6 +390,21 @@ function crm_migrate_v17(PDO $pdo): void {
       PRIMARY KEY (lead_id, tag_id),
       KEY idx_tag (tag_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+/*
+ * v18: номер заявки. Свободный текст до 40 символов («125», «А-2026-031») —
+ * внутренний номер документа. Не обязательный и не уникальный (нумерация у каждого
+ * своя: повторы между клиентами и годами — норма). Старые заявки получают пустой номер.
+ */
+function crm_migrate_v18(PDO $pdo): void {
+    if (!crm_has_column($pdo, 'crm_lead_apps', 'number')) {
+        try {
+            $pdo->exec("ALTER TABLE crm_lead_apps ADD COLUMN `number` VARCHAR(40) NOT NULL DEFAULT '' AFTER lead_id");
+        } catch (PDOException $e) {
+            crm_log_fail('migrate_v18 number', $e);
+        }
+    }
 }
 
 function crm_migrate_owners(PDO $pdo): void {

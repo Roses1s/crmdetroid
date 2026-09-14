@@ -623,6 +623,7 @@ function crm_lead_app_to_api(array $r): array {
     return [
         'id' => $r['id'],
         'leadId' => $r['lead_id'],
+        'number' => (string) ($r['number'] ?? ''),
         'cityFrom' => $r['city_from'],
         'cityTo' => $r['city_to'],
         'rate' => crm_money_out($r['rate'] ?? null),

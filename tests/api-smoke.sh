@@ -123,6 +123,12 @@ R=$(post "$JI" "$TI" delete_direction "{\"id\":\"$DID\"}"); check "создат�
 
 # --- 7. заявки: строгий парсинг денег, лимиты этапов ---------------------
 R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"12 500,50\",\"margin\":\"1 000\"}"); check "ставка «12 500,50» → 12500.50" "r.get('application',{}).get('rate')=='12500.50'" "$R"
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"1 000\",\"number\":\"SMK-1\"}")
+check "v18: номер заявки сохраняется при создании" "r.get('application',{}).get('number')=='SMK-1'" "$R"
+APPN=$(jget "$R" "r['application']['id']")
+R=$(post "$JI" "$TI" save_lead_app "{\"id\":\"$APPN\",\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"1 000\",\"number\":\"SMK-2\"}")
+check "v18: номер заявки обновляется" "r.get('application',{}).get('number')=='SMK-2'" "$R"
+R=$(get "$JI" "get_apps&q=SMK-2"); check "v18: поиск заявки по номеру" "any(a.get('number')=='SMK-2' for a in r.get('apps',[]))" "$R"
 R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"abc\"}"); check "ставка «abc» отклонена" "'Ставка' in r.get('error','')" "$R"
 ST=$(python3 -c 'import json; print(json.dumps({"stages":["Э%d"%i for i in range(21)]}))')
 R=$(post "$JI" "$TI" save_stages "$ST"); check "21 этап → отказ" "'Не больше' in r.get('error','')" "$R"

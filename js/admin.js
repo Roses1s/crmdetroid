@@ -226,7 +226,7 @@ function renderApps() {
   if (!tbody) return;
   const apps = res?.apps || [];
   if (!apps.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="cell-muted">${_appsQuery ? 'Ничего не найдено' : 'Пока нет заявок'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="cell-muted">${_appsQuery ? 'Ничего не найдено' : 'Пока нет заявок'}</td></tr>`;
     return;
   }
   tbody.innerHTML = '';
@@ -237,7 +237,9 @@ function renderApps() {
     const carrier = a.carrierCompany
       ? `${esc(a.carrierCompany)}${a.carrierInn ? `<div class="apps-sub">${esc(a.carrierInn)}</div>` : ''}`
       : '<span class="apps-dim">—</span>';
+    const numCell = a.number ? esc(a.number) : '<span class="apps-dim">—</span>';
     tr.innerHTML = `<td class="apps-date">${esc(fmtTime(a.createdAt).slice(0, 10))}</td>`
+      + `<td class="apps-num">${numCell}</td>`
       + `<td><span class="name-link" data-action="open-app-lead" data-id="${esc(a.leadId)}">${esc(a.leadTitle || '—')}</span>${a.leadInn ? `<div class="apps-sub">${esc(a.leadInn)}</div>` : ''}</td>`
       + `<td>${route}</td>`
       + `<td>${carrier}</td>`

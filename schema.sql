@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS crm_login_nonces (
 CREATE TABLE IF NOT EXISTS crm_lead_apps (
   id VARCHAR(80) NOT NULL,
   lead_id VARCHAR(80) NOT NULL,
+  number VARCHAR(40) NOT NULL DEFAULT '',   -- v18: внутренний номер заявки («125», «А-2026-031»), не уникальный
   city_from VARCHAR(80) NOT NULL DEFAULT '',
   city_to VARCHAR(80) NOT NULL DEFAULT '',
   rate DECIMAL(15,2) NULL DEFAULT NULL,

@@ -215,6 +215,7 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
     $leadId = strv($in['leadId'] ?? '', 80);
     $row = $leadId === '' ? null : crm_lead_for_user($pdo, $leadId, $viewUid);
     if (!$row) err('Лид не найден');
+    $number = strv($in['number'] ?? '', 40);
     $from = crm_norm_city(strv($in['cityFrom'] ?? '', 80));
     $to = crm_norm_city(strv($in['cityTo'] ?? '', 80));
     if ($from === '' || $to === '') err('Укажите откуда и куда');
@@ -252,12 +253,12 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
                 $pdo->rollBack();
                 err('Слишком много заявок в одном лиде');
             }
-            $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, city_from, city_to, rate, margin, vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-                ->execute([$id, $leadId, $from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $now]);
+            $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, `number`, city_from, city_to, rate, margin, vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$id, $leadId, $number, $from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $now]);
         } else {
             $rev = (int) $existing['updated_at'];
-            $updApp = $pdo->prepare('UPDATE crm_lead_apps SET city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
-            $updApp->execute([$from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $id, $leadId, $rev]);
+            $updApp = $pdo->prepare('UPDATE crm_lead_apps SET `number`=?, city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
+            $updApp->execute([$number, $from, $to, $rate, $margin, $vat, $company, $inn, $name, $phone, $now, $id, $leadId, $rev]);
             if ($updApp->rowCount() === 0) {
                 $pdo->rollBack();
                 err('Заявка изменена в другом месте');
@@ -320,8 +321,8 @@ function crm_action_get_apps(PDO $pdo, array $user, int $viewUid): never {
     $params = [$viewUid];
     if ($q !== '') {
         $like = crm_like_pat($q);
-        $where .= ' AND (l.title LIKE ? OR l.inn LIKE ? OR a.city_from LIKE ? OR a.city_to LIKE ? OR a.carrier_company LIKE ? OR a.carrier_inn LIKE ?)';
-        array_push($params, $like, $like, $like, $like, $like, $like);
+        $where .= ' AND (l.title LIKE ? OR l.inn LIKE ? OR a.city_from LIKE ? OR a.city_to LIKE ? OR a.carrier_company LIKE ? OR a.carrier_inn LIKE ? OR a.`number` LIKE ?)';
+        array_push($params, $like, $like, $like, $like, $like, $like, $like);
     }
     try {
         $tot = $pdo->prepare("SELECT COUNT(*) AS c, COALESCE(SUM(a.rate), 0) AS r, COALESCE(SUM(a.margin), 0) AS m FROM crm_lead_apps a JOIN crm_leads l ON l.id = a.lead_id WHERE $where");

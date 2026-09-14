@@ -205,7 +205,7 @@
   .lead-apps-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 12px; }
   .lead-apps-stat { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px 12px; background: var(--surface-2); }
   .lead-apps-stat span { display: block; font-size: 12px; color: var(--muted); }
-  .lead-apps-stat b { display: block; margin-top: 4px; font-size: 18px; font-weight: 700; color: var(--primary); }
+  .lead-apps-stat b { display: block; margin-top: 4px; font-size: 18px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
   .lead-apps-stats-note { font-size: 12px; color: var(--muted); margin: -4px 0 10px; }
   .lead-apps-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
   .lead-apps-empty { color: var(--muted); font-size: 13px; padding: 4px 0 8px; }
@@ -214,12 +214,16 @@
   /* а min-width: 0 разрешает ужиматься — длинные телефоны/ИНН переносятся, а не распирают карточку (п. 4.2) */
   .lead-app-main { flex: 1; min-width: 0; }
   .lead-app-route { font-weight: 700; font-size: 14px; }
-  .lead-app-rate { font-size: 13px; color: var(--primary); font-weight: 600; margin-top: 2px; }
+  /* Номер заявки в строке маршрута: приглушённый префикс «№ 125 · » */
+  .lead-app-num { color: var(--muted); font-weight: 600; }
+  .lead-app-rate { font-size: 13px; color: var(--primary); font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
   .lead-app-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
   .lead-app-actions { display: flex; gap: 6px; flex-shrink: 0; }
-  .vat-row { display: flex; gap: 16px; align-items: center; }
-  .vat-row label { display: flex; align-items: center; gap: 6px; font-weight: 500; cursor: pointer; }
-  .vat-row input { width: auto; margin: 0; }
+  /* НДС в модалке заявки: аккуратный бокс высотой с инпут, опции поровну (радио как были) */
+  .vat-row { display: flex; align-items: stretch; border: 1px solid #cbd5e1; border-radius: var(--radius); background: #fff; overflow: hidden; }
+  .vat-row label { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: 14px; cursor: pointer; padding: 10px 12px; color: var(--text-2); }
+  .vat-row label + label { border-left: 1px solid #cbd5e1; }
+  .vat-row input { width: auto; margin: 0; accent-color: var(--primary); }
 
   .chatter { flex: 1; background: #f9f9fb; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
   .chatter-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); background: #fff; padding-right: 15px; flex-shrink: 0; }
@@ -326,8 +330,19 @@
   .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 1000; align-items: center; justify-content: center; padding: 20px; opacity: 0; transition: opacity .2s;}
   .modal-backdrop.open { display: flex; opacity: 1; }
   .modal { background: #fff; padding: 30px; border-radius: var(--radius-lg); width: 100%; max-width: 450px; box-shadow: var(--shadow-lg); transform: translateY(20px); transition: transform .2s; max-height: 90vh; overflow-y: auto;}
+  .modal-wide { max-width: 600px; }
   .modal-backdrop.open .modal { transform: translateY(0); }
   .modal h2 { margin-bottom: 20px; font-size: 18px; color: #1e293b; }
+  /* Строгие заголовки секций модалки заявки: Маршрут / Финансы / Перевозчик */
+  .modal-section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 6px; margin: 20px 0 14px; }
+  .modal-section-title:first-of-type { margin-top: 0; }
+  /* Парные поля (Откуда/Куда, Ставка/Маржа, ИНН/Телефон) — в две колонки */
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  @media (max-width: 560px) { .field-grid { grid-template-columns: 1fr; } }
+  /* Красная звёздочка обязательности вместо «*» в тексте */
+  .req { color: var(--danger); font-weight: 700; }
+  /* Денежные поля: вправо и табличными цифрами, как в финансовых документах */
+  .field input.money { text-align: right; font-variant-numeric: tabular-nums; }
   .field { margin-bottom: 18px; }
   .field label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 700; color: #475569; }
   .field input, .field .form-select { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: var(--radius); font-size: 14px; transition: border .2s; background: #fff; color: inherit; }
@@ -449,6 +464,9 @@
   html[data-theme="dark"] .att-image img { border-color: #555; }
   html[data-theme="dark"] .att-del { background: rgba(0,0,0,.75); }
   html[data-theme="dark"] .users-table th { background: var(--surface-2); color: var(--text-2); }
+  html[data-theme="dark"] .apps-table thead th { color: var(--muted); }
+  html[data-theme="dark"] .vat-row { background: var(--input-bg); border-color: #5a5a5a; }
+  html[data-theme="dark"] .vat-row label + label { border-left-color: #5a5a5a; }
   html[data-theme="dark"] .users-table th,
   html[data-theme="dark"] .users-table td { border-bottom-color: var(--border); color: var(--text); }
   html[data-theme="dark"] .search-item { border-bottom-color: #4a4a4a; }
@@ -560,7 +578,7 @@
     .td-leads { display: none; }
     .routes-grid { gap: 8px; }
     .route-card { padding: 12px; }
-    .vat-row { flex-direction: column; gap: 4px; }
+    .vat-row label { padding: 10px 6px; font-size: 13px; }
   }
 
   /* === LOADING OVERLAY (#2) === */
@@ -602,13 +620,17 @@
   .apps-search-wrap { flex: 1; min-width: 220px; max-width: 380px; }
   .apps-search-input { width: 100%; padding: 8px 12px; font-size: 13px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--input-bg, #fff); color: var(--text); }
   .apps-search-input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(113,75,103,.1); }
-  .apps-summary { font-size: 13px; font-weight: 600; color: var(--primary); white-space: nowrap; }
+  .apps-summary { font-size: 13px; font-weight: 600; color: var(--primary); white-space: nowrap; font-variant-numeric: tabular-nums; }
   .apps-table { min-width: 760px; }
   .apps-table td { vertical-align: top; }
   .apps-table .th-money { text-align: right; }
+  /* Строгая шапка реестра: мелкие кегль-капс заголовки вместо обычных */
+  .apps-table thead th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .apps-table tbody tr:hover { background: var(--hover); }
   .apps-date { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
   .apps-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .apps-money { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  .apps-num { white-space: nowrap; font-variant-numeric: tabular-nums; }
   .apps-vat { white-space: nowrap; color: var(--muted); }
   .apps-dim { color: var(--muted); }
   .name-link[data-action="open-activity-client"] { cursor: pointer; color: var(--primary); }
