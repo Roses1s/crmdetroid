@@ -640,6 +640,9 @@ async function handleSessionAction(act) {
         break;
       }
       case 'logout': execLogout(); break;
+      // Баннер «Вышло обновление»: билд на сервере новее загруженного.
+      case 'reload-app': location.reload(); break;
+      case 'dismiss-update-banner': $('#update-banner')?.classList.add('hidden'); break;
       default: return false;
   }
   return true;

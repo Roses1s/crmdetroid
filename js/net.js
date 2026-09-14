@@ -68,6 +68,30 @@ const Net = {
   }
 };
 
+let _bootBuild = null, _bannerBuild = null, _bannerV = null;
+// Свой ?v= из выполняемого <script> — эталон версии кода без дыр засева: в отличие от
+// хэша (первый поллинг), он корректен, даже если вкладка пережила деплой на экране входа.
+const _bootV = (() => {
+  try {
+    const src = document.currentScript?.src || document.querySelector('script[src*="js/app.js"]')?.src || '';
+    const m = /[?&]v=([^&#]*)/.exec(src);
+    return m ? decodeURIComponent(m[1]) : '';
+  } catch (e) { return ''; }
+})();
+// Баннер «Вышло обновление»: сервер шлёт в каждом get_data авто-хэш файлов (crm_build)
+// и ?v= из index.html. Хэш ловит и забытый бамп версии, ?v= — деплой поверх экрана входа;
+// срабатывания любого достаточно. Плашка — один раз на версию (крестик прячет до
+// следующего деплоя: показанные значения уже записаны в _bannerBuild/_bannerV).
+function checkBuild(b, v) {
+  if (b && !_bootBuild) _bootBuild = b;
+  const hashFired = b && _bootBuild && b !== _bootBuild && b !== _bannerBuild;
+  const vFired = v && _bootV && v !== _bootV && v !== _bannerV;
+  if (!hashFired && !vFired) return;
+  if (b) _bannerBuild = b;
+  if (v) _bannerV = v;
+  $('#update-banner')?.classList.remove('hidden');
+}
+
 const Store = {
   viewUserId: null, viewUserName: '',
   since: 0, // максимальный виденный updatedAt/createdAt — курсор дельта-синхронизации
@@ -77,6 +101,8 @@ const Store = {
     try {
     const res = await Net.req('get_data');
     if (!res || !res.success) return;
+    // До развилки unchanged/delta/full: build и v присылают все три формы ответа.
+    checkBuild(res.build, res.v);
     if (res.unchanged) {
       if (!force) return;
       Net.hash = null;

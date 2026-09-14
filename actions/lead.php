@@ -29,7 +29,9 @@ function crm_action_get_data(PDO $pdo, array $user, int $viewUid): never {
     $hash = substr(hash('sha256', $revStr), 0, 32);
     $client = strv($_GET['hash'] ?? '', 64);
     if ($client !== '' && strlen($client) === strlen($hash) && hash_equals($hash, $client)) {
-        ok(['unchanged' => true, 'hash' => $hash]);
+        // build и здесь обязателен: поллинг получает unchanged в 99% тиков, и именно
+        // по нему клиент замечает деплой (баннер «Вышло обновление»).
+        ok(['unchanged' => true, 'hash' => $hash, 'build' => crm_build(), 'v' => crm_client_v()]);
     }
     // Дельта (п. 12 ревью): клиент, у которого уже есть доска (hash + since = максимальный
     // виденный им таймштамп), получает только изменённые/новые лиды + полный список id
@@ -45,10 +47,10 @@ function crm_action_get_data(PDO $pdo, array $user, int $viewUid): never {
         $changed = [];
         foreach ($chSt as $r) $changed[] = crm_lead_row_to_api($r, false);
         ok(['hash' => $hash, 'delta' => true, 'ids' => $allIds, 'changed' => $changed, 'stages' => $stages, 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo),
-            'tags' => crm_tags_for_user($pdo, $uid), 'leadTags' => (object) crm_lead_tags_map($pdo, $uid)]);
+            'tags' => crm_tags_for_user($pdo, $uid), 'leadTags' => (object) crm_lead_tags_map($pdo, $uid), 'build' => crm_build(), 'v' => crm_client_v()]);
     }
     ok(['hash' => $hash, 'stages' => $stages, 'leads' => crm_leads_full($pdo, $uid), 'user' => crm_user_public($user), 'colleagues' => crm_colleagues($pdo),
-        'tags' => crm_tags_for_user($pdo, $uid), 'leadTags' => (object) crm_lead_tags_map($pdo, $uid)]);
+        'tags' => crm_tags_for_user($pdo, $uid), 'leadTags' => (object) crm_lead_tags_map($pdo, $uid), 'build' => crm_build(), 'v' => crm_client_v()]);
 }
 
 function crm_action_get_lead(PDO $pdo, array $user, int $viewUid): never {

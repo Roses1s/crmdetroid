@@ -248,6 +248,10 @@ check "дельта: удалённый лид исчез из ids" "r.get('delt
 # запрос без since (первый заход клиента) — по-прежнему полный ответ
 R=$(get "$JI" "get_data&hash=badhash")
 check "без since → полный ответ с leads" "r.get('delta') is None and isinstance(r.get('leads'),list)" "$R"
+# баннер «Вышло обновление»: build и v едут во всех трёх формах get_data
+check "полный ответ несёт build и v сборки" "len(r.get('build',''))==12 and r.get('v','')!=''" "$R"
+B1=$(jget "$R" "r.get('build','')"); V1=$(jget "$R" "r.get('v','')"); H1B=$(jget "$R" "r['hash']")
+R=$(get "$JI" "get_data&hash=$H1B"); check "unchanged тоже несёт build и v" "r.get('unchanged') is True and r.get('build')=='$B1' and r.get('v')=='$V1'" "$R"
 
 # --- 12. админские сервисные действия --------------------------------------
 R=$(post "$JI" "$TI" sweep_uploads '{}'); check "sweep_uploads недоступен сотруднику" "r.get('error')=='Нет прав'" "$R"

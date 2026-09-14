@@ -230,6 +230,42 @@ function crm_money_in(string $v): ?string {
     return $v === '' ? null : $v;
 }
 
+/*
+ * Версия сборки для баннера «Вышло обновление»: авто-хэш клиентских файлов.
+ * Специально не константа: ручную версию забывают поднять, а хэш меняется сам
+ * при любом деплое. Считается раз за запрос (static); отдаётся в get_data —
+ * клиент сравнивает с версией, на которой загрузился.
+ */
+function crm_build(): string {
+    static $b = null;
+    if ($b !== null) return $b;
+    $files = [__DIR__ . '/index.html', __DIR__ . '/ui.html', __DIR__ . '/app.css', __DIR__ . '/noscript.css'];
+    foreach (glob(__DIR__ . '/js/*.js') ?: [] as $f) $files[] = $f;
+    $h = '';
+    foreach ($files as $f) {
+        $m = is_readable($f) ? md5_file($f) : false;
+        $h .= $m === false ? '0' : $m;
+    }
+    $b = substr(md5($h), 0, 12);
+    return $b;
+}
+
+/*
+ * Версия клиентского кода (?v= из index.html) — второй сигнал для баннера обновления.
+ * Нужна в пару к crm_build(): хэш засекается первым поллингом и слепнет, если вкладка
+ * пережила деплой на экране входа (первый get_data уже с новым хэшем), а ?v= клиент
+ * знает про себя сам из своего <script> — эталон без дыр. Если формат index.html
+ * изменится и версия не распарсится — вернётся '' и клиент тихо пропустит сигнал.
+ */
+function crm_client_v(): string {
+    static $v = null;
+    if ($v !== null) return $v;
+    $v = '';
+    $idx = is_readable(__DIR__ . '/index.html') ? file_get_contents(__DIR__ . '/index.html') : '';
+    if ($idx !== '' && preg_match('/js\/app\.js\?v=([A-Za-z0-9_.-]+)/', $idx, $m)) $v = $m[1];
+    return $v;
+}
+
 function crm_default_stages(): array {
     return ['Новый', 'Вышел на ЛПР', 'Потенциальный клиент', 'Сделали просчет', 'Разместили заявку', 'Уехали, ждем заявку'];
 }
