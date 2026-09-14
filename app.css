@@ -333,6 +333,13 @@
   .modal-wide { max-width: 600px; }
   .modal-backdrop.open .modal { transform: translateY(0); }
   .modal h2 { margin-bottom: 20px; font-size: 18px; color: #1e293b; }
+  /* Номер заявки прямо в заголовке модалки («Новая заявка № ___»): поле-бланк */
+  /* с подчёркиванием вместо рамки; на узком экране группа «№ + поле» переносится */
+  .modal-title-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .appnum-inline { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; font-weight: 600; color: var(--muted); }
+  .appnum-input { font: inherit; color: var(--text); background: transparent; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 0 2px; width: 150px; }
+  .appnum-input:focus { outline: none; border-bottom-color: var(--primary); }
+  .appnum-input::placeholder { color: var(--muted); opacity: 1; }
   /* Строгие заголовки секций модалки заявки: Маршрут / Финансы / Перевозчик */
   .modal-section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 6px; margin: 20px 0 14px; }
   .modal-section-title:first-of-type { margin-top: 0; }
