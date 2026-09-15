@@ -874,3 +874,4 @@ APPS_COMPANY — «Детроид», меняется одной строкой)
 (остались в карточке заявки). Без чекбоксов и колонки действий —
 по решению заказчика. Новые хелперы fmtDateTime/fmtMoneyKop (util.js),
 APP_STATUS_LABELS расшарена из lead.js. Смоук: sellerName. ?v=fix67.
+CI: `35003885269` — 5/5 success.
