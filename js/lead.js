@@ -1,7 +1,7 @@
 'use strict';
 // Лиды: доска (renderBoard), карточка лида, заявки лида (модалка, статистика), лог комментариев с вложениями (общий рендер renderLogInto используют и перевозчики), автосохранение формы. Вынесено из app.js (план CODE_REVIEW п. 10.9).
 /* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, saveCarrierForm, setupPhoneMask, vatLabel */
-/* exported addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, openApp, openLeadAppModal, openLeadTagsModal, pickTagColor, removeLeadAppCache, renderAppStatus, renderBoard, resetBoardCache, saveAppDebounced, saveAppForm, saveLeadAppFromModal, submitLeadTags, syncLeadAppCache, toggleTagInModal, updateAppSaveUI, updateLeadSaveUI */
+/* exported addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, loadAppComments, openApp, openLeadAppModal, openLeadTagsModal, pickTagColor, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, resetBoardCache, saveAppDebounced, saveAppForm, saveLeadAppFromModal, submitLeadTags, syncLeadAppCache, toggleTagInModal, updateAppSaveUI, updateLeadSaveUI */
 
 function renderAttHtml(a, c) {
   const raw = String(a.dataUrl || '');
@@ -67,7 +67,7 @@ function logActionsHtml(c) {
   return bits.length ? `<div class="log-actions">${bits.join('')}</div>` : '';
 }
 
-// Один рендер лога для лида и перевозчика (раньше две одинаковые копии расходились при правках).
+// Один рендер лога для лида, перевозчика и заявки (раньше две одинаковые копии расходились при правках).
 function renderLogInto(log, comments) {
   if (!log) return;
   if (!comments || !comments.length) { log.innerHTML = '<div class="log-empty">Лог пуст</div>'; return; }
@@ -671,6 +671,7 @@ function editingCommentAttCount() {
   if (!UI.editingCommentId) return 0;
   let c;
   if (UI.currentView === 'carrier') c = (UI.carrierComments || []).find(x => String(x.id) === String(UI.editingCommentId));
+  else if (UI.currentView === 'app') c = (UI.appComments || []).find(x => String(x.id) === String(UI.editingCommentId));
   else {
     const L = Store.getLead(UI.leadId);
     c = L && Array.isArray(L.comments) ? L.comments.find(x => String(x.id) === String(UI.editingCommentId)) : null;
@@ -680,7 +681,7 @@ function editingCommentAttCount() {
 
 function renderFiles() {
   const editBox = $('.inline-editor.active .edit-files-preview');
-  const box = editBox || (UI.currentView === 'carrier' ? $('#carrier-files-preview') : $('#files-preview'));
+  const box = editBox || (UI.currentView === 'carrier' ? $('#carrier-files-preview') : UI.currentView === 'app' ? $('#app-files-preview') : $('#files-preview'));
   const list = editBox ? (UI.editFiles || []) : UI.pendingFiles;
   if (!box) return; box.innerHTML = '';
   list.forEach((f, i) => {
@@ -729,7 +730,8 @@ async function openApp(id, updateHash = true) {
   // Повторный вход на ту же заявку с несохранёнными правками (обновление по поллингу
   // или повторный клик): форму не трогаем, иначе ввод затирался бы серверной версией.
   // Ревизия при этом остаётся старой — следующее сохранение честно конфликтнёт.
-  if (UI.formDirty && UI.appId === id) return;
+  // Лог при этом живой, как в лиде: обновляем независимо от грязи формы.
+  if (UI.formDirty && UI.appId === id) { await loadAppComments(id); renderAppLog(); return; }
   UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = [];
   UI.appId = id; UI.currentView = 'app';
   UI.pendingFiles = []; UI.formDirty = false; UI.editingCommentId = null;
@@ -741,6 +743,8 @@ async function openApp(id, updateHash = true) {
   $('#nav-dashboard')?.classList.remove('active');
   $('#app-view').classList.add('active');
   fillAppForm(a);
+  await loadAppComments(id);
+  renderAppLog();
   updateAppSaveUI('saved');
   if (updateHash) navTo('app/' + encodeURIComponent(id));
 }
@@ -791,6 +795,16 @@ function renderAppStatus(status) {
 function updateAppSaveUI(state, ts = 0) {
   renderSaveStatus($('#app-save-status'), $('#btn-save-app'), state, ts);
 }
+
+// Лог заявки (v20, очередь 3): как loadLeadComments, но хранилище — UI.appComments
+// (у перевозчика так же: UI.carrierComments). Системные записи рисует общий рендер.
+async function loadAppComments(id) {
+  if (!id) return;
+  const res = await Net.req('get_app_comments', { id });
+  if (res && res.success) UI.appComments = res.comments || [];
+}
+
+function renderAppLog() { renderLogInto($('#app-chatter-log'), UI.appComments || []); }
 
 let _appSaveChain = Promise.resolve();
 

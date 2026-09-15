@@ -1,5 +1,5 @@
 'use strict';
-/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeLeadTagsModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadLeadComments, loadRoutes, loadUsers, openApp, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, removeLeadAppCache, renderAppStatus, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveAppDebounced, saveAppForm, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, syncLeadAppCache, updateAppSaveUI, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
+/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeLeadTagsModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadAppComments, loadLeadComments, loadRoutes, loadUsers, openApp, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveAppDebounced, saveAppForm, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, syncLeadAppCache, updateAppSaveUI, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
 /* exported syncAdminNav, updateSearchPlaceholder */
 
 const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], appId: null, appRev: null, appLeadId: null, appLeadTitle: '', appComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
@@ -389,12 +389,15 @@ function initComposerEvents() {
   $('#tag-new-name')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addTagFromModal(); } });
   $('#comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-comment"]').click(); } });
   $('#carrier-comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-carrier-comment"]').click(); } });
+  $('#app-comment-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('[data-action="post-app-comment"]').click(); } });
   // Composer в духе Odoo: поле растёт под текст (autoGrowComposer в util.js)
   $('#comment-input').addEventListener('input', e => autoGrowComposer(e.target));
   $('#carrier-comment-input').addEventListener('input', e => autoGrowComposer(e.target));
+  $('#app-comment-input').addEventListener('input', e => autoGrowComposer(e.target));
   const bindLogEnter = el => el.addEventListener('keydown', e => { if (e.target.matches('.inline-editor textarea') && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $(`[data-action="save-comment"][data-cid="${e.target.dataset.inp}"]`).click(); } });
   bindLogEnter($('#chatter-log'));
   bindLogEnter($('#carrier-chatter-log'));
+  bindLogEnter($('#app-chatter-log'));
 
   const allowExt = new Set(['png','jpg','jpeg','gif','webp','bmp','pdf','txt','csv','doc','docx','xls','xlsx','ppt','pptx','zip','7z']);
   const mimeExt = { 'image/png':'png', 'image/jpeg':'jpg', 'image/jpg':'jpg', 'image/gif':'gif', 'image/webp':'webp', 'image/bmp':'bmp' };
@@ -432,11 +435,12 @@ function initComposerEvents() {
   };
   $('#file-input').addEventListener('change', onPickFiles);
   $('#carrier-file-input').addEventListener('change', onPickFiles);
+  $('#app-file-input').addEventListener('change', onPickFiles);
   document.addEventListener('change', e => {
     if (e.target && e.target.classList && e.target.classList.contains('edit-file-input')) onPickFiles(e);
   });
   document.addEventListener('paste', e => {
-    if (UI.currentView !== 'lead' && UI.currentView !== 'carrier') return;
+    if (UI.currentView !== 'lead' && UI.currentView !== 'carrier' && UI.currentView !== 'app') return;
     if ($('.modal-backdrop.open')) return;
     const tag = ((e.target && e.target.tagName) || '').toUpperCase();
     if (tag === 'INPUT') return;
@@ -921,6 +925,22 @@ async function handleChatterAction(act, actEl) {
         break;
       }
 
+      case 'post-app-comment': {
+        const txt = $('#app-comment-input').value.trim(); if (!txt && !UI.pendingFiles.length) return;
+        if (!UI.appId) return;
+        const fd = new FormData(); fd.append('app_id', UI.appId); fd.append('text', txt);
+        UI.pendingFiles.forEach(f => fd.append('files[]', f.rawFile));
+        const resPA = await Net.req('add_app_comment', fd, true);
+        if (resPA?.success) {
+          // Комментарий трогает ревизию заявки (touch_app) — обновляем, иначе
+          // следующее сохранение грязной формы ложно конфликтнёт.
+          if (resPA.updatedAt) UI.appRev = resPA.updatedAt;
+          $('#app-comment-input').value = ''; autoGrowComposer($('#app-comment-input')); UI.pendingFiles = []; renderFiles();
+          await loadAppComments(UI.appId); renderAppLog();
+        } else Toast.error(resPA?.error || 'Ошибка');
+        break;
+      }
+
       case 'rm-file': (UI.editingCommentId ? UI.editFiles : UI.pendingFiles).splice(+actEl.dataset.idx, 1); renderFiles(); break;
 
       case 'toggle-edit': {
@@ -938,18 +958,23 @@ async function handleChatterAction(act, actEl) {
         const v = $(`[data-inp="${actEl.dataset.cid}"]`).value.trim();
         const extra = UI.editFiles || [];
         if (!v && !extra.length && !editingCommentAttCount()) return Toast.error('Пусто');
-        const isCarrier = UI.currentView === 'carrier';
+        const isCarrier = UI.currentView === 'carrier', isApp = UI.currentView === 'app';
         const fd = new FormData();
         fd.append('id', actEl.dataset.cid);
         fd.append('text', v);
         extra.forEach(f => fd.append('files[]', f.rawFile));
-        const resSC = await Net.req(isCarrier ? 'edit_carrier_comment' : 'edit_comment', fd, true);
+        const resSC = await Net.req(isCarrier ? 'edit_carrier_comment' : isApp ? 'edit_app_comment' : 'edit_comment', fd, true);
         if (resSC?.success) {
           UI.editingCommentId = null;
           UI.editFiles = [];
           if (isCarrier) {
             if (resSC.updatedAt) UI.carrierRev = resSC.updatedAt;
             await openCarrier(UI.carrierId, false);
+          } else if (isApp) {
+            // Как лид, а не перевозчик: обновляем только лог — форма заявки
+            // не перечитывается и несохранённый ввод цел.
+            if (resSC.updatedAt) UI.appRev = resSC.updatedAt;
+            if (UI.appId) { await loadAppComments(UI.appId); renderAppLog(); }
           } else {
             const L = Store.getLead(UI.leadId);
             if (L && resSC.updatedAt) { L.updatedAt = resSC.updatedAt; L._editRev = resSC.updatedAt; }
@@ -964,8 +989,8 @@ async function handleChatterAction(act, actEl) {
         if (!await askConfirm('Удалить вложение?')) return;
         const attId = String(actEl.dataset.id || '');
         if (!attId) return;
-        // kind обязателен: номера вложений лидов и перевозчиков независимы и могут совпадать
-        const resDA = await Net.req('delete_attachment', { id: +attId, kind: UI.currentView === 'carrier' ? 'carrier' : 'lead' });
+        // kind обязателен: номера вложений лидов, перевозчиков и заявок независимы и могут совпадать
+        const resDA = await Net.req('delete_attachment', { id: +attId, kind: UI.currentView === 'carrier' ? 'carrier' : UI.currentView === 'app' ? 'app' : 'lead' });
         if (!resDA?.success) { Toast.error(resDA?.error || 'Ошибка'); break; }
         const dropAtt = list => (list || []).map(c => Object.assign({}, c, {
           attachments: (c.attachments || []).filter(a => String(a.id) !== attId)
@@ -974,6 +999,10 @@ async function handleChatterAction(act, actEl) {
           if (resDA.updatedAt) UI.carrierRev = resDA.updatedAt;
           UI.carrierComments = dropAtt(UI.carrierComments);
           renderCarrierLog();
+        } else if (UI.currentView === 'app') {
+          if (resDA.updatedAt) UI.appRev = resDA.updatedAt;
+          UI.appComments = dropAtt(UI.appComments);
+          renderAppLog();
         } else {
           const L = Store.getLead(UI.leadId);
           if (L) {
@@ -987,9 +1016,9 @@ async function handleChatterAction(act, actEl) {
 
       case 'del-comment': {
         if (!await askConfirm('Удалить комментарий?')) return;
-        const isCarrier = UI.currentView === 'carrier';
+        const isCarrier = UI.currentView === 'carrier', isApp = UI.currentView === 'app';
         const delId = String(actEl.dataset.cid || '');
-        const resDC = await Net.req(isCarrier ? 'delete_carrier_comment' : 'delete_comment', { id: delId });
+        const resDC = await Net.req(isCarrier ? 'delete_carrier_comment' : isApp ? 'delete_app_comment' : 'delete_comment', { id: delId });
         if (resDC?.success) {
           UI.editingCommentId = null;
           if (isCarrier) {
@@ -997,6 +1026,11 @@ async function handleChatterAction(act, actEl) {
             UI.carrierComments = (UI.carrierComments || []).filter(c => String(c.id) !== delId);
             renderCarrierLog();
             await openCarrier(UI.carrierId, false);
+          } else if (isApp) {
+            if (resDC.updatedAt) UI.appRev = resDC.updatedAt;
+            UI.appComments = (UI.appComments || []).filter(c => String(c.id) !== delId);
+            renderAppLog();
+            if (UI.appId) { await loadAppComments(UI.appId); renderAppLog(); }
           } else {
             const L = Store.getLead(UI.leadId);
             if (L) {
