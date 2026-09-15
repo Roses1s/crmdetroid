@@ -1,8 +1,8 @@
 'use strict';
-/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeLeadTagsModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadLeadComments, loadRoutes, loadUsers, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
+/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeLeadTagsModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadLeadComments, loadRoutes, loadUsers, openApp, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, removeLeadAppCache, renderAppStatus, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveAppDebounced, saveAppForm, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, syncLeadAppCache, updateAppSaveUI, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
 /* exported syncAdminNav, updateSearchPlaceholder */
 
-const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
+const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], appId: null, appRev: null, appLeadId: null, appLeadTitle: '', appComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
 
 function syncAdminNav(user) {
   // Разделы переехали с шапки на дашборд: для админа осталось только показать/спрятать плитку «Сотрудники»
@@ -59,7 +59,7 @@ async function exitViewUser() {
 
 function handleLogoutUI(msg) {
   stopPolling();
-  UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = []; UI.editingCommentId = null; UI.formDirty = false;
+  UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = []; UI.appId = null; UI.appRev = null; UI.appLeadId = null; UI.appLeadTitle = ''; UI.appComments = []; UI.editingCommentId = null; UI.formDirty = false;
   Store.viewUserId = null; Store.viewUserName = '';
   Store.state.user = null; Store.state.leads = []; Store.state.stages = [];
   Net.hash = null; Store.since = 0; resetBoardCache();
@@ -105,7 +105,7 @@ function currentRoute() {
   const h = location.hash.replace(/^#/, '');
   // Закладка старого формата (#lead/abc) — маршрут берём из hash и молча переписываем URL на новый вид.
   // Якоря как в .htaccess: #kanbanfoo — не маршрут, а обычный якорь, его не трогаем.
-  if (h && /^((kanban|dashboard|routes|activity|apps|users)$|(lead|carrier|route)\/[^/]+$)/.test(h)) {
+  if (h && /^((kanban|dashboard|routes|activity|apps|users)$|(lead|carrier|route|app)\/[^/]+$)/.test(h)) {
     history.replaceState(null, '', routePath(h));
     return h;
   }
@@ -161,6 +161,9 @@ function handleHashRouting() {
   } else if (route.startsWith('route/')) {
     const rid = routeParam(route, 'route/');
     if (rid) { openRoute(rid, false); return; }
+  } else if (route.startsWith('app/')) {
+    const aid = routeParam(route, 'app/');
+    if (aid) { openApp(aid, false); return; }
   } else if (route === 'dashboard') {
     switchView('dashboard-view', false); return;
   } else if (route === 'routes') {
@@ -192,7 +195,11 @@ async function switchView(viewId, updateHash = true) {
     const savedC = await saveCarrierForm(true);
     if (!persistOk(savedC)) return;
   }
-  UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = []; UI.pendingFiles = []; UI.formDirty = false; UI.editingCommentId = null;
+  if (UI.appId && UI.formDirty) {
+    const savedA = await saveAppForm(true);
+    if (!persistOk(savedA)) return;
+  }
+  UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = []; UI.appId = null; UI.appRev = null; UI.appLeadId = null; UI.appLeadTitle = ''; UI.appComments = []; UI.pendingFiles = []; UI.formDirty = false; UI.editingCommentId = null;
   UI.currentView = viewId.replace('-view', '');
 
   $$('.view-section').forEach(el => el.classList.remove('active'));
@@ -304,11 +311,11 @@ function initViewControlEvents() {
   }, 350));
 }
 
-/** Автосохранение форм лида и перевозчика: input-грязь, debounce и страховка beforeunload. */
+/** Автосохранение форм лида, перевозчика и заявки: input-грязь, debounce и страховка beforeunload. */
 function initAutosaveEvents() {
   window.addEventListener('beforeunload', e => {
     if (!UI.formDirty) return;
-    if (UI.carrierId) saveCarrierForm(false, true); else saveLeadForm(false, true);
+    if (UI.appId) saveAppForm(false, true); else if (UI.carrierId) saveCarrierForm(false, true); else saveLeadForm(false, true);
     e.preventDefault();
     e.returnValue = '';
   });
@@ -318,6 +325,11 @@ function initAutosaveEvents() {
   $('#la-margin')?.addEventListener('input', e => formatMarginInput(e.target));
   $('#la-carrier-rate')?.addEventListener('input', e => formatMarginInput(e.target));
   $('#carrier-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title') && UI.carrierCanManage) { UI.formDirty = true; updateCarrierSaveUI('dirty'); saveCarrierDebounced(); } });
+  $('#app-view').addEventListener('input', e => { if (e.target.matches('.form-input, .editable-title')) { UI.formDirty = true; updateAppSaveUI('dirty'); saveAppDebounced(); } });
+  $('#ap-inn')?.addEventListener('input', e => formatInnInput(e.target));
+  $('#ap-rate')?.addEventListener('input', e => formatMarginInput(e.target));
+  $('#ap-margin')?.addEventListener('input', e => formatMarginInput(e.target));
+  $('#ap-carrier-rate')?.addEventListener('input', e => formatMarginInput(e.target));
 }
 
 /** Передача лида другому продавцу через поле «Продавец». */
@@ -529,6 +541,23 @@ async function handleNavAction(act, actEl) {
         // openLead молча ушёл бы на доску; вместо этого объясняем, как посмотреть.
         if (Store.getLead(lid)) await openLead(lid, true);
         else Toast.error('Лид другого сотрудника — откройте его доску через «Сотрудники»');
+        break;
+      }
+      case 'open-app': {
+        const aid = actEl.dataset.id; if (!aid) break;
+        // Как open-app-lead: заявка чужого сотрудника (админ смотрит чужой реестр)
+        // в get_app не пройдёт — объясняем сразу, а не молча уходим на доску.
+        const lid = actEl.dataset.leadid;
+        if (lid && !Store.getLead(lid)) { Toast.error('Заявка другого сотрудника — откройте его доску через «Сотрудники»'); break; }
+        await openApp(aid, true);
+        break;
+      }
+      case 'back-app': {
+        if (UI.appId && UI.formDirty) {
+          const savedB = await saveAppForm(true);
+          if (!persistOk(savedB)) return;
+        }
+        if (UI.appLeadId) await openLead(UI.appLeadId, true); else goHome(true);
         break;
       }
       case 'open-activity-client': {
@@ -770,7 +799,7 @@ async function handleAdminAction(act, actEl) {
   return true;
 }
 
-/** Карточка лида/перевозчика: сохранение, теги, удаление, смена этапа. */
+/** Карточка лида/перевозчика/заявки: сохранение, теги, удаление, смена этапа. */
 async function handleLeadCardAction(act, actEl) {
   switch (act) {
       case 'save-lead-now': {
@@ -796,6 +825,13 @@ async function handleLeadCardAction(act, actEl) {
         break;
       }
 
+      case 'save-app-now': {
+        if (!UI.appId) return;
+        saveAppDebounced.cancel();
+        await saveAppForm(true);
+        break;
+      }
+
       case 'delete-lead': {
         if (!await askConfirm('Удалить лид?', 'Навсегда')) return;
         const delLead = Store.getLead(UI.leadId);
@@ -804,6 +840,27 @@ async function handleLeadCardAction(act, actEl) {
         if (resDL?.success) { goHome(true); await Store.load(true); }
         else if (resDL?.error === 'Карточка изменена в другом месте') { Toast.error('Карточку изменили в другой вкладке — обновляю'); await Store.load(true); }
         else Toast.error(resDL?.error || 'Ошибка');
+        break;
+      }
+
+      case 'delete-app': {
+        if (!UI.appId) return;
+        if (!await askConfirm('Удалить заявку?', 'Лог заявки тоже удалится')) return;
+        saveAppDebounced.cancel();
+        UI.formDirty = false;
+        const resDA = await Net.req('delete_lead_app', { id: UI.appId, updatedAt: UI.appRev });
+        if (resDA?.success) {
+          removeLeadAppCache(UI.appLeadId, UI.appId, resDA);
+          const backLead = UI.appLeadId;
+          UI.appId = null;
+          if (backLead) await openLead(backLead, true); else goHome(true);
+          await Store.load(true);
+        }
+        else if (resDA?.error === 'Заявка изменена в другом месте') {
+          Toast.error('Заявку изменили в другой вкладке — обновляю');
+          if (UI.appId) await openApp(UI.appId, false);
+        }
+        else Toast.error(resDA?.error || 'Ошибка');
         break;
       }
 
@@ -818,6 +875,29 @@ async function handleLeadCardAction(act, actEl) {
         if (resMS?.success) await Store.load(true);
         else if (resMS?.error === 'Карточка изменена в другом месте') { Toast.error('Карточку изменили в другой вкладке — обновляю'); await Store.load(true); }
         else Toast.error(resMS?.error || 'Ошибка');
+        break;
+      }
+
+      case 'set-app-status': {
+        if (!UI.appId) return;
+        // Как set-stage: грязная форма сначала сохраняется — иначе ревизия
+        // для смены статуса устареет и сервер ответит конфликтом.
+        if (UI.formDirty) {
+          const savedStA = await saveAppForm(true);
+          if (!persistOk(savedStA)) return;
+        }
+        const resAS = await Net.req('set_app_status', { id: UI.appId, status: actEl.dataset.status, updatedAt: UI.appRev });
+        if (resAS?.success && resAS.application) {
+          UI.appRev = resAS.application.updatedAt;
+          syncLeadAppCache(UI.appLeadId, resAS);
+          renderAppStatus(resAS.application.status);
+        }
+        else if (resAS?.error === 'Заявка изменена в другом месте') {
+          Toast.error('Заявку изменили в другой вкладке — обновляю');
+          UI.formDirty = false;
+          if (UI.appId) await openApp(UI.appId, false);
+        }
+        else Toast.error(resAS?.error || 'Ошибка');
         break;
       }
       default: return false;
@@ -945,7 +1025,7 @@ function initBoardClick() {
 /** Глобальные клавиатурные сокращения (#16: вынесено из initAppEvents). */
 function initKeyboardShortcuts() {
   document.addEventListener('keydown', e => {
-    // Ctrl+S / Cmd+S на карточке лида или перевозчика — немедленное сохранение
+    // Ctrl+S / Cmd+S на карточке лида, перевозчика или заявки — немедленное сохранение
     // (вместо «Сохранить страницу» браузера)
     if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S' || e.key === 'ы' || e.key === 'Ы')) {
       if (UI.currentView === 'lead' && UI.leadId) {
@@ -956,6 +1036,11 @@ function initKeyboardShortcuts() {
       if (UI.currentView === 'carrier' && UI.carrierId) {
         e.preventDefault();
         if (UI.formDirty) { saveCarrierDebounced.cancel(); saveCarrierForm(true); }
+        return;
+      }
+      if (UI.currentView === 'app' && UI.appId) {
+        e.preventDefault();
+        if (UI.formDirty) { saveAppDebounced.cancel(); saveAppForm(true); }
         return;
       }
     }

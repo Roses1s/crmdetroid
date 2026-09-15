@@ -233,7 +233,7 @@ function renderApps() {
   const frag = document.createDocumentFragment();
   apps.forEach(a => {
     const tr = document.createElement('tr');
-    const route = (a.cityFrom || a.cityTo) ? `${esc(a.cityFrom || '?')} → ${esc(a.cityTo || '?')}` : '<span class="apps-dim">—</span>';
+    const route = (a.cityFrom || a.cityTo) ? `<span class="name-link" data-action="open-app" data-id="${esc(a.id)}" data-leadid="${esc(a.leadId)}">${esc(a.cityFrom || '?')} → ${esc(a.cityTo || '?')}</span>` : '<span class="apps-dim">—</span>';
     const carrier = a.carrierCompany
       ? `${esc(a.carrierCompany)}${a.carrierInn ? `<div class="apps-sub">${esc(a.carrierInn)}</div>` : ''}`
       : '<span class="apps-dim">—</span>';

@@ -1,6 +1,6 @@
 'use strict';
 // Сетевой слой и клиентское хранилище: Net (запросы к api.php, CSRF, offline-индикатор) и Store (стейт доски: user/stages/leads, загрузка get_data). Вынесено из app.js (план CODE_REVIEW п. 10.9).
-/* global $, Loading, UI, ensureLeadFull, esc, fillLeadForm, goHome, handleLogoutUI, loadActivity, loadLeadComments, loadRoutes, loadUsers, openCarrier, openRoute, renderBoard, renderDetailStages, renderLeadApps, renderLeadTagsRow, renderLog, showMustChangePassword, syncAdminNav, updateLeadNav, updateSearchPlaceholder, usersTableBusy */
+/* global $, Loading, UI, ensureLeadFull, esc, fillLeadForm, goHome, handleLogoutUI, loadActivity, loadLeadComments, loadRoutes, loadUsers, openApp, openCarrier, openRoute, renderBoard, renderDetailStages, renderLeadApps, renderLeadTagsRow, renderLog, showMustChangePassword, syncAdminNav, updateLeadNav, updateSearchPlaceholder, usersTableBusy */
 
 const Net = {
   csrf: null, hash: null, online: true,
@@ -16,13 +16,13 @@ const Net = {
         // уже увидели более новый лид, — без зазора такое изменение проскочило бы мимо дельты.
         if (Store.since) url += `&since=${encodeURIComponent(Math.max(1, Store.since - 10000))}`;
       }
-      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1, save_tag:1, delete_tag:1, set_lead_tags:1 };
+      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1, save_tag:1, delete_tag:1, set_lead_tags:1, get_app:1, get_app_comments:1, save_app:1, set_app_status:1, add_app_comment:1, edit_app_comment:1, delete_app_comment:1 };
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
         data = null;
       }
-      if (action === 'get_carriers' || action === 'get_carrier' || action === 'get_comments' || action === 'get_lead') {
+      if (action === 'get_carriers' || action === 'get_carrier' || action === 'get_comments' || action === 'get_lead' || action === 'get_app' || action === 'get_app_comments') {
         url += `&id=${encodeURIComponent((data && data.id) || '')}`;
         data = null;
       }
@@ -193,6 +193,7 @@ const Store = {
     if (UI.currentView === 'activity') loadActivity();
     if (UI.currentView === 'route' && UI.routeId) openRoute(UI.routeId, false);
     if (UI.currentView === 'carrier' && UI.carrierId && !UI.pendingFiles.length) openCarrier(UI.carrierId, false);
+    if (UI.currentView === 'app' && UI.appId && !UI.pendingFiles.length) openApp(UI.appId, false);
     } finally { if (force) Loading.hide(); }
   },
   getLead(id) {

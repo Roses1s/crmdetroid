@@ -50,7 +50,7 @@ ServerSignature Off
   RewriteRule ^(kanban|dashboard|routes|activity|apps|users)$ index.html [L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule ^(lead|carrier|route)/[^/]+$ index.html [L]
+  RewriteRule ^(lead|carrier|route|app)/[^/]+$ index.html [L]
 </IfModule>
 
 # Сжатие текстовых ответов (код-ревью п. 6.4): app.js ~90 КБ и app.css ~39 КБ ужимаются в 3–4 раза

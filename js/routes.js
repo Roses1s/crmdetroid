@@ -1,6 +1,6 @@
 'use strict';
 // Справочник маршрутов: список направлений, карточка направления, перевозчики (список, карточка, автосохранение), их лог. Вынесено из app.js (план CODE_REVIEW п. 10.9).
-/* global $, $$, Net, Toast, UI, debounce, esc, navTo, persistOk, plural, renderFiles, renderLogInto, renderSaveStatus, saveLeadForm, setupPhoneMask, switchView */
+/* global $, $$, Net, Toast, UI, debounce, esc, navTo, persistOk, plural, renderFiles, renderLogInto, renderSaveStatus, saveAppForm, saveLeadForm, setupPhoneMask, switchView */
 /* exported appsWord, goNeighborCarrier, loadRoutes, saveCarrierDebounced, saveCarrierForm, setRoutesFilter, updateCarrierSaveUI */
 
 let _routesCache = [];
@@ -45,7 +45,11 @@ async function openRoute(id, updateHash = true) {
     const savedC = await saveCarrierForm(true);
     if (!persistOk(savedC)) return;
   }
-  UI.leadId = null; UI.formDirty = false; UI.pendingFiles = []; UI.editingCommentId = null;
+  if (UI.appId && UI.formDirty) {
+    const savedA = await saveAppForm(true);
+    if (!persistOk(savedA)) return;
+  }
+  UI.leadId = null; UI.appId = null; UI.appRev = null; UI.appLeadId = null; UI.appLeadTitle = ''; UI.appComments = []; UI.formDirty = false; UI.pendingFiles = []; UI.editingCommentId = null;
   const res = await Net.req('get_carriers', { id });
   if (!res || !res.success) { switchView('routes-view', updateHash); return; }
   UI.routeId = id; UI.currentView = 'route';
@@ -93,12 +97,17 @@ async function openCarrier(id, updateHash = true) {
     const savedC = await saveCarrierForm(true);
     if (!persistOk(savedC)) return;
   }
+  if (UI.appId && UI.formDirty) {
+    const savedA = await saveAppForm(true);
+    if (!persistOk(savedA)) return;
+  }
   const res = await Net.req('get_carrier', { id });
   if (!res || !res.success) {
     if (UI.routeId) { openRoute(UI.routeId, updateHash); return; }
     switchView('routes-view', updateHash); return;
   }
   UI.leadId = null;
+  UI.appId = null; UI.appRev = null; UI.appLeadId = null; UI.appLeadTitle = ''; UI.appComments = [];
   UI.carrierId = id;
   UI.currentView = 'carrier';
   UI.pendingFiles = [];

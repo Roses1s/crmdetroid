@@ -703,7 +703,7 @@ function crm_lead_for_user(PDO $pdo, string $id, int $userId): ?array {
  * Статусы заявки (v20): 0 «В работе», 1 «Машина загрузилась», 2 «Машина выгрузилась».
  * Хранится TINYINT в crm_lead_apps.status; переходы свободные, валидация —
  * array_key_exists по этой карте. Подписи дублируются на клиенте
- * (APP_STATUS_LABELS в js/app.js): при добавлении статуса править оба места.
+ * (APP_STATUS_LABELS в js/lead.js): при добавлении статуса править оба места.
  */
 function crm_app_statuses(): array {
     return [0 => 'В работе', 1 => 'Машина загрузилась', 2 => 'Машина выгрузилась'];

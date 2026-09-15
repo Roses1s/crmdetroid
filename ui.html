@@ -231,6 +231,56 @@
   </div>
 </section>
 
+<section id="app-view" class="view-section view-paper">
+  <div class="breadcrumb"><a data-action="go-home">CRM / Лиды</a><span>/</span><a data-action="back-app" id="app-lead-crumb"></a><span>/</span><b id="app-crumb"></b></div>
+  <div class="toolbar toolbar-sub">
+    <button class="btn btn-secondary btn-sm" data-action="back-app">← К лиду</button>
+    <div class="stages-row ml-15" id="app-status-row"></div>
+    <span class="save-status ml-auto" id="app-save-status" aria-live="polite"></span>
+    <button class="btn btn-primary btn-sm" id="btn-save-app" data-action="save-app-now" disabled>💾 Сохранить</button>
+    <button class="btn btn-danger btn-sm" data-action="delete-app" aria-label="Удалить заявку">🗑️ Удалить</button>
+  </div>
+  <div class="detail-body">
+    <div class="form-panel">
+      <input type="text" id="ap-number" class="editable-title" placeholder="Номер заявки..." maxlength="40" aria-label="Номер заявки">
+      <h3 class="section-title">Маршрут</h3>
+      <div class="form-grid">
+        <div><div class="form-row"><label class="form-label" for="ap-from">Откуда *</label><input class="form-input" id="ap-from" placeholder="Город"></div></div>
+        <div><div class="form-row"><label class="form-label" for="ap-to">Куда *</label><input class="form-input" id="ap-to" placeholder="Город"></div></div>
+      </div>
+      <h3 class="section-title">Заказчик</h3>
+      <div class="form-grid">
+        <div><div class="form-row"><label class="form-label" for="ap-rate">Ставка, ₽</label><input class="form-input" id="ap-rate" inputmode="decimal" placeholder="45000"></div></div>
+        <div><div class="form-row"><label class="form-label" for="ap-vat">Налоги</label><select id="ap-vat" class="form-input form-select">
+          <option value="22">НДС 22%</option>
+          <option value="">Без НДС</option>
+          <option value="5">НДС 5%</option>
+          <option value="7">НДС 7%</option>
+          <option value="0">НДС 0%</option>
+        </select></div></div>
+      </div>
+      <h3 class="section-title">Перевозчик</h3>
+      <div class="form-grid">
+        <div><div class="form-row"><label class="form-label" for="ap-carrier-rate">Ставка, ₽</label><input class="form-input" id="ap-carrier-rate" inputmode="decimal" placeholder="30000"></div></div>
+        <div><div class="form-row"><label class="form-label" for="ap-carrier-vat">Налоги</label><select id="ap-carrier-vat" class="form-input form-select">
+          <option value="22">НДС 22%</option>
+          <option value="">Без НДС</option>
+          <option value="5">НДС 5%</option>
+          <option value="7">НДС 7%</option>
+          <option value="0">НДС 0%</option>
+        </select></div></div>
+      </div>
+      <div class="form-row"><label class="form-label" for="ap-margin">Маржа, ₽</label><input class="form-input" id="ap-margin" inputmode="decimal" placeholder="17608,65"></div>
+      <div class="form-row"><label class="form-label" for="ap-company">Компания</label><input class="form-input" id="ap-company" placeholder="Название фирмы"></div>
+      <div class="form-grid">
+        <div><div class="form-row"><label class="form-label" for="ap-inn">ИНН</label><input class="form-input" id="ap-inn" maxlength="12" inputmode="numeric" placeholder="10 или 12 цифр"></div></div>
+        <div><div class="form-row"><label class="form-label" for="ap-phone">Телефон</label><input class="form-input" id="ap-phone" inputmode="tel"></div></div>
+      </div>
+      <div class="form-row"><label class="form-label" for="ap-name">Контактное лицо</label><input class="form-input" id="ap-name" placeholder="Имя"></div>
+    </div>
+  </div>
+</section>
+
 <section id="activity-view" class="view-section users-view">
   <div class="users-wrap">
     <div class="users-head">

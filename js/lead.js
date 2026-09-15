@@ -1,7 +1,7 @@
 'use strict';
 // Лиды: доска (renderBoard), карточка лида, заявки лида (модалка, статистика), лог комментариев с вложениями (общий рендер renderLogInto используют и перевозчики), автосохранение формы. Вынесено из app.js (план CODE_REVIEW п. 10.9).
 /* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, saveCarrierForm, setupPhoneMask, vatLabel */
-/* exported addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, openLeadAppModal, openLeadTagsModal, pickTagColor, renderBoard, resetBoardCache, saveLeadAppFromModal, submitLeadTags, toggleTagInModal, updateLeadSaveUI */
+/* exported addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, openApp, openLeadAppModal, openLeadTagsModal, pickTagColor, removeLeadAppCache, renderAppStatus, renderBoard, resetBoardCache, saveAppDebounced, saveAppForm, saveLeadAppFromModal, submitLeadTags, syncLeadAppCache, toggleTagInModal, updateAppSaveUI, updateLeadSaveUI */
 
 function renderAttHtml(a, c) {
   const raw = String(a.dataUrl || '');
@@ -120,10 +120,15 @@ async function openLead(id, updateHash = true) {
     const savedC = await saveCarrierForm(true);
     if (!persistOk(savedC)) return;
   }
+  if (UI.appId && UI.formDirty) {
+    const savedA = await saveAppForm(true);
+    if (!persistOk(savedA)) return;
+  }
   const still = Store.getLead(id); if (!still || !still._full) return goHome(updateHash);
 
   UI.leadId = id; UI.currentView = 'lead'; UI.pendingFiles = []; UI.formDirty = false;
   UI.carrierId = null; UI.carrierComments = []; UI.editingCommentId = null;
+  UI.appId = null; UI.appRev = null; UI.appLeadId = null; UI.appLeadTitle = ''; UI.appComments = [];
   updateLeadSaveUI('saved');
   $$('.view-section').forEach(el => el.classList.remove('active'));
   // Снимаем подсветку кнопки дашборда: карточка лида — не дашборд
@@ -251,7 +256,7 @@ function renderLeadApps() {
     const num = a.number ? `<span class="lead-app-num">№ ${esc(a.number)}</span> · ` : '';
     return `<div class="lead-app-card">
       <div class="lead-app-main">
-        <div class="lead-app-route">${num}${esc(route)}</div>
+        <div class="lead-app-route name-link" data-action="open-app" data-id="${esc(a.id)}">${num}${esc(route)}</div>
         <div class="lead-app-rate">${rateLine}${marLine ? ' · ' + marLine : ''}</div>
         ${costLine}
         ${meta ? `<div class="lead-app-meta">${esc(meta)}</div>` : ''}
@@ -695,4 +700,187 @@ async function loadLeadComments(id) {
 function persistOk(res) {
   if (res == null) return true;
   return res.success !== false;
+}
+
+/* === СТРАНИЦА ЗАЯВКИ (v20) === */
+// Подписи статусов — зеркало серверного crm_app_statuses (db.php); при добавлении
+// статуса править оба места. Индекс элемента = значение crm_lead_apps.status.
+const APP_STATUS_LABELS = ['В работе', 'Машина загрузилась', 'Машина выгрузилась'];
+
+async function openApp(id, updateHash = true) {
+  if (UI.leadId && UI.formDirty) {
+    const savedL = await saveLeadForm(true);
+    if (!persistOk(savedL)) return;
+    if (savedL && savedL.transferred) await Store.load(true);
+  }
+  if (UI.carrierId && UI.formDirty) {
+    const savedC = await saveCarrierForm(true);
+    if (!persistOk(savedC)) return;
+  }
+  if (UI.appId && UI.formDirty && UI.appId !== id) {
+    const savedA = await saveAppForm(true);
+    if (!persistOk(savedA)) return;
+  }
+  const res = await Net.req('get_app', { id });
+  if (!res || !res.success || !res.application) {
+    if (UI.appLeadId) { openLead(UI.appLeadId, updateHash); return; }
+    goHome(updateHash); return;
+  }
+  // Повторный вход на ту же заявку с несохранёнными правками (обновление по поллингу
+  // или повторный клик): форму не трогаем, иначе ввод затирался бы серверной версией.
+  // Ревизия при этом остаётся старой — следующее сохранение честно конфликтнёт.
+  if (UI.formDirty && UI.appId === id) return;
+  UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = [];
+  UI.appId = id; UI.currentView = 'app';
+  UI.pendingFiles = []; UI.formDirty = false; UI.editingCommentId = null;
+  const a = res.application;
+  UI.appRev = a.updatedAt;
+  UI.appLeadId = a.leadId;
+  UI.appLeadTitle = res.leadTitle || '';
+  $$('.view-section').forEach(el => el.classList.remove('active'));
+  $('#nav-dashboard')?.classList.remove('active');
+  $('#app-view').classList.add('active');
+  fillAppForm(a);
+  updateAppSaveUI('saved');
+  if (updateHash) navTo('app/' + encodeURIComponent(id));
+}
+
+function updateAppCrumb(a) {
+  const route = [a.cityFrom, a.cityTo].filter(Boolean).join(' → ');
+  const num = a.number ? `№ ${a.number}` : 'Без номера';
+  $('#app-crumb').textContent = route ? `${num} · ${route}` : num;
+  $('#app-lead-crumb').textContent = UI.appLeadTitle || 'Лид';
+}
+
+function fillAppForm(a) {
+  if (!a) return;
+  const set = (sel, v) => { const el = $(sel); if (el && document.activeElement !== el) el.value = v ?? ''; };
+  set('#ap-number', a.number || '');
+  set('#ap-from', a.cityFrom || '');
+  set('#ap-to', a.cityTo || '');
+  set('#ap-rate', moneyToInput(a.rate || ''));
+  set('#ap-margin', moneyToInput(a.margin || ''));
+  // ??, а не ||: НДС 0% — валидный режим и не должен падать в «Без НДС» (как в модалке).
+  const vat = $('#ap-vat'); if (vat) vat.value = a.vat ?? '';
+  set('#ap-carrier-rate', moneyToInput(a.carrierRate || ''));
+  const cvat = $('#ap-carrier-vat'); if (cvat) cvat.value = a.carrierVat ?? '';
+  set('#ap-company', a.carrierCompany || '');
+  set('#ap-inn', a.carrierInn || '');
+  set('#ap-name', a.carrierName || '');
+  set('#ap-phone', a.carrierPhone || '');
+  setupPhoneMask($('#ap-phone'));
+  updateAppCrumb(a);
+  renderAppStatus(a.status);
+}
+
+// Переключатель статуса — теми же кнопками, что этапы лида (renderDetailStages).
+function renderAppStatus(status) {
+  const row = $('#app-status-row'); if (!row) return;
+  row.innerHTML = '';
+  APP_STATUS_LABELS.forEach((label, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'stage-btn' + (Number(status) === i ? ' active' : '');
+    b.dataset.action = 'set-app-status';
+    b.dataset.status = String(i);
+    b.textContent = label;
+    row.appendChild(b);
+  });
+}
+
+function updateAppSaveUI(state, ts = 0) {
+  renderSaveStatus($('#app-save-status'), $('#btn-save-app'), state, ts);
+}
+
+let _appSaveChain = Promise.resolve();
+
+// Сохранение карточки заявки: цепочка, оптимистическая блокировка по UI.appRev.
+// Клиентская валидация — как в модалке (маршрут + ИНН; деньги проверяет сервер).
+async function saveAppForm(_sync = false, keepalive = false) {
+  if (!UI.appId) return null;
+  const run = async () => {
+    if (!UI.appId) return null;
+    if (UI.currentView === 'app') updateAppSaveUI('saving');
+    const from = ($('#ap-from').value || '').trim();
+    const to = ($('#ap-to').value || '').trim();
+    if (!from || !to) {
+      Toast.error('Укажите откуда и куда');
+      if (UI.currentView === 'app') updateAppSaveUI('dirty');
+      return { success: false, error: 'Укажите откуда и куда' };
+    }
+    const inn = ($('#ap-inn').value || '').replace(/\D/g, '');
+    if (inn && inn.length !== 10 && inn.length !== 12) {
+      Toast.error('ИНН 10 или 12 цифр');
+      if (UI.currentView === 'app') updateAppSaveUI('dirty');
+      return { success: false, error: 'ИНН 10 или 12 цифр' };
+    }
+    const patch = {
+      id: UI.appId,
+      number: ($('#ap-number').value || '').trim(),
+      cityFrom: from,
+      cityTo: to,
+      rate: ($('#ap-rate').value || '').trim(),
+      margin: ($('#ap-margin').value || '').trim(),
+      vat: $('#ap-vat').value,
+      carrierRate: ($('#ap-carrier-rate').value || '').trim(),
+      carrierVat: $('#ap-carrier-vat').value,
+      carrierCompany: ($('#ap-company').value || '').trim(),
+      carrierInn: inn,
+      carrierName: ($('#ap-name').value || '').trim(),
+      carrierPhone: ($('#ap-phone').value || '').trim(),
+      updatedAt: UI.appRev
+    };
+    const extra = keepalive ? { keepalive: true } : {};
+    const res = await Net.req('save_app', patch, false, extra);
+    if (res && res.success === false && res.error === 'Заявка изменена в другом месте') {
+      Toast.error('Заявку изменили в другой вкладке — обновляю');
+      // Форма сейчас совпадёт с сервером — грязь снимаем ДО перечитывания,
+      // иначе openApp пропустит заливку (защита от затирания ввода выше).
+      UI.formDirty = false;
+      if (UI.appId) await openApp(UI.appId, false);
+      return res;
+    }
+    if (res && res.success && res.application) {
+      UI.formDirty = false;
+      UI.appRev = res.application.updatedAt;
+      syncLeadAppCache(UI.appLeadId, res);
+      updateAppCrumb(res.application);
+      if (UI.currentView === 'app') updateAppSaveUI('saved', Date.now());
+    } else if (res && res.success === false) {
+      Toast.error(res.error || 'Ошибка');
+      if (UI.currentView === 'app') updateAppSaveUI('dirty');
+    } else if (res == null && UI.currentView === 'app') {
+      // Сбой сети — честно показываем «не сохранено»
+      updateAppSaveUI('dirty');
+    }
+    return res;
+  };
+  const job = _appSaveChain.then(run, run);
+  _appSaveChain = job.catch(() => {});
+  return job;
+}
+
+const saveAppDebounced = debounce(() => saveAppForm(false), 500);
+
+// Копия заявки в кэше лида (Store) после сохранения/статуса со страницы: назад по
+// back-app открывается без перечитывания (ensureLeadFull), и список заявок лида
+// должен быть свежим. Ответы save_app/set_app_status/delete_lead_app несут всё нужное.
+function syncLeadAppCache(leadId, res) {
+  const lead = Store.getLead(leadId);
+  if (!lead || !res) return;
+  if (res.application) {
+    const apps = leadAppsOf(lead).slice();
+    const i = apps.findIndex(a => String(a.id) === String(res.application.id));
+    if (i >= 0) apps[i] = res.application; else apps.push(res.application);
+    lead.applications = apps;
+  }
+  if (res.applicationsCount != null) lead.applicationsCount = res.applicationsCount;
+  applyAppsStats(lead, res.appsStats);
+  if (res.updatedAt) { lead.updatedAt = res.updatedAt; lead._editRev = res.updatedAt; }
+}
+
+function removeLeadAppCache(leadId, appId, res) {
+  const lead = Store.getLead(leadId);
+  if (lead) lead.applications = leadAppsOf(lead).filter(a => String(a.id) !== String(appId));
+  syncLeadAppCache(leadId, res);
 }
