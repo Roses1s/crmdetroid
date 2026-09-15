@@ -327,6 +327,34 @@ function crm_direction_by_id(PDO $pdo, string $id): ?array {
     return $row ?: null;
 }
 
+/**
+ * Тихое дублирование маршрута новой заявки в справочник направлений: пара есть —
+ * возвращаем её id, нет — создаём (автор — создатель заявки, как при ручном
+ * добавлении) и возвращаем [id, true]. Гонка параллельных созданий гасится
+ * uq_dir (1062) — заявка при этом сохраняется штатно.
+ * Вызывать ВНУТРИ транзакции save_lead_app; meta-бамп — снаружи, по флагу.
+ * @return array{string,bool} [directionId, created]
+ */
+function crm_ensure_direction(PDO $pdo, string $from, string $to, int $uid): array {
+    $st = $pdo->prepare('SELECT id FROM crm_directions WHERE city_from = ? AND city_to = ?');
+    $st->execute([$from, $to]);
+    $found = $st->fetchColumn();
+    if ($found) return [(string) $found, false];
+    $id = crm_new_id($pdo, 'd_', 'crm_directions');
+    try {
+        $pdo->prepare('INSERT INTO crm_directions (id, city_from, city_to, created_by, created_at) VALUES (?,?,?,?,?)')
+            ->execute([$id, $from, $to, $uid, now_ms()]);
+    } catch (PDOException $e) {
+        // Гонка: пару создали между SELECT и INSERT — забираем чужой id, заявка сохраняется
+        if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+            $st->execute([$from, $to]);
+            return [(string) $st->fetchColumn(), false];
+        }
+        throw $e;
+    }
+    return [$id, true];
+}
+
 function crm_directions_list(PDO $pdo, string $q = ''): array {
     $sql = 'SELECT d.id, d.city_from, d.city_to, d.created_by, d.created_at, u.name AS creator,
             (SELECT COUNT(*) FROM crm_carriers c WHERE c.direction_id = d.id) AS carriers_count

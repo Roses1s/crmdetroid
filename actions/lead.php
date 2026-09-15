@@ -242,6 +242,7 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
     if ($existing && array_key_exists('updatedAt', $in) && (int) $existing['updated_at'] !== intv($in['updatedAt'])) {
         err('Заявка изменена в другом месте');
     }
+    $dirCreated = false;
     $pdo->beginTransaction();
     try {
         if (!$existing) {
@@ -255,6 +256,9 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
             $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, `number`, city_from, city_to, rate, margin, vat, carrier_rate, carrier_vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
                 ->execute([$id, $leadId, $number, $from, $to, $rate, $margin, $vat, $carrierRate, $carrierVat, $company, $inn, $name, $phone, $now, $now]);
             crm_sys_comment($pdo, $id, 'Заявка создана', 'crm_app_comments', 'app_id', 'ac_');
+            // Маршрут новой заявки дублируется в справочник направлений (только создание:
+            // правка маршрута существующей заявки справочник не трогает).
+            [, $dirCreated] = crm_ensure_direction($pdo, $from, $to, (int) $user['id']);
         } else {
             $rev = (int) $existing['updated_at'];
             $updApp = $pdo->prepare('UPDATE crm_lead_apps SET `number`=?, city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_rate=?, carrier_vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
@@ -273,6 +277,7 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
     }
     $n = crm_sync_lead_apps_count($pdo, $leadId);
     $rev = crm_touch_lead($pdo, $leadId);
+    if ($dirCreated) crm_meta_bump($pdo, 'routes');
     $saved = crm_lead_app_by_id($pdo, $id);
     ok([
         'id' => $id,
