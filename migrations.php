@@ -10,7 +10,7 @@ declare(strict_types=1);
  * резолвятся в рантайме, когда все файлы уже подключены.
  */
 
-const CRM_SCHEMA_VERSION = 20;
+const CRM_SCHEMA_VERSION = 21;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -66,6 +66,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v18($pdo);
     crm_migrate_v19($pdo);
     crm_migrate_v20($pdo);
+    crm_migrate_v21($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -492,6 +493,16 @@ function crm_migrate_v20(PDO $pdo): void {
             $pdo->exec("ALTER TABLE `{$table}` ADD CONSTRAINT `{$name}` {$def}");
         } catch (PDOException $e) {
             crm_log_fail("migrate_v20 {$name}", $e);
+        }
+    }
+}
+
+function crm_migrate_v21(PDO $pdo): void {
+    if (!crm_has_column($pdo, 'crm_carriers', 'inn')) {
+        try {
+            $pdo->exec("ALTER TABLE crm_carriers ADD COLUMN inn VARCHAR(12) NOT NULL DEFAULT '' AFTER company");
+        } catch (PDOException $e) {
+            crm_log_fail('migrate_v21 inn', $e);
         }
     }
 }

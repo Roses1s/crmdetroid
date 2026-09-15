@@ -355,6 +355,40 @@ function crm_ensure_direction(PDO $pdo, string $from, string $to, int $uid): arr
     return [$id, true];
 }
 
+/**
+ * Тихое дублирование перевозчика новой заявки в справочник (на направление из
+ * crm_ensure_direction): есть такой — возвращаем его id, нет — создаём.
+ * Совпадение — по ИНН (если указан), иначе точное по компании/имени/телефону.
+ * Нашли — чужие реквизиты не перезаписываем (первый побеждает, правится вручную).
+ * Пустой перевозчик (все четыре поля пустые) — [null, false], ничего не пишем.
+ * Имя обязательно (как в save_carrier): пустое подменяем компанией, телефоном,
+ * в крайнем случае «ИНН …», иначе строка без названия.
+ * Вызывать ВНУТРИ транзакции save_lead_app; meta-бамп — снаружи, по флагу.
+ * @return array{string|null,bool} [carrierId|null, created]
+ */
+function crm_ensure_carrier(PDO $pdo, string $dirId, array $f, int $uid): array {
+    $company = (string) ($f['carrierCompany'] ?? '');
+    $inn = (string) ($f['carrierInn'] ?? '');
+    $name = (string) ($f['carrierName'] ?? '');
+    $phone = (string) ($f['carrierPhone'] ?? '');
+    if ($company === '' && $inn === '' && $name === '' && $phone === '') return [null, false];
+    if ($inn !== '') {
+        $st = $pdo->prepare('SELECT id FROM crm_carriers WHERE direction_id = ? AND inn = ?');
+        $st->execute([$dirId, $inn]);
+    } else {
+        $st = $pdo->prepare('SELECT id FROM crm_carriers WHERE direction_id = ? AND company = ? AND name = ? AND phone = ?');
+        $st->execute([$dirId, $company, $name, $phone]);
+    }
+    $found = $st->fetchColumn();
+    if ($found) return [(string) $found, false];
+    if ($name === '') $name = $company !== '' ? $company : ($phone !== '' ? $phone : 'ИНН ' . $inn);
+    $id = crm_new_id($pdo, 'k_', 'crm_carriers');
+    $now = now_ms();
+    $pdo->prepare('INSERT INTO crm_carriers (id, direction_id, name, phone, company, inn, note, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        ->execute([$id, $dirId, $name, $phone, $company, $inn, '', $uid, $now, $now]);
+    return [$id, true];
+}
+
 function crm_directions_list(PDO $pdo, string $q = ''): array {
     $sql = 'SELECT d.id, d.city_from, d.city_to, d.created_by, d.created_at, u.name AS creator,
             (SELECT COUNT(*) FROM crm_carriers c WHERE c.direction_id = d.id) AS carriers_count
@@ -396,6 +430,7 @@ function crm_carriers_list(PDO $pdo, string $directionId, array $user = []): arr
             'name' => $r['name'],
             'phone' => $r['phone'],
             'company' => $r['company'],
+            'inn' => $r['inn'],
             'note' => $r['note'],
             'commentsCount' => (int) $r['comments_count'],
             'createdByName' => $r['creator'] ?: '',

@@ -80,7 +80,7 @@ function renderCarriers(list) {
     tr.innerHTML = `
       <td><span class="name-link" data-action="open-carrier" data-id="${esc(c.id)}">${esc(c.name)}</span></td>
       <td>${esc(c.phone)}</td>
-      <td>${esc(c.company)}</td>
+      <td>${esc(c.company)}${c.inn ? `<div class="apps-sub">${esc(c.inn)}</div>` : ''}</td>
       <td><span class="log-link" data-action="open-carrier" data-id="${esc(c.id)}">${n ? n + ' зап.' : 'Открыть лог'}</span></td>
       <td>${esc(c.createdByName)}</td>
       <td>${c.canManage ? `<button class="btn btn-danger btn-sm" data-action="delete-carrier" data-id="${esc(c.id)}">🗑️</button>` : ''}</td>`;
