@@ -329,6 +329,10 @@ check "чужой лид через set_lead_tags → Лид не найден" 
 post "$JI" "$TI" delete_lead "{\"id\":\"$L409\"}" >/dev/null
 
 # --- 16. страница заявки: карточка, статус, лог (v20) -----------------------
+# Новая сессия для A: лимит 90 запросов/60 с на сессию (§0–§15 его выбирают
+# полностью) — без перелогина один из запросов §16 упирается в 429 (поймано CI).
+# Тот же приём, что перед §14/§15.
+TI=$(login "$JI" "$A_EMAIL" "$A_PASS")
 R=$(post "$JI" "$TI" save_lead '{"title":"Smoke заявка"}'); LAPP=$(jget "$R" "r['id']")
 R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LAPP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"10 000\",\"number\":\"SMK-A\"}"); APP=$(jget "$R" "r['application']['id']")
 check "v20: новая заявка со статусом 0" "r.get('application',{}).get('status')==0" "$R"
