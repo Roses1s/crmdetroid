@@ -6,12 +6,14 @@
  * Архитектура (TODO #15/#18/#20 — выполнены, ревизия 2026-09-08):
  * Здесь остались middleware (сессии, auth, CSRF, лимиты запросов), общие хелперы
  * запроса (body_json/strv/intv, права, приём вложений, crm_apply_comment_*) и роутинг.
- * Сами действия — в actions/ (45 действий с 'ui'; каждое завершает запрос, поэтому never):
+ * Сами действия — в actions/ (52 действия с 'ui'; каждое завершает запрос, поэтому never):
  *   actions/auth.php    — csrf, login, logout, check_auth, file. Выполняются ДО общего
  *                         middleware ($user/$viewUid ещё нет), поэтому сигнатура другая:
  *                         crm_action_xxx(PDO $pdo, bool $hasSess): never
  *   actions/lead.php    — save_lead, move_lead, delete_lead, get_lead, get_data, get_activity,
  *                         save_lead_app, delete_lead_app
+ *   actions/app.php     — get_app, get_app_comments, save_app, set_app_status,
+ *                         add_app_comment, edit_app_comment, delete_app_comment (v20)
  *   actions/tags.php    — save_tag, delete_tag, set_lead_tags (личные теги лидов, v17)
  *   actions/comment.php — add_comment, edit_comment, delete_comment, delete_attachment, get_comments
  *   actions/user.php    — register_user, update_user, delete_user, get_users, change_password, me
@@ -59,6 +61,7 @@ require __DIR__ . '/actions/user.php';
 require __DIR__ . '/actions/comment.php';
 require __DIR__ . '/actions/routes.php';
 require __DIR__ . '/actions/lead.php';
+require __DIR__ . '/actions/app.php';
 require __DIR__ . '/actions/tags.php';
 
 // Старые config.php без новых констант
@@ -423,7 +426,7 @@ function crm_comment_input(string $idField): array {
     return [strv($in[$idField] ?? '', 80), strv($in['text'] ?? '', 20000)];
 }
 /*
- * Общие тела add/edit/delete для комментариев лидов и перевозчиков.
+ * Общие тела add/edit/delete для комментариев лидов, перевозчиков и заявок.
  * Раньше case-блоки add_comment/add_carrier_comment, edit_comment/edit_carrier_comment,
  * delete_comment/delete_carrier_comment дублировали друг друга почти построчно (~70 строк),
  * и фиксы приходилось вносить дважды (см. ревью, п. 7.1). Различия — только имена таблиц,
@@ -542,7 +545,7 @@ if (crm_session_throttled()) err('Слишком много запросов. П
 
 // Только чтение — разрешён GET. Всё остальное меняет данные: строго POST + CSRF-токен.
 // (Раньше мутация проходила и по GET без CSRF — например, GET save_lead создавал пустой лид.)
-$readActions = ['ui', 'me', 'whoami', 'get_data', 'get_lead', 'get_comments', 'search_leads', 'get_directions', 'get_carriers', 'get_carrier', 'get_users', 'integrity_check', 'get_activity', 'get_apps', 'get_audit'];
+$readActions = ['ui', 'me', 'whoami', 'get_data', 'get_lead', 'get_comments', 'search_leads', 'get_directions', 'get_carriers', 'get_carrier', 'get_users', 'integrity_check', 'get_activity', 'get_apps', 'get_audit', 'get_app', 'get_app_comments'];
 if (!in_array($action, $readActions, true)) {
     if ($method !== 'POST') err('Метод не поддерживается: нужен POST');
     require_csrf();
@@ -593,6 +596,20 @@ switch ($action) {
     case 'save_lead_app': crm_action_save_lead_app($pdo, $user, $viewUid);
 
     case 'delete_lead_app': crm_action_delete_lead_app($pdo, $user, $viewUid);
+
+    case 'get_app': crm_action_get_app($pdo, $user, $viewUid);
+
+    case 'get_app_comments': crm_action_get_app_comments($pdo, $user, $viewUid);
+
+    case 'save_app': crm_action_save_app($pdo, $user, $viewUid);
+
+    case 'set_app_status': crm_action_set_app_status($pdo, $user, $viewUid);
+
+    case 'add_app_comment': crm_action_add_app_comment($pdo, $user, $viewUid);
+
+    case 'edit_app_comment': crm_action_edit_app_comment($pdo, $user, $viewUid);
+
+    case 'delete_app_comment': crm_action_delete_app_comment($pdo, $user, $viewUid);
 
     case 'save_tag': crm_action_save_tag($pdo, $user, $viewUid);
 

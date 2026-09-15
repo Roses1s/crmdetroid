@@ -160,5 +160,8 @@ t('targets: пробелы обрезаются', crm_mysql_targets('  spaced  '
 t('targets: фолбэк добавляет две цели', crm_mysql_targets('db', 3306, true), [['db', 3306], ['127.0.0.1', 3308], ['localhost', 3308]]);
 t('targets: фолбэк не дублирует совпавшую цель', crm_mysql_targets('127.0.0.1:3308', 3306, true), [['127.0.0.1', 3308], ['localhost', 3308]]);
 
+// --- crm_app_statuses (v20): справочник статусов заявки --------------------------
+t('app-statuses: три статуса с подписями', crm_app_statuses(), [0 => 'В работе', 1 => 'Машина загрузилась', 2 => 'Машина выгрузилась']);
+
 echo "\n" . ($fails === 0 ? 'ALL PASSED' : "$fails FAILED") . "\n";
 exit($fails === 0 ? 0 : 1);

@@ -181,6 +181,20 @@ function crm_integrity_check(PDO $pdo): array {
     foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
         $issues[] = ['crm_carrier_attachments', $id, 'вложение без комментария перевозчика'];
     }
+    // Комментарии заявок без заявки и их вложения без комментария (v20)
+    $st = $pdo->query('SELECT c.id FROM crm_app_comments c LEFT JOIN crm_lead_apps a ON a.id = c.app_id WHERE a.id IS NULL LIMIT 100');
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $issues[] = ['crm_app_comments', $id, 'комментарий заявки без заявки'];
+    }
+    $st = $pdo->query('SELECT a.id FROM crm_app_attachments a LEFT JOIN crm_app_comments c ON c.id = a.comment_id WHERE c.id IS NULL LIMIT 100');
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $issues[] = ['crm_app_attachments', $id, 'вложение без комментария заявки'];
+    }
+    // Статус заявки вне справочника (ручная правка БД мимо API)
+    $st = $pdo->query('SELECT a.id FROM crm_lead_apps a WHERE a.status NOT IN (0,1,2) LIMIT 100');
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $issues[] = ['crm_lead_apps', $id, 'статус заявки вне 0/1/2'];
+    }
     // Заявки без лида
     try {
         $st = $pdo->query('SELECT a.id FROM crm_lead_apps a LEFT JOIN crm_leads l ON l.id = a.lead_id WHERE l.id IS NULL LIMIT 100');
@@ -286,7 +300,7 @@ function crm_ensure_user_stages(PDO $pdo, int $userId): void {
  * самим PK (вторая упадёт), вероятность этого пренебрежима.
  */
 function crm_new_id(PDO $pdo, string $prefix, string $table): string {
-    static $tables = ['crm_leads', 'crm_lead_apps', 'crm_directions', 'crm_carriers', 'crm_comments', 'crm_carrier_comments'];
+    static $tables = ['crm_leads', 'crm_lead_apps', 'crm_directions', 'crm_carriers', 'crm_comments', 'crm_carrier_comments', 'crm_app_comments'];
     if (!in_array($table, $tables, true)) return $prefix . bin2hex(random_bytes(6));
     for ($i = 0; $i < 3; $i++) {
         $id = $prefix . bin2hex(random_bytes(6));
@@ -428,16 +442,46 @@ function crm_touch_carrier(PDO $pdo, string $id): int {
     return $now;
 }
 
+/**
+ * Новая ревизия заявки (v20): лог заявки трогает только свою заявку, а не лид —
+ * иначе каждая реплика в логе переупорядочивала бы доску. Поля/статус заявки,
+ * видимые на карточках лида и в реестре, дополнительно трогают лид (save_app,
+ * set_app_status, save_lead_app) — по образцу save_lead_app.
+ */
+function crm_touch_app(PDO $pdo, string $id): int {
+    $now = now_ms();
+    $pdo->prepare('UPDATE crm_lead_apps SET updated_at = ? WHERE id = ?')->execute([$now, $id]);
+    return $now;
+}
+
 function crm_purge_lead(PDO $pdo, string $id, bool $ownTxn = true): array {
     $cidsSt = $pdo->prepare('SELECT id FROM crm_comments WHERE lead_id = ?');
     $cidsSt->execute([$id]);
     $cids = $cidsSt->fetchAll(PDO::FETCH_COLUMN);
     $urls = crm_att_urls($pdo, 'crm_attachments', $cids);
+    // v20: логи заявок лида (комментарии + вложения) — иначе удаление лида
+    // оставляло бы сирот в crm_app_comments и файлы без записей.
+    $appSt = $pdo->prepare('SELECT id FROM crm_lead_apps WHERE lead_id = ?');
+    $appSt->execute([$id]);
+    $appIds = $appSt->fetchAll(PDO::FETCH_COLUMN);
+    $acids = [];
+    if ($appIds) {
+        $inQ = implode(',', array_fill(0, count($appIds), '?'));
+        $acSt = $pdo->prepare("SELECT id FROM crm_app_comments WHERE app_id IN ($inQ)");
+        $acSt->execute($appIds);
+        $acids = $acSt->fetchAll(PDO::FETCH_COLUMN);
+    }
+    $urls = array_merge($urls, crm_att_urls($pdo, 'crm_app_attachments', $acids));
     $start = $ownTxn && !$pdo->inTransaction();
     if ($start) $pdo->beginTransaction();
     try {
         crm_delete_att_rows($pdo, 'crm_attachments', $cids);
         $pdo->prepare('DELETE FROM crm_comments WHERE lead_id = ?')->execute([$id]);
+        crm_delete_att_rows($pdo, 'crm_app_attachments', $acids);
+        if ($acids) {
+            $inQ = implode(',', array_fill(0, count($acids), '?'));
+            $pdo->prepare("DELETE FROM crm_app_comments WHERE id IN ($inQ)")->execute($acids);
+        }
         try { $pdo->prepare('DELETE FROM crm_lead_apps WHERE lead_id = ?')->execute([$id]); } catch (PDOException $e) { /* v8 */ }
         try { $pdo->prepare('DELETE FROM crm_lead_tags WHERE lead_id = ?')->execute([$id]); } catch (PDOException $e) { /* v17 */ }
         $pdo->prepare('DELETE FROM crm_leads WHERE id = ?')->execute([$id]);
@@ -655,11 +699,22 @@ function crm_lead_for_user(PDO $pdo, string $id, int $userId): ?array {
     return $row ?: null;
 }
 
+/**
+ * Статусы заявки (v20): 0 «В работе», 1 «Машина загрузилась», 2 «Машина выгрузилась».
+ * Хранится TINYINT в crm_lead_apps.status; переходы свободные, валидация —
+ * array_key_exists по этой карте. Подписи дублируются на клиенте
+ * (APP_STATUS_LABELS в js/app.js): при добавлении статуса править оба места.
+ */
+function crm_app_statuses(): array {
+    return [0 => 'В работе', 1 => 'Машина загрузилась', 2 => 'Машина выгрузилась'];
+}
+
 function crm_lead_app_to_api(array $r): array {
     return [
         'id' => $r['id'],
         'leadId' => $r['lead_id'],
         'number' => (string) ($r['number'] ?? ''),
+        'status' => (int) ($r['status'] ?? 0),
         'cityFrom' => $r['city_from'],
         'cityTo' => $r['city_to'],
         'rate' => crm_money_out($r['rate'] ?? null),
@@ -738,6 +793,65 @@ function crm_apps_stats(PDO $pdo, int $userId, string $leadId, string $inn = '')
     return ['count' => $count, 'margin' => $margin, 'clientCount' => $clientCount, 'clientMargin' => $clientMargin];
 }
 
+/**
+ * Общая валидация полей заявки для save_lead_app (модалка из лида) и save_app
+ * (детальная страница). Возвращает нормализованные значения; при ошибке бросает
+ * CrmError с тем же текстом, что раньше отдавал save_lead_app через err()
+ * (db.php не завершает запрос сам — TODO #20; ответ байт в байт, см. catch в api.php).
+ */
+function crm_validate_app_fields(array $in): array {
+    $number = strv($in['number'] ?? '', 40);
+    $from = crm_norm_city(strv($in['cityFrom'] ?? '', 80));
+    $to = crm_norm_city(strv($in['cityTo'] ?? '', 80));
+    if ($from === '' || $to === '') throw new CrmError('Укажите откуда и куда');
+    // Ставка и маржа парсятся одинаково строго: раньше из ставки молча вырезались не-цифры
+    // и «12 500,50» превращалось в 1250050.
+    $rate = crm_parse_money(strv($in['rate'] ?? '', 40));
+    if ($rate === null) throw new CrmError('Ставка: число, копейки через запятую');
+    $rate = crm_money_in($rate);
+    $margin = crm_parse_money(strv($in['margin'] ?? '', 40));
+    if ($margin === null) throw new CrmError('Маржа: число, копейки через запятую');
+    $margin = crm_money_in($margin);
+    // Налоги — строгий список режимов (v19); пусто = без НДС (NULL). Раньше был флаг 0/1.
+    $vatRaw = strv($in['vat'] ?? '', 3);
+    if (!in_array($vatRaw, ['', '0', '5', '7', '22'], true)) throw new CrmError('Налоги заказчика: выберите из списка');
+    $vat = $vatRaw === '' ? null : (int) $vatRaw;
+    $carrierVatRaw = strv($in['carrierVat'] ?? '', 3);
+    if (!in_array($carrierVatRaw, ['', '0', '5', '7', '22'], true)) throw new CrmError('Налоги перевозчика: выберите из списка');
+    $carrierVat = $carrierVatRaw === '' ? null : (int) $carrierVatRaw;
+    $carrierRate = crm_parse_money(strv($in['carrierRate'] ?? '', 40));
+    if ($carrierRate === null) throw new CrmError('Ставка перевозчику: число, копейки через запятую');
+    $carrierRate = crm_money_in($carrierRate);
+    $company = strv($in['carrierCompany'] ?? '', 200);
+    $inn = preg_replace('/\\D/', '', strv($in['carrierInn'] ?? '', 12)) ?? '';
+    if ($inn !== '' && strlen($inn) !== 10 && strlen($inn) !== 12) throw new CrmError('ИНН 10 или 12 цифр');
+    return [
+        'number' => $number,
+        'cityFrom' => $from,
+        'cityTo' => $to,
+        'rate' => $rate,
+        'margin' => $margin,
+        'vat' => $vat,
+        'carrierRate' => $carrierRate,
+        'carrierVat' => $carrierVat,
+        'carrierCompany' => $company,
+        'carrierInn' => $inn,
+        'carrierName' => strv($in['carrierName'] ?? '', 80),
+        'carrierPhone' => strv($in['carrierPhone'] ?? '', 40),
+    ];
+}
+
+/**
+ * Заявка, видимая сотруднику: сама строка + проверка, что лид-владелец
+ * на его доске. Прав на заявку отдельно от лида нет (решение штурма).
+ */
+function crm_app_for_user(PDO $pdo, string $appId, int $viewUid): ?array {
+    $app = $appId === '' ? null : crm_lead_app_by_id($pdo, $appId);
+    if (!$app) return null;
+    if (!crm_lead_for_user($pdo, (string) $app['lead_id'], $viewUid)) return null;
+    return $app;
+}
+
 function crm_sync_lead_apps_count(PDO $pdo, string $leadId): int {
     try {
         $st = $pdo->prepare('SELECT COUNT(*) FROM crm_lead_apps WHERE lead_id = ?');
@@ -752,6 +866,17 @@ function crm_sync_lead_apps_count(PDO $pdo, string $leadId): int {
 
 function crm_comment_for_user(PDO $pdo, string $cid, int $userId): ?array {
     $st = $pdo->prepare('SELECT c.* FROM crm_comments c INNER JOIN crm_leads l ON l.id = c.lead_id WHERE c.id = ? AND l.user_id = ?');
+    $st->execute([$cid, $userId]);
+    $row = $st->fetch();
+    return $row ?: null;
+}
+
+/**
+ * Запись лога заявки, видимая сотруднику (v20): цепочка комментарий → заявка →
+ * лид → владелец доски. Права на лог = права на лид (решение штурма).
+ */
+function crm_app_comment_for_user(PDO $pdo, string $cid, int $userId): ?array {
+    $st = $pdo->prepare('SELECT c.* FROM crm_app_comments c INNER JOIN crm_lead_apps a ON a.id = c.app_id INNER JOIN crm_leads l ON l.id = a.lead_id WHERE c.id = ? AND l.user_id = ?');
     $st->execute([$cid, $userId]);
     $row = $st->fetch();
     return $row ?: null;
@@ -833,7 +958,12 @@ function crm_admin_count(PDO $pdo): int {
     return (int) $pdo->query("SELECT COUNT(*) FROM crm_users WHERE role = 'admin'")->fetchColumn();
 }
 
-function crm_comments_payload(PDO $pdo, array $rows): array {
+/**
+ * Комментарии (лида или заявки) + их вложения одним запросом.
+ * $attTable: 'crm_attachments' | 'crm_app_attachments' — литералом из call-site'а
+ * (не из ввода пользователя), как имена таблиц в crm_insert_comment.
+ */
+function crm_comments_payload(PDO $pdo, array $rows, string $attTable = 'crm_attachments'): array {
     $byComment = [];
     $order = [];
     foreach ($rows as $c) {
@@ -854,7 +984,7 @@ function crm_comments_payload(PDO $pdo, array $rows): array {
     if ($byComment) {
         $cids = array_keys($byComment);
         $inQ = implode(',', array_fill(0, count($cids), '?'));
-        $st = $pdo->prepare("SELECT * FROM crm_attachments WHERE comment_id IN ($inQ) ORDER BY id ASC");
+        $st = $pdo->prepare("SELECT * FROM {$attTable} WHERE comment_id IN ($inQ) ORDER BY id ASC");
         $st->execute($cids);
         foreach ($st as $a) {
             if (!isset($byComment[$a['comment_id']])) continue;
@@ -876,17 +1006,50 @@ function crm_lead_comments(PDO $pdo, string $leadId): array {
     return crm_comments_payload($pdo, $st->fetchAll());
 }
 
-function crm_sys_comment(PDO $pdo, string $leadId, string $text): void {
-    $st = $pdo->prepare('INSERT INTO crm_comments (id, lead_id, text, author, user_id, time, edited_at) VALUES (?,?,?,?,0,?,NULL)');
-    $st->execute([crm_new_id($pdo, 'c_', 'crm_comments'), $leadId, $text, 'Система', now_ms()]);
+/** Лог заявки (v20): тот же payload, что у лида (текст + до 8 вложений), владелец — app_id. */
+function crm_app_comments(PDO $pdo, string $appId): array {
+    $st = $pdo->prepare('SELECT c.*, u.name AS live_name FROM crm_app_comments c LEFT JOIN crm_users u ON u.id = c.user_id AND c.user_id > 0 WHERE c.app_id = ? ORDER BY c.time ASC');
+    $st->execute([$appId]);
+    return crm_comments_payload($pdo, $st->fetchAll(), 'crm_app_attachments');
+}
+
+/**
+ * Системная запись в лог. По умолчанию — лог лида; для заявки передаются
+ * таблица crm_app_comments, колонка app_id и префикс id 'ac_'.
+ */
+function crm_sys_comment(PDO $pdo, string $ownerId, string $text, string $table = 'crm_comments', string $ownerCol = 'lead_id', string $prefix = 'c_'): void {
+    $st = $pdo->prepare("INSERT INTO {$table} (id, {$ownerCol}, text, author, user_id, time, edited_at) VALUES (?,?,?,?,0,?,NULL)");
+    $st->execute([crm_new_id($pdo, $prefix, $table), $ownerId, $text, 'Система', now_ms()]);
+}
+
+/**
+ * Системные записи об изменении ставок/перевозчика (v20): сравнивает старые
+ * значения заявки ($old — строка БД) с новыми ($f — crm_validate_app_fields)
+ * и пишет в лог заявки («Ставка заказчика: 45000 ➔ 50000»).
+ * Вызывается внутри транзакции save_lead_app/save_app; логируются только ставки
+ * и перевозчик (решение штурма), остальные поля — нет. Сравнение через
+ * crm_money_out с обеих сторон: '45000.00' из DECIMAL и '45000' из формы равны.
+ */
+function crm_app_sys_field_changes(PDO $pdo, string $appId, array $old, array $f): void {
+    $pairs = [
+        ['Ставка заказчика', crm_money_out($old['rate'] ?? null), crm_money_out($f['rate'] ?? null)],
+        ['Ставка перевозчика', crm_money_out($old['carrier_rate'] ?? null), crm_money_out($f['carrierRate'] ?? null)],
+        ['Перевозчик', (string) ($old['carrier_company'] ?? ''), (string) ($f['carrierCompany'] ?? '')],
+    ];
+    foreach ($pairs as [$label, $was, $now]) {
+        if ($was === $now) continue;
+        if ($was === '') $was = '—';
+        if ($now === '') $now = '—';
+        crm_sys_comment($pdo, $appId, "{$label}: {$was} ➔ {$now}", 'crm_app_comments', 'app_id', 'ac_');
+    }
 }
 
 /**
  * Обобщённая вставка комментария (#19): одна функция для лидов и перевозчиков.
- * $commentTable: 'crm_comments' | 'crm_carrier_comments'
- * $attTable: 'crm_attachments' | 'crm_carrier_attachments'
- * $fkColumn: 'lead_id' | 'carrier_id'
- * $prefix: 'c_' | 'cc_' — префикс id комментария
+ * $commentTable: 'crm_comments' | 'crm_carrier_comments' | 'crm_app_comments'
+ * $attTable: 'crm_attachments' | 'crm_carrier_attachments' | 'crm_app_attachments'
+ * $fkColumn: 'lead_id' | 'carrier_id' | 'app_id'
+ * $prefix: 'c_' | 'cc_' | 'ac_' — префикс id комментария
  * Возвращает id созданного комментария.
  */
 function crm_insert_comment(PDO $pdo, string $commentTable, string $attTable, string $fkColumn, string $fkId, string $text, array $user, array $atts, string $prefix = 'c_'): string {

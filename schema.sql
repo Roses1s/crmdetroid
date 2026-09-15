@@ -177,12 +177,42 @@ CREATE TABLE IF NOT EXISTS crm_lead_apps (
   carrier_inn VARCHAR(12) NOT NULL DEFAULT '',
   carrier_name VARCHAR(80) NOT NULL DEFAULT '',
   carrier_phone VARCHAR(40) NOT NULL DEFAULT '',
+  status TINYINT NOT NULL DEFAULT 0,   -- v20: 0 «В работе», 1 «Машина загрузилась», 2 «Машина выгрузилась»
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
   KEY idx_lead (lead_id),
   KEY idx_lead_created (lead_id, created_at),
+  KEY idx_status (status),
   CONSTRAINT fk_lead_apps_lead FOREIGN KEY (lead_id) REFERENCES crm_leads (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v20: лог заявки — копия схемы лога лида (владелец app_id, id комментариев с префиксом 'ac_').
+CREATE TABLE IF NOT EXISTS crm_app_comments (
+  id VARCHAR(80) NOT NULL,
+  app_id VARCHAR(80) NOT NULL,
+  text MEDIUMTEXT NOT NULL,
+  author VARCHAR(80) NOT NULL,
+  user_id INT UNSIGNED NOT NULL DEFAULT 0,
+  time BIGINT NOT NULL,
+  edited_at BIGINT NULL,
+  PRIMARY KEY (id),
+  KEY idx_app (app_id),
+  KEY idx_app_time (app_id, time),
+  KEY idx_user (user_id),
+  CONSTRAINT fk_app_comments_app FOREIGN KEY (app_id) REFERENCES crm_lead_apps (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS crm_app_attachments (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  comment_id VARCHAR(80) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  size INT UNSIGNED NOT NULL DEFAULT 0,
+  type VARCHAR(120) NOT NULL DEFAULT '',
+  data_url VARCHAR(255) NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_comment (comment_id),
+  CONSTRAINT fk_app_atts_comment FOREIGN KEY (comment_id) REFERENCES crm_app_comments (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- v17: личные теги лидов. Справочник у каждого сотрудника свой (user_id);

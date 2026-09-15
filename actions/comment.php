@@ -47,13 +47,16 @@ function crm_action_delete_attachment(PDO $pdo, array $user, int $viewUid): neve
     $id = intv($in['id'] ?? 0);
     // kind обязателен: без него id неоднозначен (см. crm_find_attachment)
     $kind = strv($in['kind'] ?? '', 16);
-    if ($kind !== 'lead' && $kind !== 'carrier') err('Не указан тип вложения');
+    if ($kind !== 'lead' && $kind !== 'carrier' && $kind !== 'app') err('Не указан тип вложения');
     $row = crm_find_attachment($pdo, $id, $kind);
     if (!$row) err('Вложение не найдено');
     if (!can_edit_comment($user, $row)) err('Нет прав');
     if (($row['kind'] ?? '') === 'lead') {
         if (!crm_lead_for_user($pdo, (string) $row['owner_id'], $viewUid)) err('Лид не найден');
         $table = 'crm_attachments';
+    } elseif (($row['kind'] ?? '') === 'app') {
+        if (!crm_app_for_user($pdo, (string) $row['owner_id'], $viewUid)) err('Заявка не найдена');
+        $table = 'crm_app_attachments';
     } else {
         if (!crm_carrier_by_id($pdo, (string) $row['owner_id'])) err('Контакт не найден');
         $table = 'crm_carrier_attachments';
@@ -66,6 +69,8 @@ function crm_action_delete_attachment(PDO $pdo, array $user, int $viewUid): neve
     }
     if (($row['kind'] ?? '') === 'lead') {
         $rev = crm_touch_lead($pdo, (string) $row['owner_id']);
+    } elseif (($row['kind'] ?? '') === 'app') {
+        $rev = crm_touch_app($pdo, (string) $row['owner_id']);
     } else {
         $rev = crm_touch_carrier($pdo, (string) $row['owner_id']);
         crm_meta_bump($pdo, 'routes');

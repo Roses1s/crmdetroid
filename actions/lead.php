@@ -217,33 +217,21 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
     $leadId = strv($in['leadId'] ?? '', 80);
     $row = $leadId === '' ? null : crm_lead_for_user($pdo, $leadId, $viewUid);
     if (!$row) err('Лид не найден');
-    $number = strv($in['number'] ?? '', 40);
-    $from = crm_norm_city(strv($in['cityFrom'] ?? '', 80));
-    $to = crm_norm_city(strv($in['cityTo'] ?? '', 80));
-    if ($from === '' || $to === '') err('Укажите откуда и куда');
-    // Ставка и маржа парсятся одинаково строго: раньше из ставки молча вырезались не-цифры
-    // и «12 500,50» превращалось в 1250050.
-    $rate = crm_parse_money(strv($in['rate'] ?? '', 40));
-    if ($rate === null) err('Ставка: число, копейки через запятую');
-    $rate = crm_money_in($rate);
-    $margin = crm_parse_money(strv($in['margin'] ?? '', 40));
-    if ($margin === null) err('Маржа: число, копейки через запятую');
-    $margin = crm_money_in($margin);
-    // Налоги — строгий список режимов (v19); пусто = без НДС (NULL). Раньше был флаг 0/1.
-    $vatRaw = strv($in['vat'] ?? '', 3);
-    if (!in_array($vatRaw, ['', '0', '5', '7', '22'], true)) err('Налоги заказчика: выберите из списка');
-    $vat = $vatRaw === '' ? null : (int) $vatRaw;
-    $carrierVatRaw = strv($in['carrierVat'] ?? '', 3);
-    if (!in_array($carrierVatRaw, ['', '0', '5', '7', '22'], true)) err('Налоги перевозчика: выберите из списка');
-    $carrierVat = $carrierVatRaw === '' ? null : (int) $carrierVatRaw;
-    $carrierRate = crm_parse_money(strv($in['carrierRate'] ?? '', 40));
-    if ($carrierRate === null) err('Ставка перевозчику: число, копейки через запятую');
-    $carrierRate = crm_money_in($carrierRate);
-    $company = strv($in['carrierCompany'] ?? '', 200);
-    $inn = preg_replace('/\D/', '', strv($in['carrierInn'] ?? '', 12)) ?? '';
-    if ($inn !== '' && strlen($inn) !== 10 && strlen($inn) !== 12) err('ИНН 10 или 12 цифр');
-    $name = strv($in['carrierName'] ?? '', 80);
-    $phone = strv($in['carrierPhone'] ?? '', 40);
+    // Валидация общая со страницей заявки (save_app); при ошибке бросает CrmError
+    // с тем же текстом, что был здесь через err() — ответы не меняются.
+    $f = crm_validate_app_fields($in);
+    $number = $f['number'];
+    $from = $f['cityFrom'];
+    $to = $f['cityTo'];
+    $rate = $f['rate'];
+    $margin = $f['margin'];
+    $vat = $f['vat'];
+    $carrierRate = $f['carrierRate'];
+    $carrierVat = $f['carrierVat'];
+    $company = $f['carrierCompany'];
+    $inn = $f['carrierInn'];
+    $name = $f['carrierName'];
+    $phone = $f['carrierPhone'];
     $id = strv($in['id'] ?? '', 80);
     $now = now_ms();
     $existing = $id !== '' ? crm_lead_app_by_id($pdo, $id) : null;
@@ -266,6 +254,7 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
             }
             $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, `number`, city_from, city_to, rate, margin, vat, carrier_rate, carrier_vat, carrier_company, carrier_inn, carrier_name, carrier_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
                 ->execute([$id, $leadId, $number, $from, $to, $rate, $margin, $vat, $carrierRate, $carrierVat, $company, $inn, $name, $phone, $now, $now]);
+            crm_sys_comment($pdo, $id, 'Заявка создана', 'crm_app_comments', 'app_id', 'ac_');
         } else {
             $rev = (int) $existing['updated_at'];
             $updApp = $pdo->prepare('UPDATE crm_lead_apps SET `number`=?, city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_rate=?, carrier_vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
@@ -274,6 +263,7 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
                 $pdo->rollBack();
                 err('Заявка изменена в другом месте');
             }
+            crm_app_sys_field_changes($pdo, $id, $existing, $f);
         }
         $pdo->commit();
     } catch (PDOException $e) {
@@ -304,12 +294,24 @@ function crm_action_delete_lead_app(PDO $pdo, array $user, int $viewUid): never 
     if (array_key_exists('updatedAt', $in) && (int) $app['updated_at'] !== intv($in['updatedAt'])) {
         err('Заявка изменена в другом месте');
     }
+    // v20: вместе с заявкой уходит её лог (комментарии + строки вложений);
+    // файлы стираются с диска после коммита — как в crm_apply_comment_delete.
+    $cidsSt = $pdo->prepare('SELECT id FROM crm_app_comments WHERE app_id = ?');
+    $cidsSt->execute([$id]);
+    $cids = $cidsSt->fetchAll(PDO::FETCH_COLUMN);
+    $urls = crm_att_urls($pdo, 'crm_app_attachments', $cids);
+    $pdo->beginTransaction();
     try {
+        crm_delete_att_rows($pdo, 'crm_app_attachments', $cids);
+        $pdo->prepare('DELETE FROM crm_app_comments WHERE app_id = ?')->execute([$id]);
         $pdo->prepare('DELETE FROM crm_lead_apps WHERE id = ? AND lead_id = ?')->execute([$id, $leadId]);
+        $pdo->commit();
     } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
         crm_log_fail('delete_lead_app', $e);
         err('Не удалось удалить');
     }
+    crm_unlink_urls($urls);
     $n = crm_sync_lead_apps_count($pdo, $leadId);
     $rev = crm_touch_lead($pdo, $leadId);
     $leadRow = crm_lead_for_user($pdo, $leadId, $viewUid);

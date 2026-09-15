@@ -49,7 +49,7 @@ function crm_sweep_uploads(PDO $pdo): array {
     $dir = realpath(CRM_UPLOAD_DIR);
     if ($dir === false) return [0, 0];
     $known = [];
-    foreach (['crm_attachments', 'crm_carrier_attachments'] as $t) {
+    foreach (['crm_attachments', 'crm_carrier_attachments', 'crm_app_attachments'] as $t) {
         foreach ($pdo->query("SELECT data_url FROM $t") as $r) {
             $n = crm_upload_name((string) $r['data_url']);
             if ($n !== null) $known[$n] = true;
@@ -119,6 +119,19 @@ function crm_serve_file(PDO $pdo, string $name, array $user): never {
     if ($row && !$admin && (int) $row['user_id'] !== $uid) {
         $row = null;
     }
+    // Файлы заявок: как у лидов — только владельцу доски (или админу).
+    if (!$row) {
+        $st = $pdo->prepare('SELECT a.name, l.user_id FROM crm_app_attachments a
+            INNER JOIN crm_app_comments c ON c.id = a.comment_id
+            INNER JOIN crm_lead_apps p ON p.id = c.app_id
+            INNER JOIN crm_leads l ON l.id = p.lead_id
+            WHERE a.data_url = ? LIMIT 1');
+        $st->execute([$url]);
+        $row = $st->fetch();
+        if ($row && !$admin && (int) $row['user_id'] !== $uid) {
+            $row = null;
+        }
+    }
     // Файлы перевозчиков: доступны всем авторизованным (справочник направлений/перевозчиков — общий,
     // см. README «Права и правила»: добавлять и вести лог могут все сотрудники).
     if (!$row) {
@@ -167,8 +180,8 @@ function crm_serve_file(PDO $pdo, string $name, array $user): never {
 }
 
 /**
- * Вложение по id и виду ('lead' | 'carrier'). Таблицы crm_attachments и crm_carrier_attachments
- * нумеруются независимо, поэтому id без вида неоднозначен: раньше поиск шёл «сначала у лидов»,
+ * Вложение по id и виду ('lead' | 'carrier' | 'app'). Таблицы вложений нумеруются
+ * независимо, поэтому id без вида неоднозначен: раньше поиск шёл «сначала у лидов»,
  * и клик «×» на файле перевозчика мог удалить файл из лида с тем же номером.
  */
 function crm_find_attachment(PDO $pdo, int $id, string $kind): ?array {
@@ -179,6 +192,9 @@ function crm_find_attachment(PDO $pdo, int $id, string $kind): ?array {
     } elseif ($kind === 'carrier') {
         $st = $pdo->prepare('SELECT a.id, a.comment_id, a.name, a.data_url, c.carrier_id AS owner_id, c.author, c.user_id, \'carrier\' AS kind
             FROM crm_carrier_attachments a INNER JOIN crm_carrier_comments c ON c.id = a.comment_id WHERE a.id = ?');
+    } elseif ($kind === 'app') {
+        $st = $pdo->prepare('SELECT a.id, a.comment_id, a.name, a.data_url, c.app_id AS owner_id, c.author, c.user_id, \'app\' AS kind
+            FROM crm_app_attachments a INNER JOIN crm_app_comments c ON c.id = a.comment_id WHERE a.id = ?');
     } else {
         return null;
     }
@@ -189,7 +205,7 @@ function crm_find_attachment(PDO $pdo, int $id, string $kind): ?array {
 
 function crm_att_urls(PDO $pdo, string $table, array $commentIds): array {
     if (!$commentIds) return [];
-    if ($table !== 'crm_attachments' && $table !== 'crm_carrier_attachments') return [];
+    if ($table !== 'crm_attachments' && $table !== 'crm_carrier_attachments' && $table !== 'crm_app_attachments') return [];
     $ids = array_values($commentIds);
     $inQ = implode(',', array_fill(0, count($ids), '?'));
     $st = $pdo->prepare("SELECT data_url FROM {$table} WHERE comment_id IN ($inQ)");
@@ -201,7 +217,7 @@ function crm_att_urls(PDO $pdo, string $table, array $commentIds): array {
 
 function crm_delete_att_rows(PDO $pdo, string $table, array $commentIds): void {
     if (!$commentIds) return;
-    if ($table !== 'crm_attachments' && $table !== 'crm_carrier_attachments') return;
+    if ($table !== 'crm_attachments' && $table !== 'crm_carrier_attachments' && $table !== 'crm_app_attachments') return;
     $ids = array_values($commentIds);
     $inQ = implode(',', array_fill(0, count($ids), '?'));
     $pdo->prepare("DELETE FROM {$table} WHERE comment_id IN ($inQ)")->execute($ids);

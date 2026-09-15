@@ -10,7 +10,7 @@ declare(strict_types=1);
  * резолвятся в рантайме, когда все файлы уже подключены.
  */
 
-const CRM_SCHEMA_VERSION = 19;
+const CRM_SCHEMA_VERSION = 20;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -65,6 +65,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v17($pdo);
     crm_migrate_v18($pdo);
     crm_migrate_v19($pdo);
+    crm_migrate_v20($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -435,6 +436,63 @@ function crm_migrate_v19(PDO $pdo): void {
         $pdo->exec('UPDATE crm_lead_apps SET vat = NULL WHERE vat = 0');
     } catch (PDOException $e) {
         crm_log_fail('migrate_v19 vat', $e);
+    }
+}
+
+/**
+ * v20: детальная страница заявки — статус и лог заявки.
+ * - crm_lead_apps.status TINYINT 0/1/2 («В работе», «Машина загрузилась»,
+ *   «Машина выгрузилась»; подписи — crm_app_statuses в db.php). Существующие
+ *   заявки молча становятся 0 («В работе»): DEFAULT покрывает старые строки.
+ * - crm_app_comments / crm_app_attachments — точная копия схемы лога лидов
+ *   (crm_comments / crm_attachments), колонка владельца — app_id.
+ * - FK страховкой поверх явных удалений в коде — по образцу v15
+ *   (оппортунистически: без FK всё тоже работает, код удаляет потомков сам).
+ */
+function crm_migrate_v20(PDO $pdo): void {
+    if (!crm_has_column($pdo, 'crm_lead_apps', 'status')) {
+        try {
+            $pdo->exec('ALTER TABLE crm_lead_apps ADD COLUMN status TINYINT NOT NULL DEFAULT 0 AFTER carrier_phone');
+        } catch (PDOException $e) {
+            crm_log_fail('migrate_v20 status', $e);
+        }
+    }
+    if (!crm_has_index($pdo, 'crm_lead_apps', 'idx_status')) {
+        try { $pdo->exec('ALTER TABLE crm_lead_apps ADD KEY idx_status (status)'); } catch (PDOException $e) { /* ok */ }
+    }
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_app_comments (
+      id VARCHAR(80) NOT NULL,
+      app_id VARCHAR(80) NOT NULL,
+      text MEDIUMTEXT NOT NULL,
+      author VARCHAR(80) NOT NULL,
+      user_id INT UNSIGNED NOT NULL DEFAULT 0,
+      time BIGINT NOT NULL,
+      edited_at BIGINT NULL,
+      PRIMARY KEY (id),
+      KEY idx_app (app_id),
+      KEY idx_app_time (app_id, time),
+      KEY idx_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crm_app_attachments (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      comment_id VARCHAR(80) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      size INT UNSIGNED NOT NULL DEFAULT 0,
+      type VARCHAR(120) NOT NULL DEFAULT '',
+      data_url VARCHAR(255) NOT NULL,
+      PRIMARY KEY (id),
+      KEY idx_comment (comment_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    foreach ([
+        ['crm_app_comments', 'fk_app_comments_app', 'FOREIGN KEY (app_id) REFERENCES crm_lead_apps (id) ON DELETE CASCADE'],
+        ['crm_app_attachments', 'fk_app_atts_comment', 'FOREIGN KEY (comment_id) REFERENCES crm_app_comments (id) ON DELETE CASCADE'],
+    ] as [$table, $name, $def]) {
+        if (crm_has_fk($pdo, $table, $name)) continue;
+        try {
+            $pdo->exec("ALTER TABLE `{$table}` ADD CONSTRAINT `{$name}` {$def}");
+        } catch (PDOException $e) {
+            crm_log_fail("migrate_v20 {$name}", $e);
+        }
     }
 }
 

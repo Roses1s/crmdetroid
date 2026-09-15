@@ -328,6 +328,40 @@ R=$(post "$JP" "$TP" set_lead_tags "{\"leadId\":\"$L409\",\"tagIds\":[1]}")
 check "чужой лид через set_lead_tags → Лид не найден" "r.get('error')=='Лид не найден'" "$R"
 post "$JI" "$TI" delete_lead "{\"id\":\"$L409\"}" >/dev/null
 
+# --- 16. страница заявки: карточка, статус, лог (v20) -----------------------
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke заявка"}'); LAPP=$(jget "$R" "r['id']")
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LAPP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"10 000\",\"number\":\"SMK-A\"}"); APP=$(jget "$R" "r['application']['id']")
+check "v20: новая заявка со статусом 0" "r.get('application',{}).get('status')==0" "$R"
+R=$(get "$JI" "get_app&id=$APP"); check "v20: get_app отдаёт заявку и название лида" "r.get('application',{}).get('id')=='$APP' and r.get('leadTitle')=='Smoke заявка'" "$R"
+R=$(get "$JP" "get_app&id=$APP"); check "v20: чужой get_app → Заявка не найдена" "r.get('error')=='Заявка не найдена'" "$R"
+R=$(get "$JI" "get_lead&id=$LAPP"); check "v20: заявки лида содержат status" "all('status' in a for a in r['lead'].get('applications',[]))" "$R"
+R=$(get "$JI" "get_app_comments&id=$APP"); check "v20: создание пишет «Заявка создана»" "any(c.get('author')=='Система' and 'Заявка создана' in c.get('text','') for c in r.get('comments',[]))" "$R"
+REV=$(jget "$(get "$JI" "get_app&id=$APP")" "r['application']['updatedAt]")
+R=$(post "$JI" "$TI" save_app "{\"id\":\"$APP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"12 000\"}"); check "v20: save_app обновляет ставку" "r.get('application',{}).get('rate')=='12000'" "$R"
+R=$(get "$JI" "get_app_comments&id=$APP"); check "v20: смена ставки пишет системную запись" "any('Ставка заказчика' in c.get('text','') and '10000' in c.get('text','') for c in r.get('comments',[]))" "$R"
+R=$(post "$JI" "$TI" save_app "{\"id\":\"$APP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"13 000\",\"updatedAt\":$REV}"); check "v20: save_app со старой ревизией → конфликт" "r.get('error')=='Заявка изменена в другом месте'" "$R"
+R=$(post "$JP" "$TP" save_app "{\"id\":\"$APP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"1 000\"}"); check "v20: чужой save_app → Заявка не найдена" "r.get('error')=='Заявка не найдена'" "$R"
+R=$(post "$JI" "$TI" set_app_status "{\"id\":\"$APP\",\"status\":5}"); check "v20: статус вне 0/1/2 отклонён" "r.get('error')=='Неизвестный статус заявки'" "$R"
+R=$(post "$JI" "$TI" set_app_status "{\"id\":\"$APP\",\"status\":1}"); check "v20: статус 1 принят" "r.get('application',{}).get('status')==1" "$R"
+R=$(get "$JI" "get_app_comments&id=$APP"); check "v20: смена статуса пишет системную запись" "any('В работе' in c.get('text','') and 'Машина загрузилась' in c.get('text','') for c in r.get('comments',[]))" "$R"
+R=$(post "$JI" "$TI" set_app_status "{\"id\":\"$APP\",\"status\":1}"); check "v20: повторный тот же статус — не ошибка" "r.get('success') is True" "$R"
+R=$(get "$JI" "get_app_comments&id=$APP"); check "v20: повторный статус не плодит запись" "sum(1 for c in r.get('comments',[]) if 'Машина загрузилась' in c.get('text',''))==1" "$R"
+R=$(post "$JP" "$TP" set_app_status "{\"id\":\"$APP\",\"status\":2}"); check "v20: чужой set_app_status → Заявка не найдена" "r.get('error')=='Заявка не найдена'" "$R"
+R=$(upload "$JI" "$TI" -F app_id="$APP" -F text="запись в логе заявки" -F "files[]=@$TMP/t.png;filename=app.png" "$B?action=add_app_comment"); check "v20: add_app_comment с файлом" "r.get('success') is True" "$R"
+R=$(upload "$JP" "$TP" -F app_id="$APP" -F text="чужая запись" "$B?action=add_app_comment"); check "v20: чужой add_app_comment → Заявка не найдена" "r.get('error')=='Заявка не найдена'" "$R"
+R=$(get "$JI" "get_app_comments&id=$APP"); CMT=$(jget "$R" "[c['id'] for c in r['comments'] if c.get('text')=='запись в логе заявки'][0]"); AID=$(jget "$R" "[a['id'] for c in r['comments'] for a in c.get('attachments',[])][0]")
+R=$(post "$JP" "$TP" edit_app_comment "{\"id\":\"$CMT\",\"text\":\"хайджек\"}"); check "v20: чужой edit_app_comment → Комментарий не найден" "r.get('error')=='Комментарий не найден'" "$R"
+R=$(post "$JI" "$TI" edit_app_comment "{\"id\":\"$CMT\",\"text\":\"запись исправлена\"}"); check "v20: edit_app_comment правит свою" "r.get('success') is True" "$R"
+R=$(post "$JI" "$TI" delete_attachment "{\"id\":$AID,\"kind\":\"app\"}"); check "v20: delete_attachment kind=app удаляет файл заявки" "r.get('success') is True" "$R"
+R=$(post "$JI" "$TI" delete_app_comment "{\"id\":\"$CMT\"}"); check "v20: delete_app_comment удаляет свою" "r.get('success') is True" "$R"
+R=$(get "$JI" "get_app_comments&id=$APP"); check "v20: удалённая запись исчезла из лога" "all(c.get('id')!='$CMT' for c in r.get('comments',[]))" "$R"
+R=$(post "$JI" "$TI" delete_lead_app "{\"id\":\"$APP\"}"); check "v20: delete_lead_app удаляет" "r.get('success') is True" "$R"
+R=$(get "$JI" "get_app&id=$APP"); check "v20: удалённая заявка не читается" "r.get('error')=='Заявка не найдена'" "$R"
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LAPP\",\"cityFrom\":\"А\",\"cityTo\":\"Б\",\"rate\":\"1 000\"}"); ACAS=$(jget "$R" "r['application']['id']")
+upload "$JI" "$TI" -F app_id="$ACAS" -F text="лог каскада" -F "files[]=@$TMP/t.png;filename=cas.png" "$B?action=add_app_comment" >/dev/null
+post "$JI" "$TI" delete_lead "{\"id\":\"$LAPP\"}" >/dev/null
+R=$(get "$JA" integrity_check); check "v20: integrity_check без сирот лога заявок" "all(i[0] not in ('crm_app_comments','crm_app_attachments') for i in r.get('issues',[]))" "$R"
+
 # --- уборка ---------------------------------------------------------------
 post "$JI" "$TI" delete_lead "{\"id\":\"$LADM\"}" >/dev/null
 TP=$(login "$JP" "$B_EMAIL" "$B_PASS"); post "$JP" "$TP" delete_lead "{\"id\":\"$LA1\"}" >/dev/null; post "$JP" "$TP" delete_lead "{\"id\":\"$LB1\"}" >/dev/null
