@@ -239,7 +239,6 @@ function renderApps() {
       : '<span class="apps-dim">—</span>';
     const numCell = a.number ? esc(a.number) : '<span class="apps-dim">—</span>';
     const crate = fmtMoney(a.carrierRate);
-    const hasCVat = a.carrierVat !== null && a.carrierVat !== undefined && a.carrierVat !== '';
     tr.innerHTML = `<td class="apps-date">${esc(fmtTime(a.createdAt).slice(0, 10))}</td>`
       + `<td class="apps-num">${numCell}</td>`
       + `<td><span class="name-link" data-action="open-app-lead" data-id="${esc(a.leadId)}">${esc(a.leadTitle || '—')}</span>${a.leadInn ? `<div class="apps-sub">${esc(a.leadInn)}</div>` : ''}</td>`
@@ -248,7 +247,7 @@ function renderApps() {
       + `<td class="apps-money">${a.rate ? esc(fmtMoney(a.rate)) : '<span class="apps-dim">—</span>'}</td>`
       + `<td class="apps-vat">${esc(vatLabel(a.vat))}</td>`
       + `<td class="apps-money">${crate ? esc(crate) : '<span class="apps-dim">—</span>'}</td>`
-      + `<td class="apps-vat">${hasCVat ? esc(vatLabel(a.carrierVat)) : '<span class="apps-dim">—</span>'}</td>`
+      + `<td class="apps-vat">${esc(vatLabel(a.carrierVat))}</td>`
       + `<td class="apps-money">${a.margin ? esc(fmtMoney(a.margin)) : '<span class="apps-dim">—</span>'}</td>`;
     frag.appendChild(tr);
   });
