@@ -630,7 +630,7 @@
   .apps-search-input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(113,75,103,.1); }
   .apps-summary { font-size: 13px; font-weight: 600; color: var(--primary); white-space: nowrap; font-variant-numeric: tabular-nums; }
   .apps-table { min-width: 980px; }
-  .apps-table td { vertical-align: top; }
+  .apps-table td { vertical-align: middle; }
   .apps-table .th-money { text-align: right; }
   /* Строгая шапка реестра: мелкие кегль-капс заголовки вместо обычных */
   .apps-table thead th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
@@ -641,6 +641,24 @@
   .apps-num { white-space: nowrap; font-variant-numeric: tabular-nums; }
   .apps-vat { white-space: nowrap; color: var(--muted); }
   .apps-dim { color: var(--muted); }
+  .apps-seller { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .apps-avatar { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; font-size: 10px; font-weight: 700; color: #fff; flex: none; }
+  .apps-av0 { background: #7c5cbf; }
+  .apps-av1 { background: #3b82f6; }
+  .apps-av2 { background: #0ea5a4; }
+  .apps-av3 { background: #22a06b; }
+  .apps-av4 { background: #d97706; }
+  .apps-av5 { background: #e05252; }
+  .apps-av6 { background: #ec6ba8; }
+  .apps-av7 { background: #64748b; }
+  .app-status { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .app-status.st0 { background: #ececf1; color: #55565c; }
+  .app-status.st1 { background: #e0e9fd; color: #2f5fd0; }
+  .app-status.st2 { background: #dcf2e3; color: #1d7a3d; }
+  html[data-theme="dark"] .app-status.st0 { background: #2e313d; color: #b8bcc9; }
+  html[data-theme="dark"] .app-status.st1 { background: rgba(59,130,246,.22); color: #7fb0ff; }
+  html[data-theme="dark"] .app-status.st2 { background: rgba(34,197,94,.18); color: #5fd693; }
+  .apps-total { font-weight: 700; }
   .name-link[data-action="open-activity-client"] { cursor: pointer; color: var(--primary); }
   .name-link[data-action="open-activity-client"]:hover { text-decoration: underline; }
 

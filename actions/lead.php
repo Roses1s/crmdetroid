@@ -350,7 +350,7 @@ function crm_action_get_apps(PDO $pdo, array $user, int $viewUid): never {
         $tot = $pdo->prepare("SELECT COUNT(*) AS c, COALESCE(SUM(a.rate), 0) AS r, COALESCE(SUM(a.margin), 0) AS m FROM crm_lead_apps a JOIN crm_leads l ON l.id = a.lead_id WHERE $where");
         $tot->execute($params);
         $t = $tot->fetch() ?: ['c' => 0, 'r' => 0, 'm' => 0];
-        $st = $pdo->prepare("SELECT a.*, l.title AS lead_title, l.inn AS lead_inn FROM crm_lead_apps a JOIN crm_leads l ON l.id = a.lead_id WHERE $where ORDER BY a.created_at DESC, a.id DESC LIMIT 500");
+        $st = $pdo->prepare("SELECT a.*, l.title AS lead_title, l.inn AS lead_inn, u.name AS seller_name FROM crm_lead_apps a JOIN crm_leads l ON l.id = a.lead_id JOIN crm_users u ON u.id = l.user_id WHERE $where ORDER BY a.created_at DESC, a.id DESC LIMIT 500");
         $st->execute($params);
     } catch (PDOException $e) {
         crm_log_fail('get_apps', $e);
@@ -361,6 +361,7 @@ function crm_action_get_apps(PDO $pdo, array $user, int $viewUid): never {
         $row = crm_lead_app_to_api($r);
         $row['leadTitle'] = $r['lead_title'];
         $row['leadInn'] = $r['lead_inn'];
+        $row['sellerName'] = $r['seller_name'];
         $apps[] = $row;
     }
     ok([

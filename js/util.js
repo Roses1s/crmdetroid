@@ -1,7 +1,7 @@
 'use strict';
 // Утилиты без доменной логики: DOM-хелперы, экранирование, форматирование, маски ввода, Toast/Loading/Modal, prompt/confirm. Вынесено из app.js (план CODE_REVIEW п. 10.9). Файлы js/ — обычные скрипты (не модули): top-level объявления видны всем следующим <script> (порядок — в index.html).
 /* global UI */
-/* exported Loading, Theme, Toast, askConfirm, askPrompt, autoGrowComposer, closeImageLightbox, debounce, fmtBytes, fmtMoney, fmtTime, formatInnInput, formatMarginInput, isImageAtt, isValidEmail, moneyNum, moneyToInput, openImageLightbox, passwordError, plural, renderSaveStatus, safeAttUrl, setupPhoneMask, vatLabel, withLock */
+/* exported Loading, Theme, Toast, askConfirm, askPrompt, autoGrowComposer, closeImageLightbox, debounce, fmtBytes, fmtDateTime, fmtMoney, fmtMoneyKop, fmtTime, formatInnInput, formatMarginInput, isImageAtt, isValidEmail, moneyNum, moneyToInput, openImageLightbox, passwordError, plural, renderSaveStatus, safeAttUrl, setupPhoneMask, vatLabel, withLock */
 
 const Theme = {
   key: 'crm-theme',
@@ -261,6 +261,25 @@ function fmtMoney(s) {
   const frac = abs % 100;
   let out = String(int).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
   if (frac) out += ',' + String(frac).padStart(2, '0');
+  return (neg ? '-' : '') + out;
+}
+
+// Дата-время с секундами для реестра заявок («12.08.2026 11:55:53», как в Odoo).
+// fmtTime (без секунд, с запятой) не трогаем — он используется в других местах.
+const fmtDateTime = ts => new Date(ts).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' }).replace(',', '');
+
+// Деньги всегда с копейками («5 737,70») для колонок Маржа/Всего в реестре.
+// fmtMoney (без «,00») не трогаем — он используется в других местах.
+function fmtMoneyKop(s) {
+  const raw = String(s ?? '').replace(/\s/g, '');
+  if (!raw) return '';
+  const n = moneyNum(raw);
+  const parts = Math.round(n * 100);
+  const neg = parts < 0;
+  const abs = Math.abs(parts);
+  const int = Math.floor(abs / 100);
+  const frac = abs % 100;
+  const out = String(int).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ',' + String(frac).padStart(2, '0');
   return (neg ? '-' : '') + out;
 }
 

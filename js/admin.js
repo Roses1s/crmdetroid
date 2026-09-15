@@ -1,6 +1,6 @@
 'use strict';
 // Админ-зона: список сотрудников (вкладка «Сотрудники»), удаление с передачей лидов, вкладка «Активность клиентов». Вынесено из app.js (план CODE_REVIEW п. 10.9).
-/* global $, Loading, Modal, Net, Store, Toast, esc, fmtMoney, fmtTime, plural, vatLabel */
+/* global $, APP_STATUS_LABELS, Loading, Modal, Net, Store, Toast, esc, fmtDateTime, fmtMoney, fmtMoneyKop, plural */
 /* exported activityShiftYear, confirmDeleteUser, loadApps, openDeleteUser, setActivityUser, setAppsQuery, setAppsUser, usersTableBusy */
 
 let _usersCache = [];
@@ -206,6 +206,19 @@ async function loadApps() {
   }
 }
 
+// Название организации в колонке «Компания» реестра заявок: одно на все строки
+// (как в Odoo). Меняется одной строкой.
+const APPS_COMPANY = 'Детроид';
+
+// Инициалы + детерминированный цвет аватара продавца (8 классов apps-av0..7).
+function sellerAvatar(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  const initials = parts.slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
+  let h = 0;
+  for (const ch of String(name || '')) h = (h + ch.codePointAt(0)) % 8;
+  return `<span class="apps-avatar apps-av${h}">${esc(initials)}</span>`;
+}
+
 function renderApps() {
   renderEmployeeSelect($('#apps-employee'), _appsUserId || Store.state.user?.id);
   const res = _appsCache;
@@ -226,29 +239,29 @@ function renderApps() {
   if (!tbody) return;
   const apps = res?.apps || [];
   if (!apps.length) {
-    tbody.innerHTML = `<tr><td colspan="10" class="cell-muted">${_appsQuery ? 'Ничего не найдено' : 'Пока нет заявок'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="cell-muted">${_appsQuery ? 'Ничего не найдено' : 'Пока нет заявок'}</td></tr>`;
     return;
   }
   tbody.innerHTML = '';
   const frag = document.createDocumentFragment();
   apps.forEach(a => {
     const tr = document.createElement('tr');
-    const route = (a.cityFrom || a.cityTo) ? `<span class="name-link" data-action="open-app" data-id="${esc(a.id)}" data-leadid="${esc(a.leadId)}">${esc(a.cityFrom || '?')} → ${esc(a.cityTo || '?')}</span>` : '<span class="apps-dim">—</span>';
-    const carrier = a.carrierCompany
-      ? `${esc(a.carrierCompany)}${a.carrierInn ? `<div class="apps-sub">${esc(a.carrierInn)}</div>` : ''}`
+    const numCell = a.number
+      ? `<span class="name-link" data-action="open-app" data-id="${esc(a.id)}" data-leadid="${esc(a.leadId)}">${esc(a.number)}</span>`
       : '<span class="apps-dim">—</span>';
-    const numCell = a.number ? esc(a.number) : '<span class="apps-dim">—</span>';
-    const crate = fmtMoney(a.carrierRate);
-    tr.innerHTML = `<td class="apps-date">${esc(fmtTime(a.createdAt).slice(0, 10))}</td>`
-      + `<td class="apps-num">${numCell}</td>`
-      + `<td><span class="name-link" data-action="open-app-lead" data-id="${esc(a.leadId)}">${esc(a.leadTitle || '—')}</span>${a.leadInn ? `<div class="apps-sub">${esc(a.leadInn)}</div>` : ''}</td>`
-      + `<td>${route}</td>`
-      + `<td>${carrier}</td>`
-      + `<td class="apps-money">${a.rate ? esc(fmtMoney(a.rate)) : '<span class="apps-dim">—</span>'}</td>`
-      + `<td class="apps-vat">${esc(vatLabel(a.vat))}</td>`
-      + `<td class="apps-money">${crate ? esc(crate) : '<span class="apps-dim">—</span>'}</td>`
-      + `<td class="apps-vat">${esc(vatLabel(a.carrierVat))}</td>`
-      + `<td class="apps-money">${a.margin ? esc(fmtMoney(a.margin)) : '<span class="apps-dim">—</span>'}</td>`;
+    const clientCell = `<span class="name-link" data-action="open-app-lead" data-id="${esc(a.leadId)}">${esc(a.leadTitle || '—')}${a.leadInn ? ` - ${esc(a.leadInn)}` : ''}</span>`;
+    const sti = (a.status >= 0 && a.status <= 2) ? a.status : 0;
+    const statusCell = `<span class="app-status st${sti}">${esc(APP_STATUS_LABELS[sti])}</span>`;
+    const marginCell = a.margin ? esc(fmtMoneyKop(a.margin)) : '<span class="apps-dim">—</span>';
+    const totalCell = a.rate ? `${esc(fmtMoneyKop(a.rate))} руб` : '<span class="apps-dim">—</span>';
+    tr.innerHTML = `<td class="apps-num">${numCell}</td>`
+      + `<td class="apps-date">${esc(fmtDateTime(a.createdAt))}</td>`
+      + `<td>${esc(APPS_COMPANY)}</td>`
+      + `<td><span class="apps-seller">${sellerAvatar(a.sellerName)}${esc(a.sellerName || '—')}</span></td>`
+      + `<td>${clientCell}</td>`
+      + `<td>${statusCell}</td>`
+      + `<td class="apps-money">${marginCell}</td>`
+      + `<td class="apps-money apps-total">${totalCell}</td>`;
     frag.appendChild(tr);
   });
   tbody.appendChild(frag);
