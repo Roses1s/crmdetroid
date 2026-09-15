@@ -77,11 +77,12 @@ ServerSignature Off
     Header set Content-Type "text/css; charset=utf-8"
   </FilesMatch>
   # index.html — входная точка со ссылками ?v=fixNN: кэшировать нельзя, иначе даже
-  перезагрузка по баннеру «Вышло обновление» может отдать старые версии скриптов.
-  Сам index.html крошечный, нагрузку no-cache не создаёт.
-  <Files "index.html">
+  # перезагрузка по баннеру «Вышло обновление» может отдать старые версии скриптов.
+  # Сам index.html крошечный, нагрузку no-cache не создаёт.
+  # Форма FilesMatch (а не Files) — как у остальных правил файла: на проде проверена.
+  <FilesMatch "^index\.html$">
     Header set Cache-Control "no-cache, must-revalidate"
-  </Files>
+  </FilesMatch>
   Header unset Server
   Header always unset Server
   Header unset X-Powered-By
