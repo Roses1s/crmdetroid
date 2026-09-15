@@ -1,7 +1,7 @@
 'use strict';
 // Лиды: доска (renderBoard), карточка лида, заявки лида (модалка, статистика), лог комментариев с вложениями (общий рендер renderLogInto используют и перевозчики), автосохранение формы. Вынесено из app.js (план CODE_REVIEW п. 10.9).
 /* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, saveCarrierForm, setupPhoneMask, vatLabel */
-/* exported addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, loadAppComments, openApp, openLeadAppModal, openLeadTagsModal, pickTagColor, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, resetBoardCache, saveAppDebounced, saveAppForm, saveLeadAppFromModal, submitLeadTags, syncLeadAppCache, toggleTagInModal, updateAppSaveUI, updateLeadSaveUI */
+/* exported addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, loadAppComments, openApp, openLeadAppModal, openLeadTagsModal, pickTagColor, refreshAppLog, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, resetBoardCache, saveAppDebounced, saveAppForm, saveLeadAppFromModal, submitLeadTags, syncLeadAppCache, toggleTagInModal, updateAppSaveUI, updateLeadSaveUI */
 
 function renderAttHtml(a, c) {
   const raw = String(a.dataUrl || '');
@@ -731,7 +731,7 @@ async function openApp(id, updateHash = true) {
   // или повторный клик): форму не трогаем, иначе ввод затирался бы серверной версией.
   // Ревизия при этом остаётся старой — следующее сохранение честно конфликтнёт.
   // Лог при этом живой, как в лиде: обновляем независимо от грязи формы.
-  if (UI.formDirty && UI.appId === id) { await loadAppComments(id); renderAppLog(); return; }
+  if (UI.formDirty && UI.appId === id) { await refreshAppLog(); return; }
   UI.leadId = null; UI.routeId = null; UI.carrierId = null; UI.carrierComments = [];
   UI.appId = id; UI.currentView = 'app';
   UI.pendingFiles = []; UI.formDirty = false; UI.editingCommentId = null;
@@ -806,6 +806,16 @@ async function loadAppComments(id) {
 
 function renderAppLog() { renderLogInto($('#app-chatter-log'), UI.appComments || []); }
 
+// Обновление лога после действий, пишущих системные записи (смена статуса,
+// сохранение формы): данные — всегда, перерисовка — кроме момента правки
+// комментария (renderLogInto пересоздаёт редактор с серверным текстом
+// и съел бы набранное; лог подтянется следующим поллингом).
+async function refreshAppLog() {
+  if (!UI.appId) return;
+  await loadAppComments(UI.appId);
+  if (UI.currentView === 'app' && !UI.editingCommentId) renderAppLog();
+}
+
 let _appSaveChain = Promise.resolve();
 
 // Сохранение карточки заявки: цепочка, оптимистическая блокировка по UI.appRev.
@@ -859,6 +869,9 @@ async function saveAppForm(_sync = false, keepalive = false) {
       UI.appRev = res.application.updatedAt;
       syncLeadAppCache(UI.appLeadId, res);
       updateAppCrumb(res.application);
+      // Сохранение могло записать системные записи (ставки/перевозчик) —
+      // подтягиваем лог сразу, без обновления страницы.
+      await refreshAppLog();
       if (UI.currentView === 'app') updateAppSaveUI('saved', Date.now());
     } else if (res && res.success === false) {
       Toast.error(res.error || 'Ошибка');
