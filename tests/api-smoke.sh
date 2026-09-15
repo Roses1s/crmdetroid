@@ -334,16 +334,15 @@ post "$JI" "$TI" delete_lead "{\"id\":\"$L409\"}" >/dev/null
 # Тот же приём, что перед §14/§15.
 TI=$(login "$JI" "$A_EMAIL" "$A_PASS")
 R=$(post "$JI" "$TI" save_lead '{"title":"Smoke заявка"}'); LAPP=$(jget "$R" "r['id']")
-R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LAPP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"10 000\",\"number\":\"SMK-A\"}"); APP=$(jget "$R" "r['application']['id']")
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LAPP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"10 000\",\"number\":\"SMK-A\"}"); APP=$(jget "$R" "r['application']['id']"); REV0=$(jget "$R" "r['application']['updatedAt']")
 check "v20: новая заявка со статусом 0" "r.get('application',{}).get('status')==0" "$R"
 R=$(get "$JI" "get_app&id=$APP"); check "v20: get_app отдаёт заявку и название лида" "r.get('application',{}).get('id')=='$APP' and r.get('leadTitle')=='Smoke заявка'" "$R"
 R=$(get "$JP" "get_app&id=$APP"); check "v20: чужой get_app → Заявка не найдена" "r.get('error')=='Заявка не найдена'" "$R"
 R=$(get "$JI" "get_lead&id=$LAPP"); check "v20: заявки лида содержат status" "all('status' in a for a in r['lead'].get('applications',[]))" "$R"
 R=$(get "$JI" "get_app_comments&id=$APP"); check "v20: создание пишет «Заявка создана»" "any(c.get('author')=='Система' and 'Заявка создана' in c.get('text','') for c in r.get('comments',[]))" "$R"
-REV=$(jget "$(get "$JI" "get_app&id=$APP")" "r['application']['updatedAt]")
 R=$(post "$JI" "$TI" save_app "{\"id\":\"$APP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"12 000\"}"); check "v20: save_app обновляет ставку" "r.get('application',{}).get('rate')=='12000'" "$R"
 R=$(get "$JI" "get_app_comments&id=$APP"); check "v20: смена ставки пишет системную запись" "any('Ставка заказчика' in c.get('text','') and '10000' in c.get('text','') for c in r.get('comments',[]))" "$R"
-R=$(post "$JI" "$TI" save_app "{\"id\":\"$APP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"13 000\",\"updatedAt\":$REV}"); check "v20: save_app со старой ревизией → конфликт" "r.get('error')=='Заявка изменена в другом месте'" "$R"
+R=$(post "$JI" "$TI" save_app "{\"id\":\"$APP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"13 000\",\"updatedAt\":$REV0}"); check "v20: save_app со старой ревизией → конфликт" "r.get('error')=='Заявка изменена в другом месте'" "$R"
 R=$(post "$JP" "$TP" save_app "{\"id\":\"$APP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"1 000\"}"); check "v20: чужой save_app → Заявка не найдена" "r.get('error')=='Заявка не найдена'" "$R"
 R=$(post "$JI" "$TI" set_app_status "{\"id\":\"$APP\",\"status\":5}"); check "v20: статус вне 0/1/2 отклонён" "r.get('error')=='Неизвестный статус заявки'" "$R"
 R=$(post "$JI" "$TI" set_app_status "{\"id\":\"$APP\",\"status\":1}"); check "v20: статус 1 принят" "r.get('application',{}).get('status')==1" "$R"
