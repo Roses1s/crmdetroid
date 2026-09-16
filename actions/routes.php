@@ -47,7 +47,6 @@ function crm_action_save_direction(PDO $pdo, array $user, int $viewUid): never {
             throw $e;
         }
     }
-    crm_meta_bump($pdo, 'routes');
     ok(['id' => $id]);
 }
 
@@ -75,7 +74,6 @@ function crm_action_delete_direction(PDO $pdo, array $user, int $viewUid): never
         err('Не удалось удалить');
     }
     crm_unlink_urls($urls);
-    crm_meta_bump($pdo, 'routes');
     // Каскадное удаление (перевозчики, логи, файлы) — след в аудите обязателен.
     crm_audit($pdo, $user, 'direction_delete', $id, (string) $dir['city_from'] . ' → ' . (string) $dir['city_to']);
     ok();
@@ -134,7 +132,6 @@ function crm_action_save_carrier(PDO $pdo, array $user, int $viewUid): never {
         $upd->execute([$name, $phone, $company, $note, $now, $id, $rev]);
         if ($upd->rowCount() === 0) err('Карточка изменена в другом месте');
     }
-    crm_meta_bump($pdo, 'routes');
     ok(['id' => $id, 'updatedAt' => $now]);
 }
 
@@ -145,7 +142,6 @@ function crm_action_delete_carrier(PDO $pdo, array $user, int $viewUid): never {
     if (!$car) err('Контакт не найден');
     if (!can_manage_ref($user, $car)) err('Удалить перевозчика может тот, кто его добавил, или администратор');
     crm_purge_carrier($pdo, $id);
-    crm_meta_bump($pdo, 'routes');
     // Удаление с логом и файлами — след в аудите обязателен.
     crm_audit($pdo, $user, 'carrier_delete', $id, (string) $car['name']);
     ok();
@@ -182,7 +178,6 @@ function crm_action_add_carrier_comment(PDO $pdo, array $user, int $viewUid): ne
     if (!crm_carrier_by_id($pdo, $carrierId)) err('Контакт не найден');
     crm_apply_comment_add($pdo, 'crm_carrier_comments', 'crm_carrier_attachments', 'carrier_id', $carrierId, $text, $user, 'cc_', 'add_carrier_comment');
     $rev = crm_touch_carrier($pdo, $carrierId);
-    crm_meta_bump($pdo, 'routes');
     ok(['updatedAt' => $rev]);
 }
 
@@ -193,7 +188,6 @@ function crm_action_edit_carrier_comment(PDO $pdo, array $user, int $viewUid): n
     if (!can_edit_comment($user, $c)) err('Нет прав');
     crm_apply_comment_edit($pdo, $cid, $text, 'crm_carrier_comments', 'crm_carrier_attachments', 'edit_carrier_comment');
     $rev = crm_touch_carrier($pdo, (string) $c['carrier_id']);
-    crm_meta_bump($pdo, 'routes');
     ok(['updatedAt' => $rev]);
 }
 
@@ -205,6 +199,5 @@ function crm_action_delete_carrier_comment(PDO $pdo, array $user, int $viewUid):
     if (!can_delete_comment($user, $c)) err('Нет прав');
     $rev = crm_apply_comment_delete($pdo, $cid, 'crm_carrier_comments', 'crm_carrier_attachments', 'delete_carrier_comment',
         static fn () => crm_touch_carrier($pdo, (string) $c['carrier_id']));
-    crm_meta_bump($pdo, 'routes');
     ok(['updatedAt' => $rev]);
 }

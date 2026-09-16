@@ -250,7 +250,9 @@ function vatLabel(v) {
   return `НДС ${v}%`;
 }
 
-function fmtMoney(s) {
+// alwaysKop — всегда показывать копейки («5 737,70»), для колонок Маржа/Всего
+// в реестре. По умолчанию копейки прячутся — так ждут остальные места.
+function fmtMoney(s, alwaysKop = false) {
   const raw = String(s ?? '').replace(/\s/g, '');
   if (!raw) return '';
   const n = moneyNum(raw);
@@ -260,7 +262,7 @@ function fmtMoney(s) {
   const int = Math.floor(abs / 100);
   const frac = abs % 100;
   let out = String(int).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-  if (frac) out += ',' + String(frac).padStart(2, '0');
+  if (frac || alwaysKop) out += ',' + String(frac).padStart(2, '0');
   return (neg ? '-' : '') + out;
 }
 
@@ -268,19 +270,9 @@ function fmtMoney(s) {
 // fmtTime (без секунд, с запятой) не трогаем — он используется в других местах.
 const fmtDateTime = ts => new Date(ts).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' }).replace(',', '');
 
-// Деньги всегда с копейками («5 737,70») для колонок Маржа/Всего в реестре.
-// fmtMoney (без «,00») не трогаем — он используется в других местах.
+// Деньги всегда с копейками — короткое имя для реестра (ревью §26, F7).
 function fmtMoneyKop(s) {
-  const raw = String(s ?? '').replace(/\s/g, '');
-  if (!raw) return '';
-  const n = moneyNum(raw);
-  const parts = Math.round(n * 100);
-  const neg = parts < 0;
-  const abs = Math.abs(parts);
-  const int = Math.floor(abs / 100);
-  const frac = abs % 100;
-  const out = String(int).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ',' + String(frac).padStart(2, '0');
-  return (neg ? '-' : '') + out;
+  return fmtMoney(s, true);
 }
 
 function moneyToInput(s) {

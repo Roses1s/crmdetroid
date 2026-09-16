@@ -216,7 +216,7 @@ function sellerAvatar(name) {
   const initials = parts.slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
   let h = 0;
   for (const ch of String(name || '')) h = (h + ch.codePointAt(0)) % 8;
-  return `<span class="apps-avatar apps-av${h}">${esc(initials)}</span>`;
+  return `<span class="apps-avatar apps-av${h}" aria-hidden="true">${esc(initials)}</span>`;
 }
 
 function renderApps() {
@@ -246,9 +246,10 @@ function renderApps() {
   const frag = document.createDocumentFragment();
   apps.forEach(a => {
     const tr = document.createElement('tr');
+    // Без номера — «Открыть»: иначе карточку заявки из реестра не открыть в 1 клик (ревью §26, F1).
     const numCell = a.number
       ? `<span class="name-link" data-action="open-app" data-id="${esc(a.id)}" data-leadid="${esc(a.leadId)}">${esc(a.number)}</span>`
-      : '<span class="apps-dim">—</span>';
+      : `<span class="name-link" data-action="open-app" data-id="${esc(a.id)}" data-leadid="${esc(a.leadId)}">Открыть</span>`;
     const clientCell = `<span class="name-link" data-action="open-app-lead" data-id="${esc(a.leadId)}">${esc(a.leadTitle || '—')}${a.leadInn ? ` - ${esc(a.leadInn)}` : ''}</span>`;
     const sti = (a.status >= 0 && a.status <= 2) ? a.status : 0;
     const statusCell = `<span class="app-status st${sti}">${esc(APP_STATUS_LABELS[sti])}</span>`;

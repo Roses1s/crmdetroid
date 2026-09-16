@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS crm_carriers (
   updated_at BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
   KEY idx_dir (direction_id),
+  KEY idx_dir_inn (direction_id, inn),
   CONSTRAINT fk_carriers_direction FOREIGN KEY (direction_id) REFERENCES crm_directions (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

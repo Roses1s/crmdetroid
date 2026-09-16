@@ -73,7 +73,6 @@ function crm_action_delete_attachment(PDO $pdo, array $user, int $viewUid): neve
         $rev = crm_touch_app($pdo, (string) $row['owner_id']);
     } else {
         $rev = crm_touch_carrier($pdo, (string) $row['owner_id']);
-        crm_meta_bump($pdo, 'routes');
     }
     crm_unlink_upload((string) ($row['data_url'] ?? ''));
     ok(['updatedAt' => $rev]);

@@ -125,7 +125,7 @@ function crm_meta_get(PDO $pdo, string $k): string {
 function crm_meta_bump(PDO $pdo, string $k): void {
     // 'tags_<uid>' — счётчик изменений тегов сотрудника (v17): любое изменение
     // справочника или привязок меняет hash доски в get_data → клиенты перечитывают.
-    if ($k !== 'routes' && $k !== 'users' && !preg_match('/^tags_\d{1,10}$/', $k)) return;
+    if ($k !== 'users' && !preg_match('/^tags_\d{1,10}$/', $k)) return;
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = CAST(v AS UNSIGNED) + 1')
             ->execute([$k, '1']);
@@ -330,29 +330,28 @@ function crm_direction_by_id(PDO $pdo, string $id): ?array {
 /**
  * Тихое дублирование маршрута новой заявки в справочник направлений: пара есть —
  * возвращаем её id, нет — создаём (автор — создатель заявки, как при ручном
- * добавлении) и возвращаем [id, true]. Гонка параллельных созданий гасится
- * uq_dir (1062) — заявка при этом сохраняется штатно.
- * Вызывать ВНУТРИ транзакции save_lead_app; meta-бамп — снаружи, по флагу.
+ * добавлении) и возвращаем [id, true]. Гонка гасится повтором (до 2 попыток):
+ * 1062 — это либо чужой uq_dir (повторный SELECT найдёт), либо коллизия
+ * случайного id (повторный INSERT с новым id пройдёт). Исчерпали — исключение
+ * наружу, save_lead_app откатит транзакцию (ревью §26, F3).
+ * Вызывать ВНУТРИ транзакции save_lead_app.
  * @return array{string,bool} [directionId, created]
  */
 function crm_ensure_direction(PDO $pdo, string $from, string $to, int $uid): array {
     $st = $pdo->prepare('SELECT id FROM crm_directions WHERE city_from = ? AND city_to = ?');
-    $st->execute([$from, $to]);
-    $found = $st->fetchColumn();
-    if ($found) return [(string) $found, false];
-    $id = crm_new_id($pdo, 'd_', 'crm_directions');
-    try {
-        $pdo->prepare('INSERT INTO crm_directions (id, city_from, city_to, created_by, created_at) VALUES (?,?,?,?,?)')
-            ->execute([$id, $from, $to, $uid, now_ms()]);
-    } catch (PDOException $e) {
-        // Гонка: пару создали между SELECT и INSERT — забираем чужой id, заявка сохраняется
-        if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
-            $st->execute([$from, $to]);
-            return [(string) $st->fetchColumn(), false];
+    for ($try = 0; ; $try++) {
+        $st->execute([$from, $to]);
+        $found = $st->fetchColumn();
+        if ($found) return [(string) $found, false];
+        $id = crm_new_id($pdo, 'd_', 'crm_directions');
+        try {
+            $pdo->prepare('INSERT INTO crm_directions (id, city_from, city_to, created_by, created_at) VALUES (?,?,?,?,?)')
+                ->execute([$id, $from, $to, $uid, now_ms()]);
+            return [$id, true];
+        } catch (PDOException $e) {
+            if ((int) ($e->errorInfo[1] ?? 0) !== 1062 || $try > 0) throw $e;
         }
-        throw $e;
     }
-    return [$id, true];
 }
 
 /**
@@ -363,7 +362,7 @@ function crm_ensure_direction(PDO $pdo, string $from, string $to, int $uid): arr
  * Пустой перевозчик (все четыре поля пустые) — [null, false], ничего не пишем.
  * Имя обязательно (как в save_carrier): пустое подменяем компанией, телефоном,
  * в крайнем случае «ИНН …», иначе строка без названия.
- * Вызывать ВНУТРИ транзакции save_lead_app; meta-бамп — снаружи, по флагу.
+ * Вызывать ВНУТРИ транзакции save_lead_app.
  * @return array{string|null,bool} [carrierId|null, created]
  */
 function crm_ensure_carrier(PDO $pdo, string $dirId, array $f, int $uid): array {
