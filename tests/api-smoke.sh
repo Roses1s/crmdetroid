@@ -67,6 +67,7 @@ LJUNK=$(jget "$R" "r['id']"); post "$JI" "$TI" delete_lead "{\"id\":\"$LJUNK\"}"
 R=$(post "$JI" "$TI" save_lead '{"id":"../../evil","title":"Smoke A1","inn":"7701234567"}')
 LA1=$(jget "$R" "r['id']"); check "клиентский id игнорируется, сервер выдал свой (l_hex)" "r.get('id','').startswith('l_') and len(r['id'])==14" "$R"
 R=$(post "$JP" "$TP" save_lead '{"title":"Smoke B1","inn":"7809876543"}'); LB1=$(jget "$R" "r['id']")
+R=$(get "$JI" "get_clients"); check "§34: общий реестр видит чужих без контактов" "any(c.get('title')=='Smoke B1' and c.get('owner')=='$B_NAME' and c.get('mine') is False for c in r.get('clients',[])) and any(c.get('title')=='Smoke A1' and c.get('mine') is True for c in r.get('clients',[])) and all('phone' not in c and 'logistPhone' not in c and 'email' not in c for c in r.get('clients',[])) and r.get('total',0)>=2" "$R"
 R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LB1\",\"title\":\"hijack\"}"); check "чужой лид через save_lead → Лид не найден" "r.get('error')=='Лид не найден'" "$R"
 
 # --- 2а. Код АТИ и Имя логиста при создании лида ---------------------------

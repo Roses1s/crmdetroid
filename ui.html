@@ -23,6 +23,14 @@
           <path d="M16.5 12.4c-.6 0-1.2.1-1.7.3 1.1.8 1.7 1.9 1.7 3.3V18h4v-1.8c0-1.6-1.9-2.8-4-2.8z"/>
         </svg>
       </div>
+      <div class="tile-title">Лиды</div>
+    </a>
+    <a class="tile" data-action="go-clients" href="/clients">
+      <div class="tile-icon tile-icon-companies">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd" d="M5 3h11a1 1 0 0 1 1 1v17h-2.5v-2.5h-6V21H4V4a1 1 0 0 1 1-1zM7 7h2v2H7zM11 7h2v2h-2zM7 11h2v2H7zM11 11h2v2h-2z"/>
+        </svg>
+      </div>
       <div class="tile-title">Клиенты</div>
     </a>
     <a class="tile" data-action="go-routes" href="/routes">
@@ -85,6 +93,20 @@
     <div></div>
   </div>
   <div class="kanban-board" id="board"></div>
+</section>
+
+<section id="clients-view" class="view-section">
+  <div class="breadcrumb"><a data-action="go-home">CRM / Лиды</a><span>/</span><b>Клиенты</b></div>
+  <div class="toolbar">
+    <div class="board-search" id="clients-search-wrap">
+      <div class="board-search-field">
+        <input type="text" id="clients-search" placeholder="Фильтр по названию или ИНН" autocomplete="off" spellcheck="false">
+        <button type="button" class="search-clear" id="clients-search-clear" title="Очистить" aria-label="Очистить">×</button>
+      </div>
+    </div>
+    <span class="clients-count" id="clients-count"></span>
+  </div>
+  <div class="clients-grid" id="clients-grid"></div>
 </section>
 
 <section id="detail-view" class="view-section view-paper">

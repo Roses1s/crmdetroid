@@ -10,7 +10,7 @@
  *   actions/auth.php    — csrf, login, logout, check_auth, file. Выполняются ДО общего
  *                         middleware ($user/$viewUid ещё нет), поэтому сигнатура другая:
  *                         crm_action_xxx(PDO $pdo, bool $hasSess): never
- *   actions/lead.php    — save_lead, move_lead, delete_lead, get_lead, get_data, get_activity,
+ *   actions/lead.php    — save_lead, move_lead, delete_lead, get_lead, get_data, get_clients, get_activity,
  *                         save_lead_app, delete_lead_app
  *   actions/app.php     — get_app, get_app_comments, save_app, set_app_status,
  *                         add_app_comment, edit_app_comment, delete_app_comment (v20)
@@ -545,7 +545,7 @@ if (crm_session_throttled()) err('Слишком много запросов. П
 
 // Только чтение — разрешён GET. Всё остальное меняет данные: строго POST + CSRF-токен.
 // (Раньше мутация проходила и по GET без CSRF — например, GET save_lead создавал пустой лид.)
-$readActions = ['ui', 'me', 'whoami', 'get_data', 'get_lead', 'get_comments', 'search_leads', 'get_directions', 'get_carriers', 'get_carrier', 'get_users', 'integrity_check', 'get_activity', 'get_apps', 'get_audit', 'get_app', 'get_app_comments'];
+$readActions = ['ui', 'me', 'whoami', 'get_data', 'get_clients', 'get_lead', 'get_comments', 'search_leads', 'get_directions', 'get_carriers', 'get_carrier', 'get_users', 'integrity_check', 'get_activity', 'get_apps', 'get_audit', 'get_app', 'get_app_comments'];
 if (!in_array($action, $readActions, true)) {
     if ($method !== 'POST') err('Метод не поддерживается: нужен POST');
     require_csrf();
@@ -640,6 +640,7 @@ switch ($action) {
     case 'delete_carrier_comment': crm_action_delete_carrier_comment($pdo, $user, $viewUid);
 
     case 'get_data': crm_action_get_data($pdo, $user, $viewUid);
+    case 'get_clients': crm_action_get_clients($pdo, $user, $viewUid);
 
     case 'save_lead': crm_action_save_lead($pdo, $user, $viewUid);
 

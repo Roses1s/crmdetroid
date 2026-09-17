@@ -1,7 +1,7 @@
 'use strict';
 // Лиды: доска (renderBoard), карточка лида, заявки лида (модалка, статистика), лог комментариев с вложениями (общий рендер renderLogInto используют и перевозчики), автосохранение формы. Вынесено из app.js (план CODE_REVIEW п. 10.9).
 /* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, saveCarrierForm, setupPhoneMask, vatLabel */
-/* exported APP_STATUS_LABELS, addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, loadAppComments, openApp, openLeadAppModal, openLeadTagsModal, pickTagColor, refreshAppLog, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, resetBoardCache, saveAppDebounced, saveAppForm, saveLeadAppFromModal, submitLeadTags, syncLeadAppCache, toggleTagInModal, updateAppSaveUI, updateLeadSaveUI */
+/* exported APP_STATUS_LABELS, addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, initClientsEvents, loadAppComments, loadClients, openApp, openLeadAppModal, openLeadTagsModal, pickTagColor, refreshAppLog, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, resetBoardCache, saveAppDebounced, saveAppForm, saveLeadAppFromModal, submitLeadTags, syncLeadAppCache, toggleTagInModal, updateAppSaveUI, updateLeadSaveUI */
 
 function renderAttHtml(a, c) {
   const raw = String(a.dataUrl || '');
@@ -677,6 +677,48 @@ function renderBoard() {
   });
   const add = document.createElement('div'); add.className = 'add-column'; add.textContent = '+ Добавить этап'; add.dataset.action = 'add-stage'; frag.appendChild(add);
   board.appendChild(frag);
+}
+
+/* === ОБЩИЙ РЕЕСТР «КЛИЕНТЫ» (§34) === */
+// Все лиды всех менеджеров, но БЕЗ контактов: название + ИНН + владелец на hover.
+// Свои карточки кликабельны (mine с сервера), чужие — статичны.
+let _clientsCache = [];
+let _clientsTotal = 0;
+
+async function loadClients() {
+  const res = await Net.req('get_clients', {});
+  _clientsCache = res?.success ? (res.clients || []) : [];
+  _clientsTotal = res?.success ? (res.total || 0) : 0;
+  renderClients();
+}
+
+function clientIconSvg(title) {
+  const isPerson = /^ип\s/i.test((title || '').trim());
+  if (isPerson) return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="7.5" r="3.5"/><path d="M12 12.8c-4 0-7 2-7 4.5V19h14v-1.7c0-2.5-3-4.5-7-4.5z"/></svg>';
+  return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5 3h11a1 1 0 0 1 1 1v17h-2.5v-2.5h-6V21H4V4a1 1 0 0 1 1-1zM7 7h2v2H7zM11 7h2v2h-2zM7 11h2v2H7zM11 11h2v2h-2z"/></svg>';
+}
+
+function renderClients() {
+  if (UI.currentView !== 'clients') return;
+  const grid = $('#clients-grid'); if (!grid) return;
+  const q = ($('#clients-search')?.value || '').trim().toLowerCase();
+  const list = _clientsCache.filter(c => !q || c.title.toLowerCase().includes(q) || c.inn.toLowerCase().includes(q));
+  grid.innerHTML = list.map(c => {
+    const innLine = c.inn ? `ИНН ${esc(c.inn)}` : '';
+    const ownerTip = c.mine ? `${c.owner} (ваш лид)` : c.owner;
+    return `<div class="client-card${c.mine ? ' mine' : ''}" data-id="${esc(c.id)}" data-owner="${esc(ownerTip)}"><div class="client-icon">${clientIconSvg(c.title)}</div><div class="client-body"><div class="client-title">${esc(c.title)}</div><div class="client-inn">${innLine}</div></div></div>`;
+  }).join('');
+  const cnt = $('#clients-count');
+  if (cnt) cnt.textContent = _clientsTotal > _clientsCache.length ? `Показаны ${_clientsCache.length} из ${_clientsTotal}` : `Всего: ${_clientsTotal}`;
+}
+
+function initClientsEvents() {
+  $('#clients-search')?.addEventListener('input', renderClients);
+  $('#clients-search-clear')?.addEventListener('click', () => { const i = $('#clients-search'); if (i) { i.value = ''; renderClients(); } });
+  $('#clients-grid')?.addEventListener('click', e => {
+    const card = e.target.closest('.client-card.mine');
+    if (card) openLead(card.dataset.id, true);
+  });
 }
 
 function renderDetailStages() {

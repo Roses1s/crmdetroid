@@ -1,5 +1,5 @@
 'use strict';
-/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeLeadTagsModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadAppComments, loadLeadComments, loadRoutes, loadUsers, openApp, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, refreshAppLog, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveAppDebounced, saveAppForm, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, syncLeadAppCache, updateAppSaveUI, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
+/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeLeadTagsModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initClientsEvents, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadAppComments, loadClients, loadLeadComments, loadRoutes, loadUsers, openApp, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, refreshAppLog, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveAppDebounced, saveAppForm, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, syncLeadAppCache, updateAppSaveUI, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
 /* exported syncAdminNav, updateSearchPlaceholder */
 
 const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], appId: null, appRev: null, appLeadId: null, appLeadTitle: '', appComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
@@ -105,7 +105,7 @@ function currentRoute() {
   const h = location.hash.replace(/^#/, '');
   // Закладка старого формата (#lead/abc) — маршрут берём из hash и молча переписываем URL на новый вид.
   // Якоря как в .htaccess: #kanbanfoo — не маршрут, а обычный якорь, его не трогаем.
-  if (h && /^((kanban|dashboard|routes|activity|apps|users)$|(lead|carrier|route|app)\/[^/]+$)/.test(h)) {
+  if (h && /^((kanban|dashboard|routes|activity|apps|clients|users)$|(lead|carrier|route|app)\/[^/]+$)/.test(h)) {
     history.replaceState(null, '', routePath(h));
     return h;
   }
@@ -172,6 +172,8 @@ function handleHashRouting() {
     switchView('activity-view', false); return;
   } else if (route === 'apps') {
     switchView('apps-view', false); return;
+  } else if (route === 'clients') {
+    switchView('clients-view', false); return;
   } else if (route === 'users' && Store.state.user?.role === 'admin') {
     switchView('users-view', false); return;
   }
@@ -227,6 +229,9 @@ async function switchView(viewId, updateHash = true) {
   } else if (viewId === 'apps-view') {
     if (updateHash) navTo('apps');
     loadApps();
+  } else if (viewId === 'clients-view') {
+    if (updateHash) navTo('clients');
+    loadClients();
   }
 }
 
@@ -257,6 +262,7 @@ function initAppEvents() {
   initComposerEvents();
   initActionDispatch();
   initBoardClick();
+  initClientsEvents();
   initKeyboardShortcuts();
   initDashboardSearch();
   initDragDrop();
@@ -535,6 +541,7 @@ async function handleNavAction(act, actEl) {
       case 'go-home': goHome(true); break;
       case 'go-dashboard': switchView('dashboard-view', true); break;
       case 'go-kanban': switchView('kanban-view', true); break;
+      case 'go-clients': switchView('clients-view', true); break;
       case 'go-routes': switchView('routes-view', true); break;
       case 'go-users': if (Store.state.user?.role === 'admin') switchView('users-view', true); break;
       case 'go-activity': switchView('activity-view', true); break;

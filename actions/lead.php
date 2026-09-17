@@ -195,6 +195,28 @@ function crm_action_move_lead(PDO $pdo, array $user, int $viewUid): never {
     ok(['updatedAt' => $row['stage'] === $stage ? (int) $row['updated_at'] : $now]);
 }
 
+/**
+ * Общий реестр «Клиенты» (§34): все лиды всех менеджеров, но БЕЗ контактов —
+ * только название, ИНН и владелец. Свои помечаем mine (их можно открыть).
+ * NOTE(soft-delete): когда появится флаг удаления — добавить AND deleted_at = 0.
+ */
+function crm_action_get_clients(PDO $pdo, array $user, int $viewUid): never {
+    $total = (int) $pdo->query('SELECT COUNT(*) FROM crm_leads')->fetchColumn();
+    $st = $pdo->prepare('SELECT l.id, l.title, l.inn, u.name AS owner, (l.user_id = ?) AS mine FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id ORDER BY l.title ASC LIMIT 500');
+    $st->execute([$viewUid]);
+    $out = [];
+    foreach ($st as $r) {
+        $out[] = [
+            'id' => (string) $r['id'],
+            'title' => (string) $r['title'],
+            'inn' => (string) $r['inn'],
+            'owner' => (string) $r['owner'],
+            'mine' => (int) $r['mine'] === 1,
+        ];
+    }
+    ok(['clients' => $out, 'total' => $total]);
+}
+
 function crm_action_delete_lead(PDO $pdo, array $user, int $viewUid): never {
     $in = body_json();
     $id = strv($in['id'] ?? '', 80);

@@ -47,7 +47,7 @@ ServerSignature Off
   # Якоря обязательны: без $ маршрутом считался бы и /kanbanfoo (ревью №7).
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule ^(kanban|dashboard|routes|activity|apps|users)$ index.html [L]
+  RewriteRule ^(kanban|dashboard|routes|activity|apps|clients|users)$ index.html [L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule ^(lead|carrier|route|app)/[^/]+$ index.html [L]
