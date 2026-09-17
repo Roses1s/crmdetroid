@@ -243,39 +243,50 @@
   <div class="detail-body">
     <div class="form-panel">
       <input type="text" id="ap-number" class="editable-title" placeholder="Номер заявки..." maxlength="40" aria-label="Номер заявки">
-      <h3 class="section-title">Маршрут</h3>
-      <div class="form-grid">
-        <div><div class="form-row"><label class="form-label" for="ap-from">Откуда *</label><input class="form-input" id="ap-from" placeholder="Город"></div></div>
-        <div><div class="form-row"><label class="form-label" for="ap-to">Куда *</label><input class="form-input" id="ap-to" placeholder="Город"></div></div>
+      <div class="app-sheet-cols">
+        <div>
+          <h3 class="section-title">Информация о погрузке</h3>
+          <div class="form-row"><label class="form-label" for="ap-from">Город *</label><input class="form-input" id="ap-from" placeholder="Город"></div>
+          <div class="form-row"><label class="form-label" for="ap-load-address">Адрес</label><input class="form-input" id="ap-load-address" maxlength="300" placeholder="Улица, дом"></div>
+          <div class="form-row"><label class="form-label" for="ap-load-contact">Контакт и телефон</label><input class="form-input" id="ap-load-contact" maxlength="120" placeholder="+7 ... Имя"></div>
+          <div class="form-row"><label class="form-label" for="ap-load-date-from">Дата с</label><input class="form-input" id="ap-load-date-from" type="date"></div>
+          <div class="form-row"><label class="form-label" for="ap-load-date-to">Дата по</label><input class="form-input" id="ap-load-date-to" type="date"></div>
+          <div class="form-row"><label class="form-label" for="ap-load-time-from">Время с</label><input class="form-input" id="ap-load-time-from" type="time"></div>
+          <div class="form-row"><label class="form-label" for="ap-load-time-to">Время по</label><input class="form-input" id="ap-load-time-to" type="time"></div>
+        </div>
+        <div>
+          <h3 class="section-title">Информация о выгрузке</h3>
+          <div class="form-row"><label class="form-label" for="ap-to">Город *</label><input class="form-input" id="ap-to" placeholder="Город"></div>
+          <div class="form-row"><label class="form-label" for="ap-unload-address">Адрес</label><input class="form-input" id="ap-unload-address" maxlength="300" placeholder="Улица, дом"></div>
+          <div class="form-row"><label class="form-label" for="ap-unload-contact">Контакт и телефон</label><input class="form-input" id="ap-unload-contact" maxlength="120" placeholder="+7 ... Имя"></div>
+          <div class="form-row"><label class="form-label" for="ap-unload-date-from">Дата с</label><input class="form-input" id="ap-unload-date-from" type="date"></div>
+          <div class="form-row"><label class="form-label" for="ap-unload-date-to">Дата по</label><input class="form-input" id="ap-unload-date-to" type="date"></div>
+          <div class="form-row"><label class="form-label" for="ap-unload-time-from">Время с</label><input class="form-input" id="ap-unload-time-from" type="time"></div>
+          <div class="form-row"><label class="form-label" for="ap-unload-time-to">Время по</label><input class="form-input" id="ap-unload-time-to" type="time"></div>
+        </div>
       </div>
       <h3 class="section-title">Заказчик</h3>
-      <div class="form-grid">
-        <div><div class="form-row"><label class="form-label" for="ap-rate">Ставка, ₽</label><input class="form-input" id="ap-rate" inputmode="decimal" placeholder="45000"></div></div>
-        <div><div class="form-row"><label class="form-label" for="ap-vat">Налоги</label><select id="ap-vat" class="form-input form-select">
-          <option value="22">НДС 22%</option>
-          <option value="">Без НДС</option>
-          <option value="5">НДС 5%</option>
-          <option value="7">НДС 7%</option>
-          <option value="0">НДС 0%</option>
-        </select></div></div>
-      </div>
+      <div class="form-row"><label class="form-label" for="ap-rate">Ставка, ₽</label><input class="form-input" id="ap-rate" inputmode="decimal" placeholder="45000"></div>
+      <div class="form-row"><label class="form-label" for="ap-vat">Налоги</label><select id="ap-vat" class="form-input form-select">
+        <option value="22">НДС 22%</option>
+        <option value="">Без НДС</option>
+        <option value="5">НДС 5%</option>
+        <option value="7">НДС 7%</option>
+        <option value="0">НДС 0%</option>
+      </select></div>
       <h3 class="section-title">Перевозчик</h3>
-      <div class="form-grid">
-        <div><div class="form-row"><label class="form-label" for="ap-carrier-rate">Ставка, ₽</label><input class="form-input" id="ap-carrier-rate" inputmode="decimal" placeholder="30000"></div></div>
-        <div><div class="form-row"><label class="form-label" for="ap-carrier-vat">Налоги</label><select id="ap-carrier-vat" class="form-input form-select">
-          <option value="22">НДС 22%</option>
-          <option value="">Без НДС</option>
-          <option value="5">НДС 5%</option>
-          <option value="7">НДС 7%</option>
-          <option value="0">НДС 0%</option>
-        </select></div></div>
-      </div>
+      <div class="form-row"><label class="form-label" for="ap-carrier-rate">Ставка, ₽</label><input class="form-input" id="ap-carrier-rate" inputmode="decimal" placeholder="30000"></div>
+      <div class="form-row"><label class="form-label" for="ap-carrier-vat">Налоги</label><select id="ap-carrier-vat" class="form-input form-select">
+        <option value="22">НДС 22%</option>
+        <option value="">Без НДС</option>
+        <option value="5">НДС 5%</option>
+        <option value="7">НДС 7%</option>
+        <option value="0">НДС 0%</option>
+      </select></div>
       <div class="form-row"><label class="form-label" for="ap-margin">Маржа, ₽</label><input class="form-input" id="ap-margin" inputmode="decimal" placeholder="17608,65"></div>
       <div class="form-row"><label class="form-label" for="ap-company">Компания</label><input class="form-input" id="ap-company" placeholder="Название фирмы"></div>
-      <div class="form-grid">
-        <div><div class="form-row"><label class="form-label" for="ap-inn">ИНН</label><input class="form-input" id="ap-inn" maxlength="12" inputmode="numeric" placeholder="10 или 12 цифр"></div></div>
-        <div><div class="form-row"><label class="form-label" for="ap-phone">Телефон</label><input class="form-input" id="ap-phone" inputmode="tel"></div></div>
-      </div>
+      <div class="form-row"><label class="form-label" for="ap-inn">ИНН</label><input class="form-input" id="ap-inn" maxlength="12" inputmode="numeric" placeholder="10 или 12 цифр"></div>
+      <div class="form-row"><label class="form-label" for="ap-phone">Телефон</label><input class="form-input" id="ap-phone" inputmode="tel"></div>
       <div class="form-row"><label class="form-label" for="ap-name">Контактное лицо</label><input class="form-input" id="ap-name" placeholder="Имя"></div>
     </div>
     <div class="chatter">
@@ -402,6 +413,18 @@
   <div class="modal modal-wide">
     <h2 class="modal-title-row"><span id="lead-app-modal-title">Новая заявка</span> <span class="appnum-inline" title="Номер заявки">№&nbsp;<input id="la-number" class="appnum-input" maxlength="40" aria-label="Номер заявки"></span></h2>
     <input type="hidden" id="la-id">
+    <input type="hidden" id="la-load-address">
+    <input type="hidden" id="la-load-contact">
+    <input type="hidden" id="la-load-date-from">
+    <input type="hidden" id="la-load-date-to">
+    <input type="hidden" id="la-load-time-from">
+    <input type="hidden" id="la-load-time-to">
+    <input type="hidden" id="la-unload-address">
+    <input type="hidden" id="la-unload-contact">
+    <input type="hidden" id="la-unload-date-from">
+    <input type="hidden" id="la-unload-date-to">
+    <input type="hidden" id="la-unload-time-from">
+    <input type="hidden" id="la-unload-time-to">
     <h3 class="modal-section-title">Маршрут</h3>
     <div class="field-grid">
       <div class="field"><label for="la-from">Откуда <span class="req">*</span></label><input id="la-from" placeholder="Город"></div>

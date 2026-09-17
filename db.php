@@ -788,6 +788,18 @@ function crm_lead_app_to_api(array $r): array {
         'carrierInn' => $r['carrier_inn'],
         'carrierName' => $r['carrier_name'],
         'carrierPhone' => $r['carrier_phone'],
+        'loadAddress' => $r['load_address'],
+        'loadContact' => $r['load_contact'],
+        'loadDateFrom' => $r['load_date_from'],
+        'loadDateTo' => $r['load_date_to'],
+        'loadTimeFrom' => $r['load_time_from'],
+        'loadTimeTo' => $r['load_time_to'],
+        'unloadAddress' => $r['unload_address'],
+        'unloadContact' => $r['unload_contact'],
+        'unloadDateFrom' => $r['unload_date_from'],
+        'unloadDateTo' => $r['unload_date_to'],
+        'unloadTimeFrom' => $r['unload_time_from'],
+        'unloadTimeTo' => $r['unload_time_to'],
         'createdAt' => (int) $r['created_at'],
         'updatedAt' => (int) ($r['updated_at'] ?? $r['created_at'] ?? 0),
     ];
@@ -861,6 +873,29 @@ function crm_apps_stats(PDO $pdo, int $userId, string $leadId, string $inn = '')
  * CrmError с тем же текстом, что раньше отдавал save_lead_app через err()
  * (db.php не завершает запрос сам — TODO #20; ответ байт в байт, см. catch в api.php).
  */
+/**
+ * Дата точки (§29): '' или ГГГГ-ММ-ДД из <input type="date">. Формат проверяет
+ * и браузер, но API доверять ему нельзя — валидируем и календарность.
+ * @throws CrmError
+ */
+function crm_app_date(string $v, string $label): string {
+    if ($v === '') return '';
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) throw new CrmError($label . ': ГГГГ-ММ-ДД');
+    [$y, $m, $d] = array_map('intval', explode('-', $v));
+    if (!checkdate($m, $d, $y)) throw new CrmError($label . ': нет такой даты');
+    return $v;
+}
+
+/**
+ * Время точки (§29): '' или ЧЧ:ММ из <input type="time">, с проверкой диапазона.
+ * @throws CrmError
+ */
+function crm_app_time(string $v, string $label): string {
+    if ($v === '') return '';
+    if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $v)) throw new CrmError($label . ': ЧЧ:ММ');
+    return $v;
+}
+
 function crm_validate_app_fields(array $in): array {
     $number = strv($in['number'] ?? '', 40);
     $from = crm_norm_city(strv($in['cityFrom'] ?? '', 80));
@@ -884,6 +919,18 @@ function crm_validate_app_fields(array $in): array {
     $carrierRate = crm_parse_money(strv($in['carrierRate'] ?? '', 40));
     if ($carrierRate === null) throw new CrmError('Ставка перевозчику: число, копейки через запятую');
     $carrierRate = crm_money_in($carrierRate);
+    $loadAddress = strv($in['loadAddress'] ?? '', 300);
+    $loadContact = strv($in['loadContact'] ?? '', 120);
+    $loadDateFrom = crm_app_date(strv($in['loadDateFrom'] ?? '', 10), 'Дата погрузки с');
+    $loadDateTo = crm_app_date(strv($in['loadDateTo'] ?? '', 10), 'Дата погрузки по');
+    $loadTimeFrom = crm_app_time(strv($in['loadTimeFrom'] ?? '', 5), 'Время погрузки с');
+    $loadTimeTo = crm_app_time(strv($in['loadTimeTo'] ?? '', 5), 'Время погрузки по');
+    $unloadAddress = strv($in['unloadAddress'] ?? '', 300);
+    $unloadContact = strv($in['unloadContact'] ?? '', 120);
+    $unloadDateFrom = crm_app_date(strv($in['unloadDateFrom'] ?? '', 10), 'Дата выгрузки с');
+    $unloadDateTo = crm_app_date(strv($in['unloadDateTo'] ?? '', 10), 'Дата выгрузки по');
+    $unloadTimeFrom = crm_app_time(strv($in['unloadTimeFrom'] ?? '', 5), 'Время выгрузки с');
+    $unloadTimeTo = crm_app_time(strv($in['unloadTimeTo'] ?? '', 5), 'Время выгрузки по');
     $company = strv($in['carrierCompany'] ?? '', 200);
     $inn = preg_replace('/\\D/', '', strv($in['carrierInn'] ?? '', 12)) ?? '';
     if ($inn !== '' && strlen($inn) !== 10 && strlen($inn) !== 12) throw new CrmError('ИНН 10 или 12 цифр');
@@ -900,6 +947,18 @@ function crm_validate_app_fields(array $in): array {
         'carrierInn' => $inn,
         'carrierName' => strv($in['carrierName'] ?? '', 80),
         'carrierPhone' => strv($in['carrierPhone'] ?? '', 40),
+        'loadAddress' => $loadAddress,
+        'loadContact' => $loadContact,
+        'loadDateFrom' => $loadDateFrom,
+        'loadDateTo' => $loadDateTo,
+        'loadTimeFrom' => $loadTimeFrom,
+        'loadTimeTo' => $loadTimeTo,
+        'unloadAddress' => $unloadAddress,
+        'unloadContact' => $unloadContact,
+        'unloadDateFrom' => $unloadDateFrom,
+        'unloadDateTo' => $unloadDateTo,
+        'unloadTimeFrom' => $unloadTimeFrom,
+        'unloadTimeTo' => $unloadTimeTo,
     ];
 }
 
@@ -1097,6 +1156,18 @@ function crm_app_sys_field_changes(PDO $pdo, string $appId, array $old, array $f
         ['Ставка заказчика', crm_money_out($old['rate'] ?? null), crm_money_out($f['rate'] ?? null)],
         ['Ставка перевозчика', crm_money_out($old['carrier_rate'] ?? null), crm_money_out($f['carrierRate'] ?? null)],
         ['Перевозчик', (string) ($old['carrier_company'] ?? ''), (string) ($f['carrierCompany'] ?? '')],
+        ['Адрес погрузки', (string) ($old['load_address'] ?? ''), (string) ($f['loadAddress'] ?? '')],
+        ['Контакт погрузки', (string) ($old['load_contact'] ?? ''), (string) ($f['loadContact'] ?? '')],
+        ['Дата погрузки с', (string) ($old['load_date_from'] ?? ''), (string) ($f['loadDateFrom'] ?? '')],
+        ['Дата погрузки по', (string) ($old['load_date_to'] ?? ''), (string) ($f['loadDateTo'] ?? '')],
+        ['Время погрузки с', (string) ($old['load_time_from'] ?? ''), (string) ($f['loadTimeFrom'] ?? '')],
+        ['Время погрузки по', (string) ($old['load_time_to'] ?? ''), (string) ($f['loadTimeTo'] ?? '')],
+        ['Адрес выгрузки', (string) ($old['unload_address'] ?? ''), (string) ($f['unloadAddress'] ?? '')],
+        ['Контакт выгрузки', (string) ($old['unload_contact'] ?? ''), (string) ($f['unloadContact'] ?? '')],
+        ['Дата выгрузки с', (string) ($old['unload_date_from'] ?? ''), (string) ($f['unloadDateFrom'] ?? '')],
+        ['Дата выгрузки по', (string) ($old['unload_date_to'] ?? ''), (string) ($f['unloadDateTo'] ?? '')],
+        ['Время выгрузки с', (string) ($old['unload_time_from'] ?? ''), (string) ($f['unloadTimeFrom'] ?? '')],
+        ['Время выгрузки по', (string) ($old['unload_time_to'] ?? ''), (string) ($f['unloadTimeTo'] ?? '')],
     ];
     foreach ($pairs as [$label, $was, $now]) {
         if ($was === $now) continue;

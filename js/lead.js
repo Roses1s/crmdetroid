@@ -308,6 +308,18 @@ function openLeadAppModal(app) {
   $('#la-inn').value = app?.carrierInn || '';
   $('#la-name').value = app?.carrierName || '';
   $('#la-phone').value = app?.carrierPhone || '';
+  $('#la-load-address').value = app?.loadAddress || '';
+  $('#la-load-contact').value = app?.loadContact || '';
+  $('#la-load-date-from').value = app?.loadDateFrom || '';
+  $('#la-load-date-to').value = app?.loadDateTo || '';
+  $('#la-load-time-from').value = app?.loadTimeFrom || '';
+  $('#la-load-time-to').value = app?.loadTimeTo || '';
+  $('#la-unload-address').value = app?.unloadAddress || '';
+  $('#la-unload-contact').value = app?.unloadContact || '';
+  $('#la-unload-date-from').value = app?.unloadDateFrom || '';
+  $('#la-unload-date-to').value = app?.unloadDateTo || '';
+  $('#la-unload-time-from').value = app?.unloadTimeFrom || '';
+  $('#la-unload-time-to').value = app?.unloadTimeTo || '';
   setupPhoneMask($('#la-phone'));
   Modal.open('modal-lead-app');
   _leadAppSnap = leadAppSnapshot();
@@ -355,7 +367,19 @@ async function saveLeadAppFromModal() {
     carrierCompany: ($('#la-company').value || '').trim(),
     carrierInn: inn,
     carrierName: ($('#la-name').value || '').trim(),
-    carrierPhone: ($('#la-phone').value || '').trim()
+    carrierPhone: ($('#la-phone').value || '').trim(),
+    loadAddress: $('#la-load-address').value || '',
+    loadContact: $('#la-load-contact').value || '',
+    loadDateFrom: $('#la-load-date-from').value || '',
+    loadDateTo: $('#la-load-date-to').value || '',
+    loadTimeFrom: $('#la-load-time-from').value || '',
+    loadTimeTo: $('#la-load-time-to').value || '',
+    unloadAddress: $('#la-unload-address').value || '',
+    unloadContact: $('#la-unload-contact').value || '',
+    unloadDateFrom: $('#la-unload-date-from').value || '',
+    unloadDateTo: $('#la-unload-date-to').value || '',
+    unloadTimeFrom: $('#la-unload-time-from').value || '',
+    unloadTimeTo: $('#la-unload-time-to').value || ''
   };
   if (editApp) payload.updatedAt = editApp.updatedAt;
   const res = await Net.req('save_lead_app', payload);
@@ -772,6 +796,18 @@ function fillAppForm(a) {
   set('#ap-inn', a.carrierInn || '');
   set('#ap-name', a.carrierName || '');
   set('#ap-phone', a.carrierPhone || '');
+  set('#ap-load-address', a.loadAddress || '');
+  set('#ap-load-contact', a.loadContact || '');
+  set('#ap-load-date-from', a.loadDateFrom || '');
+  set('#ap-load-date-to', a.loadDateTo || '');
+  set('#ap-load-time-from', a.loadTimeFrom || '');
+  set('#ap-load-time-to', a.loadTimeTo || '');
+  set('#ap-unload-address', a.unloadAddress || '');
+  set('#ap-unload-contact', a.unloadContact || '');
+  set('#ap-unload-date-from', a.unloadDateFrom || '');
+  set('#ap-unload-date-to', a.unloadDateTo || '');
+  set('#ap-unload-time-from', a.unloadTimeFrom || '');
+  set('#ap-unload-time-to', a.unloadTimeTo || '');
   setupPhoneMask($('#ap-phone'));
   updateAppCrumb(a);
   renderAppStatus(a.status);
@@ -852,6 +888,18 @@ async function saveAppForm(_sync = false, keepalive = false) {
       carrierInn: inn,
       carrierName: ($('#ap-name').value || '').trim(),
       carrierPhone: ($('#ap-phone').value || '').trim(),
+      loadAddress: ($('#ap-load-address').value || '').trim(),
+      loadContact: ($('#ap-load-contact').value || '').trim(),
+      loadDateFrom: ($('#ap-load-date-from').value || '').trim(),
+      loadDateTo: ($('#ap-load-date-to').value || '').trim(),
+      loadTimeFrom: ($('#ap-load-time-from').value || '').trim(),
+      loadTimeTo: ($('#ap-load-time-to').value || '').trim(),
+      unloadAddress: ($('#ap-unload-address').value || '').trim(),
+      unloadContact: ($('#ap-unload-contact').value || '').trim(),
+      unloadDateFrom: ($('#ap-unload-date-from').value || '').trim(),
+      unloadDateTo: ($('#ap-unload-date-to').value || '').trim(),
+      unloadTimeFrom: ($('#ap-unload-time-from').value || '').trim(),
+      unloadTimeTo: ($('#ap-unload-time-to').value || '').trim(),
       updatedAt: UI.appRev
     };
     const extra = keepalive ? { keepalive: true } : {};

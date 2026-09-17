@@ -547,6 +547,7 @@
     #kanban-view > .toolbar { grid-template-columns: 1fr; }
     .form-grid { grid-template-columns: 1fr; gap: 0; }
     .form-row { flex-direction: column; align-items: stretch; gap: 4px; }
+    .app-sheet-cols { grid-template-columns: 1fr; }
     .form-label { width: auto; }
     .form-panel { padding: 16px; border-right: 0; overflow: visible; }
     .detail-body { flex-direction: column; overflow-y: auto; }
@@ -660,6 +661,8 @@
   html[data-theme="dark"] .app-status.st1 { background: rgba(59,130,246,.22); color: #7fb0ff; }
   html[data-theme="dark"] .app-status.st2 { background: rgba(34,197,94,.18); color: #5fd693; }
   .apps-total { font-weight: 700; }
+  /* Страница заявки: Погрузка и Выгрузка рядом, в духе Odoo. */
+  .app-sheet-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
   .name-link[data-action="open-activity-client"] { cursor: pointer; color: var(--primary); }
   .name-link[data-action="open-activity-client"]:hover { text-decoration: underline; }
 

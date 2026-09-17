@@ -10,7 +10,7 @@ declare(strict_types=1);
  * резолвятся в рантайме, когда все файлы уже подключены.
  */
 
-const CRM_SCHEMA_VERSION = 22;
+const CRM_SCHEMA_VERSION = 23;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -68,6 +68,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v20($pdo);
     crm_migrate_v21($pdo);
     crm_migrate_v22($pdo);
+    crm_migrate_v23($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -511,6 +512,22 @@ function crm_migrate_v21(PDO $pdo): void {
 function crm_migrate_v22(PDO $pdo): void {
     if (!crm_has_index($pdo, 'crm_carriers', 'idx_dir_inn')) {
         try { $pdo->exec('ALTER TABLE crm_carriers ADD KEY idx_dir_inn (direction_id, inn)'); } catch (PDOException $e) { crm_log_fail('migrate_v22 idx_dir_inn', $e); }
+    }
+}
+
+function crm_migrate_v23(PDO $pdo): void {
+    // Погрузка/выгрузка заявки (§29): адреса, контакты, даты и время с/по.
+    $cols = [
+        'load_address' => 'VARCHAR(300)', 'load_contact' => 'VARCHAR(120)',
+        'load_date_from' => 'VARCHAR(10)', 'load_date_to' => 'VARCHAR(10)',
+        'load_time_from' => 'VARCHAR(5)', 'load_time_to' => 'VARCHAR(5)',
+        'unload_address' => 'VARCHAR(300)', 'unload_contact' => 'VARCHAR(120)',
+        'unload_date_from' => 'VARCHAR(10)', 'unload_date_to' => 'VARCHAR(10)',
+        'unload_time_from' => 'VARCHAR(5)', 'unload_time_to' => 'VARCHAR(5)',
+    ];
+    foreach ($cols as $col => $type) {
+        if (crm_has_column($pdo, 'crm_lead_apps', $col)) continue;
+        try { $pdo->exec("ALTER TABLE crm_lead_apps ADD COLUMN {$col} {$type} NOT NULL DEFAULT ''"); } catch (PDOException $e) { crm_log_fail("migrate_v23 {$col}", $e); }
     }
 }
 
