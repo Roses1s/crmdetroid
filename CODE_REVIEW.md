@@ -958,3 +958,4 @@ DROP time_to; зеркало в schema.sql. Хелпер crm_app_time удалё
 crm_app_date на месте). API loadTime/unloadTime, сисзаписи «Время
 погрузки/выгрузки», модалка/страница/смоук обновлены. Счётчики: 26/26/26
 и 23+3. ?v=fix75.
+CI: `35189719932` — 5/5 success.
