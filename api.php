@@ -284,7 +284,7 @@ function strv(mixed $v, int $max = 300, string $fallback = ''): string {
     // а попав в БД — ломал json_encode ответа: get_comments лида навсегда отдавал пустое тело.
     if (!mb_check_encoding($s, 'UTF-8')) $s = mb_convert_encoding($s, 'UTF-8', 'UTF-8');
     $s = trim($s);
-    if (mb_strlen($s) > $max) $s = mb_substr($s, 0, $max);
+    if (mb_strlen($s, 'UTF-8') > $max) $s = mb_substr($s, 0, $max, 'UTF-8');
     return $s !== '' ? $s : $fallback;
 }
 /** Целое из JSON-значения; массив/объект → 0 (а не 1, как даёт (int) от непустого массива). */

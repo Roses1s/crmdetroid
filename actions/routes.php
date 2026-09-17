@@ -103,14 +103,17 @@ function crm_action_save_carrier(PDO $pdo, array $user, int $viewUid): never {
     if ($name === '') err('Укажите имя или название');
     $phone = strv($in['phone'] ?? '', 40);
     $company = strv($in['company'] ?? '', 200);
+    // ИНН перевозчика (ревью §37, F5): схема (v21) и список его знали, карточка — нет.
+    $inn = preg_replace('/\D/', '', strv($in['inn'] ?? '', 20)) ?? '';
+    if ($inn !== '' && strlen($inn) !== 10 && strlen($inn) !== 12) err('ИНН 10 или 12 цифр');
     $id = strv($in['id'] ?? '', 80);
     $uid = (int) $user['id'];
     $now = now_ms();
     if ($id === '') {
         $note = strv($in['note'] ?? '', 2000);
         $id = crm_new_id($pdo, 'k_', 'crm_carriers');
-        $pdo->prepare('INSERT INTO crm_carriers (id, direction_id, name, phone, company, note, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
-            ->execute([$id, $dirId, $name, $phone, $company, $note, $uid, $now, $now]);
+        $pdo->prepare('INSERT INTO crm_carriers (id, direction_id, name, phone, company, inn, note, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$id, $dirId, $name, $phone, $company, $inn, $note, $uid, $now, $now]);
     } else {
         $st = $pdo->prepare('SELECT * FROM crm_carriers WHERE id = ? AND direction_id = ?');
         $st->execute([$id, $dirId]);
@@ -128,8 +131,8 @@ function crm_action_save_carrier(PDO $pdo, array $user, int $viewUid): never {
         // Условие по updated_at — единственная защита от одновременной правки в двух вкладках.
         // (Старой ветки «updated_at = 0 → обновить без условия» больше нет: после миграции v6 нулей
         // не бывает, а безусловный UPDATE перетирал чужие изменения.)
-        $upd = $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ?, note = ?, updated_at = ? WHERE id = ? AND updated_at = ?');
-        $upd->execute([$name, $phone, $company, $note, $now, $id, $rev]);
+        $upd = $pdo->prepare('UPDATE crm_carriers SET name = ?, phone = ?, company = ?, inn = ?, note = ?, updated_at = ? WHERE id = ? AND updated_at = ?');
+        $upd->execute([$name, $phone, $company, $inn, $note, $now, $id, $rev]);
         if ($upd->rowCount() === 0) err('Карточка изменена в другом месте');
     }
     ok(['id' => $id, 'updatedAt' => $now]);
@@ -159,6 +162,7 @@ function crm_action_get_carrier(PDO $pdo, array $user, int $viewUid): never {
             'name' => $row['name'],
             'phone' => $row['phone'],
             'company' => $row['company'],
+            'inn' => $row['inn'] ?? '',
             'note' => $row['note'] ?? '',
             'createdByName' => $row['creator'] ?: '',
             'canManage' => can_manage_ref($user, $row),

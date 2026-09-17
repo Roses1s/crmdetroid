@@ -163,5 +163,22 @@ t('targets: фолбэк не дублирует совпавшую цель', c
 // --- crm_app_statuses (v20): справочник статусов заявки --------------------------
 t('app-statuses: три статуса с подписями', crm_app_statuses(), [0 => 'В работе', 1 => 'Машина загрузилась', 2 => 'Машина выгрузилась']);
 
+// --- crm_app_date (§37, G3): строгая дата погрузки/выгрузки -------------------
+function t_throw(string $name, callable $fn, string $wantMsg): void {
+    global $fails;
+    try {
+        $fn();
+        $fails++;
+        echo "FAIL | $name | исключения не было\n";
+    } catch (CrmError $e) {
+        t($name, $e->getMessage(), $wantMsg);
+    }
+}
+t('date: ISO проходит', crm_app_date('2026-09-17', 'Д'), '2026-09-17');
+t('date: пусто → пусто', crm_app_date('', 'Д'), '');
+t_throw('date: 2026-9-7 отклонена', fn() => crm_app_date('2026-9-7', 'Д'), 'Д: ГГГГ-ММ-ДД');
+t_throw('date: 2026-02-30 отклонена', fn() => crm_app_date('2026-02-30', 'Д'), 'Д: нет такой даты');
+t_throw('date: мусор отклонён', fn() => crm_app_date('завтра', 'Д'), 'Д: ГГГГ-ММ-ДД');
+
 echo "\n" . ($fails === 0 ? 'ALL PASSED' : "$fails FAILED") . "\n";
 exit($fails === 0 ? 0 : 1);

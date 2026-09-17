@@ -94,6 +94,7 @@ function crm_action_update_user(PDO $pdo, array $user, int $viewUid): never {
         if ($name !== (string) $target['name']) {
             $pdo->prepare('UPDATE crm_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
             $pdo->prepare('UPDATE crm_carrier_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
+            $pdo->prepare('UPDATE crm_app_comments SET author = ? WHERE user_id = ?')->execute([$name, $id]);
             // «Продавец» на карточках — то же имя; иначе на лидах остаётся старое, а передача по имени ломается
             $pdo->prepare('UPDATE crm_leads SET manager = ? WHERE user_id = ? AND manager = ?')->execute([$name, $id, (string) $target['name']]);
         }

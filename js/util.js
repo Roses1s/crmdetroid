@@ -222,11 +222,15 @@ function askPrompt(title, val='', msg='') {
   });
 }
 
-function askConfirm(title, msg='') {
+function askConfirm(title, msg='', tone='danger') {
   return new Promise(res => {
     if (_confirmResolver) _confirmResolver(false); _confirmResolver = res;
     $('#confirm-title').textContent = title; $('#confirm-message').textContent = msg;
-    Modal.open('modal-confirm'); $('#confirm-ok-btn').onclick = () => { Modal.closeAll(); res(true); };
+    // Нейтральные вопросы («закрыть без сохранения») — синей кнопкой, а не красной (ревью §37, G16)
+    const okBtn = $('#confirm-ok-btn');
+    okBtn.classList.toggle('btn-danger', tone !== 'primary');
+    okBtn.classList.toggle('btn-primary', tone === 'primary');
+    Modal.open('modal-confirm'); okBtn.onclick = () => { Modal.closeAll(); res(true); };
   });
 }
 

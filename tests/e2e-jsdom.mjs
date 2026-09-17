@@ -184,6 +184,50 @@ async function api(jar, action, data, csrf, as) {
   w.stopPolling?.();
 }
 
+// ---------- 37: корзина: пилюли, выживание поллинга (F1), взятие, deep-link (F2) ----------
+{
+  const { w, jar } = await makeWindow();
+  await loginAs(w, 'ivan@x.ru', 'IvanPass123');
+  const csrf = w.Net.csrf;
+  const made = await api(jar, 'save_lead', { title: 'E2E корзина УникХвост37' }, csrf);
+  await w.Store.load(true);
+  await api(jar, 'delete_lead', { id: made.id }, csrf);
+  const pill = w.document.querySelector('#board-search-pills .search-pill[data-filter="deleted"]');
+  ok('37 пилюля «Удалённые» есть', !!pill);
+  pill?.click(); await sleep(800);
+  ok('37 клик переключил фильтр', w.UI.searchFilter === 'deleted', `filter=${w.UI.searchFilter}`);
+  const rows = [...w.document.querySelectorAll('#search-drop .search-item.trash')];
+  ok('37 корзина отдала удалённый строкой trash', rows.some(r => r.textContent.includes('УникХвост37')), `rows=${rows.length}`);
+  // карточка корзины переживает поллинг (F1-регресс: раньше выкидывало на доску)
+  await w.openLead(made.id, false); await sleep(300);
+  ok('37 карточка корзины открыта', w.UI.leadId === made.id && !!w.document.querySelector('#btn-take-lead'));
+  await w.Store.load(true); await sleep(500);
+  ok('37 карточка пережила поллинг', w.UI.currentView === 'lead' && w.UI.leadId === made.id, `view=${w.UI.currentView}`);
+  // взятие в работу из карточки
+  const ac37 = autoConfirm(w);
+  w.document.querySelector('#btn-take-lead')?.click(); await sleep(800);
+  const chk = await api(jar, 'get_lead&id=' + made.id, null, csrf);
+  ok('37 взятие в работу вернуло лид', chk.success === true && chk.lead?.deleted === false, `deleted=${chk.lead?.deleted}`);
+  clearInterval(ac37.timer);
+  await api(jar, 'delete_lead', { id: made.id }, csrf);
+  w.stopPolling?.();
+}
+
+// ---------- 37b: deep-link в корзину открывает карточку, а не доску (F2) ----------
+{
+  const { w: w0, jar: jar0 } = await makeWindow();
+  await loginAs(w0, 'ivan@x.ru', 'IvanPass123');
+  const csrf0 = w0.Net.csrf;
+  const made2 = await api(jar0, 'save_lead', { title: 'E2E диплинк37' }, csrf0);
+  await api(jar0, 'delete_lead', { id: made2.id }, csrf0);
+  w0.stopPolling?.();
+  const { w } = await makeWindow('#lead/' + made2.id);
+  await loginAs(w, 'ivan@x.ru', 'IvanPass123');
+  for (let i = 0; i < 40 && w.UI.currentView !== 'lead'; i++) await sleep(100);
+  ok('37 deep-link в корзину открыл карточку', w.UI.currentView === 'lead' && w.UI.leadId === made2.id, `view=${w.UI.currentView} lead=${w.UI.leadId}`);
+  w.stopPolling?.();
+}
+
 for (const [s, n, e] of results) console.log(s, '|', n, e ? '|' + e : '');
 const fails = results.filter(r => r[0] === 'FAIL').length;
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');

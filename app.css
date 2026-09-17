@@ -506,6 +506,7 @@
   html[data-theme="dark"] .users-table th,
   html[data-theme="dark"] .users-table td { border-bottom-color: var(--border); color: var(--text); }
   html[data-theme="dark"] .search-item { border-bottom-color: #4a4a4a; }
+  html[data-theme="dark"] .search-item.trash { background: #2b2323; }
   html[data-theme="dark"] .search-item:hover { background: var(--hover); }
   html[data-theme="dark"] .search-item-title,
   html[data-theme="dark"] .route-card-title { color: var(--text); }

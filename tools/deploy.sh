@@ -48,10 +48,11 @@ verify_deploy() {
   code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$base/js/app.js")" || code="000"
   if [ "$code" = "200" ]; then echo "  /js/app.js → 200 OK";
   else echo "  ОШИБКА: /js/app.js → HTTP $code" >&2; fails=1; fi
-  # 4. PHP — 200 + JSON (без входа — need_login, это нормально)
+  # 4. PHP жив + гейт авторизации на месте (ревью §37, F7): без сессии сервер
+  # отдаёт 401 + need_login; старый код на проде отдавал 200 + need_login — тоже принимаем.
   code="$(curl -sS -o "$body" -w '%{http_code}' --max-time 20 "$base/api.php?action=whoami")" || code="000"
-  if [ "$code" = "200" ] && grep -q '"success"\|need_login' "$body" 2>/dev/null; then echo "  api.php → 200 + JSON OK";
-  else echo "  ОШИБКА: api.php → HTTP $code (ответ не JSON)" >&2; fails=1; fi
+  if { [ "$code" = "401" ] || [ "$code" = "200" ]; } && grep -q 'need_login' "$body" 2>/dev/null; then echo "  api.php → $code + need_login OK (PHP жив, вход закрыт)";
+  else echo "  ОШИБКА: api.php → HTTP $code (нет need_login — PHP мёртв или гейт сломан)" >&2; fails=1; fi
   rm -f "$body"
   if [ "$fails" = "1" ]; then
     echo "ПРОВЕРКА ПРОВАЛЕНА: сайт не в порядке (см. выше)" >&2

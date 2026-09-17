@@ -237,6 +237,7 @@
       <input type="text" id="cf-name" class="editable-title" placeholder="Имя / название...">
       <div class="form-row"><div class="form-label">Телефон</div><input class="form-input" id="cf-phone"></div>
       <div class="form-row"><div class="form-label">Компания</div><input class="form-input" id="cf-company"></div>
+      <div class="form-row"><div class="form-label">ИНН</div><input class="form-input" id="cf-inn" maxlength="12" inputmode="numeric" placeholder="10 или 12 цифр"></div>
       <div class="form-row"><div class="form-label">Заметка</div><input class="form-input" id="cf-note" placeholder="Кратко о перевозчике"></div>
     </div>
     <div class="chatter">
@@ -278,7 +279,7 @@
         <span class="app-sheet-head-label">Заявка №</span>
         <input type="text" id="ap-number" class="editable-title app-sheet-head-num" placeholder="б/н" maxlength="40" aria-label="Номер заявки">
       </div>
-      <div class="form-row"><label class="form-label" for="ap-own-company">Наша компания</label><input class="form-input" id="ap-own-company" readonly value='ООО "Детроид"'></div>
+      <div class="form-row"><label class="form-label" for="ap-own-company">Наша компания</label><input class="form-input" id="ap-own-company" readonly value="ООО «Детроид»"></div>
       <div class="form-row"><label class="form-label" for="ap-cust-company">Заказчик</label><input class="form-input" id="ap-cust-company" readonly placeholder="—"></div>
       <div class="form-row"><label class="form-label" for="ap-cust-inn">ИНН заказчика</label><input class="form-input" id="ap-cust-inn" readonly placeholder="—"></div>
       <div class="form-row"><label class="form-label" for="ap-cust-name">Контакт заказчика</label><input class="form-input" id="ap-cust-name" readonly placeholder="—"></div>
@@ -443,6 +444,7 @@
     <div class="field"><label>Имя / название *</label><input id="k-name"></div>
     <div class="field"><label>Телефон</label><input id="k-phone"></div>
     <div class="field"><label>Компания</label><input id="k-company"></div>
+    <div class="field"><label>ИНН</label><input id="k-inn" maxlength="12" inputmode="numeric" placeholder="10 или 12 цифр"></div>
     <div class="modal-actions"><button class="btn btn-secondary" data-action="close-modals">Отмена</button><button class="btn btn-primary" data-action="submit-carrier">Создать</button></div>
   </div>
 </div>
@@ -566,11 +568,12 @@
 
 <div class="modal-backdrop" id="modal-password">
   <div class="modal">
-    <h2>Смените пароль</h2>
-    <p class="modal-msg">Сейчас стоит временный пароль из инструкции. Задайте свой — не короче 8 символов.</p>
+    <h2 id="pw-title">Смените пароль</h2>
+    <p class="modal-msg" id="pw-message">Сейчас стоит временный пароль из инструкции. Задайте свой — не короче 8 символов.</p>
+    <div class="field" id="pw-old-field"><label>Текущий пароль</label><input id="pw-old" type="password" autocomplete="current-password"></div>
     <div class="field"><label>Новый пароль</label><input id="pw-new" type="password" autocomplete="new-password"></div>
     <div class="field"><label>Ещё раз</label><input id="pw-new2" type="password" autocomplete="new-password"></div>
-    <div class="modal-actions"><button class="btn btn-primary" data-action="submit-password">Сохранить</button></div>
+    <div class="modal-actions"><button class="btn btn-secondary" id="pw-cancel" data-action="close-password-modal">Отмена</button><button class="btn btn-primary" data-action="submit-password">Сохранить</button></div>
   </div>
 </div>
 

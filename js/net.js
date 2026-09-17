@@ -16,7 +16,7 @@ const Net = {
         // уже увидели более новый лид, — без зазора такое изменение проскочило бы мимо дельты.
         if (Store.since) url += `&since=${encodeURIComponent(Math.max(1, Store.since - 10000))}`;
       }
-      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1, save_tag:1, delete_tag:1, set_lead_tags:1, get_app:1, get_app_comments:1, save_app:1, set_app_status:1, add_app_comment:1, edit_app_comment:1, delete_app_comment:1 };
+      const asActions = { get_data:1, search_leads:1, save_lead:1, move_lead:1, delete_lead:1, add_comment:1, edit_comment:1, delete_comment:1, delete_attachment:1, save_stages:1, get_comments:1, get_lead:1, save_lead_app:1, delete_lead_app:1, save_tag:1, delete_tag:1, set_lead_tags:1, get_app:1, get_app_comments:1, save_app:1, set_app_status:1, add_app_comment:1, edit_app_comment:1, delete_app_comment:1, get_clients:1 }; // restore/purge — от $user, ?as= не нужен
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
@@ -144,6 +144,13 @@ const Store = {
     } else {
       incoming = res.leads || [];
     }
+    // Транзит удалённых (§35) сервер не присылает, а карточка корзины живёт в сторе —
+    // переносим из памяти, иначе поллинг выкидывал бы с неё при любом изменении доски
+    // (ревью §37, F1). Свежая серверная версия того же id (забрали в работу) — в приоритете.
+    const haveIds = new Set(incoming.map(l => String(l.id)));
+    Object.values(prevMap).forEach(l => {
+      if (l && l._deleted && !haveIds.has(String(l.id))) { incoming.push(l); haveIds.add(String(l.id)); }
+    });
     this.state.leads = incoming.map(l => {
       const o = prevMap[String(l.id)];
       if (!o) return l;
@@ -177,7 +184,15 @@ const Store = {
 
     if (UI.currentView === 'kanban') renderBoard();
     if (UI.currentView === 'lead' && UI.leadId) {
-      const lead = this.getLead(UI.leadId);
+      // Ревью §37, F1: транзит корзины перепроверяем принудительно — лид могли забрать
+      // или стереть, пока карточка открыта. ensureLeadFull(force) освежит транзит, а если
+      // лида больше нет среди удалённых — уберёт его, и уходим на доску. Обычные _full
+      // карточки лишнего запроса не делают.
+      let lead = this.getLead(UI.leadId);
+      if (!lead || lead._deleted) {
+        await ensureLeadFull(UI.leadId, true);
+        lead = this.getLead(UI.leadId);
+      }
       if (!lead) { goHome(true); return; }
       await ensureLeadFull(UI.leadId);
       await loadLeadComments(UI.leadId);

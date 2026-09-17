@@ -155,7 +155,9 @@ function handleHashRouting() {
   const route = currentRoute();
   if (route.startsWith('lead/')) {
     const targetLeadId = routeParam(route, 'lead/');
-    if (targetLeadId && Store.getLead(targetLeadId)) { openLead(targetLeadId, false); return; }
+    // Без проверки Store.getLead: удалённого нет в сторе до ensureLeadFull-транзита (§35),
+    // и deep-link в корзину уходил на доску (ревью §37, F2). openLead сам разберётся.
+    if (targetLeadId) { openLead(targetLeadId, false); return; }
   } else if (route.startsWith('carrier/')) {
     const cid = routeParam(route, 'carrier/');
     if (cid) { openCarrier(cid, false); return; }
@@ -239,7 +241,7 @@ async function switchView(viewId, updateHash = true) {
 function goHome(updateHash = true) { return switchView('kanban-view', updateHash); }
 
 async function execLogout() {
-  if (UI.formDirty && !await askConfirm('Есть несохранённые изменения', 'Выйти без сохранения?')) return;
+  if (UI.formDirty && !await askConfirm('Есть несохранённые изменения', 'Выйти без сохранения?', 'primary')) return;
   UI.formDirty = false;
   await Net.req('logout', {}); location.reload();
 }
@@ -295,6 +297,8 @@ function initViewControlEvents() {
   const runRoutesSearch = debounce(() => { setRoutesFilter(routesSearch.value.trim()); loadRoutes(); }, 200);
   routesSearch.addEventListener('input', runRoutesSearch);
   setupPhoneMask($('#k-phone'));
+  $('#cf-inn')?.addEventListener('input', e => formatInnInput(e.target));
+  $('#k-inn')?.addEventListener('input', e => formatInnInput(e.target));
   document.addEventListener('click', e => {
     if (!e.target.closest('#board-search-wrap') && !e.target.closest('#search-drop')) closeSearchDrop();
   });
@@ -613,13 +617,13 @@ async function handleDirectoryAction(act, actEl) {
 
       case 'new-carrier':
         if (!UI.routeId) return;
-        $('#k-name').value = ''; $('#k-phone').value = ''; $('#k-company').value = '';
+        $('#k-name').value = ''; $('#k-phone').value = ''; $('#k-company').value = ''; $('#k-inn').value = '';
         Modal.open('modal-carrier'); setTimeout(() => $('#k-name').focus(), 50);
         break;
       case 'submit-carrier': {
         const name = $('#k-name').value.trim();
         if (!name) return Toast.error('Укажите имя или название');
-        const payload = { directionId: UI.routeId, name, phone: $('#k-phone').value.trim(), company: $('#k-company').value.trim() };
+        const payload = { directionId: UI.routeId, name, phone: $('#k-phone').value.trim(), company: $('#k-company').value.trim(), inn: $('#k-inn').value.replace(/\D/g, '') };
         const resK = await Net.req('save_carrier', payload);
         if (resK?.success) { Modal.closeAll(); await openCarrier(resK.id, true); }
         else Toast.error(resK?.error || 'Ошибка');
@@ -661,6 +665,7 @@ async function handleDirectoryAction(act, actEl) {
   return true;
 }
 
+let _pwSelfService = false; // true — добровольная смена из шапки (не must_change)
 /** Сеанс и оформление: тема, смена пароля, выход. */
 async function handleSessionAction(act) {
   switch (act) {
@@ -669,18 +674,20 @@ async function handleSessionAction(act) {
         const np = $('#pw-new')?.value || '', n2 = $('#pw-new2')?.value || '';
         const npErr = passwordError(np); if (npErr) return Toast.error(npErr);
         if (np !== n2) return Toast.error('Пароли не совпадают');
-        const resPw = await Net.req('change_password', { password: np });
+        const resPw = await Net.req('change_password', { password: np, old: $('#pw-old')?.value || '' });
         if (resPw?.success) {
           Modal.closeAll();
+          if ($('#pw-old')) $('#pw-old').value = '';
           if ($('#pw-new')) $('#pw-new').value = '';
           if ($('#pw-new2')) $('#pw-new2').value = '';
           Toast.success('Пароль обновлён');
-          await Store.load(true);
-          handleHashRouting();
-          startPolling();
+          // must_change догружает приложение; добровольная смена — только тост (ревью §37, G10)
+          if (!_pwSelfService) { await Store.load(true); handleHashRouting(); startPolling(); }
         } else Toast.error(resPw?.error || 'Ошибка');
         break;
       }
+      case 'change-password': openPasswordModal(true); break;
+      case 'close-password-modal': Modal.close('modal-password'); break;
       case 'logout': execLogout(); break;
       // Баннер «Вышло обновление»: билд на сервере новее загруженного.
       case 'reload-app': location.reload(); break;
@@ -1255,11 +1262,20 @@ function revealLogin() {
   $('#login-overlay')?.classList.add('show');
 }
 
+function openPasswordModal(self) {
+  _pwSelfService = !!self;
+  $('#pw-title').textContent = self ? 'Смена пароля' : 'Смените пароль';
+  $('#pw-message').textContent = self ? 'Введите текущий пароль и новый (не короче 8 символов).' : 'Сейчас стоит временный пароль из инструкции. Задайте свой — не короче 8 символов.';
+  $('#pw-old-field').classList.toggle('hidden', !self);
+  $('#pw-cancel').classList.toggle('hidden', !self);
+  ['pw-old', 'pw-new', 'pw-new2'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  Modal.open('modal-password');
+  setTimeout(() => $('#pw-new')?.focus(), 50);
+}
 function showMustChangePassword() {
   const box = $('#modal-password');
   if (!box) return;
-  Modal.open('modal-password');
-  setTimeout(() => $('#pw-new')?.focus(), 50);
+  openPasswordModal(false);
 }
 
 async function afterLogin(mustChange, user) {

@@ -99,7 +99,8 @@ function crm_action_save_lead(PDO $pdo, array $user, int $viewUid): never {
     }
 
     $title = strv($in['title'] ?? ($row['title'] ?? ''), 200, 'Без названия');
-    $inn = preg_replace('/\D/', '', strv($in['inn'] ?? ($row['inn'] ?? ''), 12)) ?? '';
+    // 20 символов до вырезания цифр: ИНН с пробелами/дефисами иначе резался и браковался (ревью §37, G18)
+    $inn = preg_replace('/\D/', '', strv($in['inn'] ?? ($row['inn'] ?? ''), 20)) ?? '';
     if ($inn !== '' && strlen($inn) !== 10 && strlen($inn) !== 12) err('ИНН 10 или 12 цифр');
     $phone = strv($in['phone'] ?? ($row['phone'] ?? ''), 40);
     // Код АТИ (ati.su): колонка ati существовала в схеме с ранних версий, но не была
@@ -129,7 +130,7 @@ function crm_action_save_lead(PDO $pdo, array $user, int $viewUid): never {
             $ins->execute([$id, $uid, $title, $inn, $phone, $ati, $email, $manager, $logistName, $logistPhone, $apps, $stage, $now, $now]);
             crm_sys_comment($pdo, $id, 'Лид создан');
         } else {
-            $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,ati=?,email=?,manager=?,logist_name=?,logist_phone=?,stage=?,updated_at=? WHERE id=? AND user_id=? AND updated_at=?');
+            $upd = $pdo->prepare('UPDATE crm_leads SET title=?,inn=?,phone=?,ati=?,email=?,manager=?,logist_name=?,logist_phone=?,stage=?,updated_at=? WHERE id=? AND user_id=? AND updated_at=? AND deleted_at = 0');
             $upd->execute([$title, $inn, $phone, $ati, $email, $manager, $logistName, $logistPhone, $stage, $now, $id, $uid, (int) $row['updated_at']]);
             if ($upd->rowCount() === 0) {
                 $pdo->rollBack();
@@ -194,7 +195,7 @@ function crm_action_move_lead(PDO $pdo, array $user, int $viewUid): never {
         // отдельно — при сбое БД лид перемещался, но запись в логе не появлялась.
         $pdo->beginTransaction();
         try {
-            $stU = $pdo->prepare('UPDATE crm_leads SET stage = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
+            $stU = $pdo->prepare('UPDATE crm_leads SET stage = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ? AND deleted_at = 0');
             $stU->execute([$stage, $now, $id, $uid, (int) $row['updated_at']]);
             if ($stU->rowCount() === 0) {
                 $pdo->rollBack();
@@ -217,7 +218,7 @@ function crm_action_move_lead(PDO $pdo, array $user, int $viewUid): never {
  * только название, ИНН и владелец. Свои помечаем mine (их можно открыть).
  */
 function crm_action_get_clients(PDO $pdo, array $user, int $viewUid): never {
-    $total = (int) $pdo->query('SELECT COUNT(*) FROM crm_leads WHERE deleted_at = 0')->fetchColumn();
+    $total = (int) $pdo->query('SELECT COUNT(*) FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.deleted_at = 0')->fetchColumn();
     $st = $pdo->prepare('SELECT l.id, l.title, l.inn, u.name AS owner, (l.user_id = ?) AS mine FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.deleted_at = 0 ORDER BY l.title ASC LIMIT 500');
     $st->execute([$viewUid]);
     $out = [];
@@ -438,7 +439,7 @@ function crm_action_get_apps(PDO $pdo, array $user, int $viewUid): never {
         array_push($params, $like, $like, $like, $like, $like, $like, $like);
     }
     try {
-        $tot = $pdo->prepare("SELECT COUNT(*) AS c, COALESCE(SUM(a.rate), 0) AS r, COALESCE(SUM(a.margin), 0) AS m FROM crm_lead_apps a JOIN crm_leads l ON l.id = a.lead_id WHERE $where");
+        $tot = $pdo->prepare("SELECT COUNT(*) AS c, COALESCE(SUM(a.rate), 0) AS r, COALESCE(SUM(a.margin), 0) AS m FROM crm_lead_apps a JOIN crm_leads l ON l.id = a.lead_id JOIN crm_users u ON u.id = l.user_id WHERE $where");
         $tot->execute($params);
         $t = $tot->fetch() ?: ['c' => 0, 'r' => 0, 'm' => 0];
         $st = $pdo->prepare("SELECT a.*, l.title AS lead_title, l.inn AS lead_inn, u.name AS seller_name FROM crm_lead_apps a JOIN crm_leads l ON l.id = a.lead_id JOIN crm_users u ON u.id = l.user_id WHERE $where ORDER BY a.created_at DESC, a.id DESC LIMIT 500");

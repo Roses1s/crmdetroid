@@ -1,7 +1,7 @@
 'use strict';
 // Лиды: доска (renderBoard), карточка лида, заявки лида (модалка, статистика), лог комментариев с вложениями (общий рендер renderLogInto используют и перевозчики), автосохранение формы. Вынесено из app.js (план CODE_REVIEW п. 10.9).
 /* global $, $$, Modal, Net, Store, Toast, UI, appsWord, askConfirm, debounce, esc, fmtBytes, fmtMoney, fmtTime, goHome, isImageAtt, isValidEmail, moneyNum, moneyToInput, navTo, renderSaveStatus, safeAttUrl, saveCarrierForm, setupPhoneMask, vatLabel */
-/* exported APP_STATUS_LABELS, addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, goNeighborLead, initClientsEvents, loadAppComments, loadClients, openApp, openLeadAppModal, openLeadTagsModal, pickTagColor, refreshAppLog, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, resetBoardCache, saveAppDebounced, saveAppForm, saveLeadAppFromModal, submitLeadTags, syncLeadAppCache, toggleTagInModal, updateAppSaveUI, updateLeadSaveUI */
+/* exported APP_STATUS_LABELS, addTagFromModal, closeLeadAppModal, closeLeadTagsModal, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, ensureLeadFull, goNeighborLead, initClientsEvents, loadAppComments, loadClients, openApp, openLeadAppModal, openLeadTagsModal, pickTagColor, refreshAppLog, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, resetBoardCache, saveAppDebounced, saveAppForm, saveLeadAppFromModal, submitLeadTags, syncLeadAppCache, toggleTagInModal, updateAppSaveUI, updateLeadSaveUI */
 
 function renderAttHtml(a, c) {
   const raw = String(a.dataUrl || '');
@@ -17,8 +17,11 @@ function renderAttHtml(a, c) {
   return `<span class="att-file-wrap"><a class="att-file" href="${u}" target="_blank" rel="noopener">📄 ${n} <span class="att-size">${fmtBytes(a.size)}</span></a>${del}</span>`;
 }
 
-async function ensureLeadFull(id) {
+// force=true (ревью §37, F1): перепроверить даже _full. Поллинг карточки корзины —
+// лид могли забрать или стереть, пока она открыта. null + транзита нет в сторе → закрывать.
+async function ensureLeadFull(id, force = false) {
   let lead = Store.getLead(id);
+  if (lead && lead._full && !force) return lead;
   if (!lead) {
     // Чужих активных в сторе нет и быть не должно; удалённый подгружаем
     // напрямую (§35) транзитом — на доску он не попадёт (фильтр _deleted).
@@ -28,9 +31,18 @@ async function ensureLeadFull(id) {
     Store.state.leads.push(lead);
     return lead;
   }
-  if (lead._full) return lead;
   const res = await Net.req('get_lead', { id });
-  if (!res || !res.success || !res.lead) return lead;
+  if (!res || !res.success || !res.lead) {
+    // Лид исчез (стёрт из корзины или угнан): транзит убираем, карточку закрывать.
+    if (lead._deleted) Store.state.leads = Store.state.leads.filter(l => l !== lead);
+    return lead._deleted ? null : lead;
+  }
+  if (lead._deleted && !res.lead.deleted) {
+    // Корзину забрали в работу: транзит больше не нужен (актуальная версия уже
+    // в сторе из get_data — или подтянется следующим поллингом).
+    Store.state.leads = Store.state.leads.filter(l => l !== lead);
+    return null;
+  }
   const keepComments = lead.comments;
   Object.assign(lead, res.lead);
   if (keepComments && !res.lead.comments) lead.comments = keepComments;
@@ -38,7 +50,6 @@ async function ensureLeadFull(id) {
   if (lead._editRev == null) lead._editRev = lead.updatedAt;
   return lead;
 }
-
 // Системность определяется сервером (crm_is_sys_comment) и передаётся в поле isSystem.
 // Раньше клиент проверял author === 'Система' — это рассинхронизировалось с сервером,
 // который проверял user_id = 0. Теперь один источник правды — сервер.
@@ -309,7 +320,17 @@ function leadAppSnapshot() {
     company: $('#la-company')?.value || '',
     inn: $('#la-inn')?.value || '',
     name: $('#la-name')?.value || '',
-    phone: $('#la-phone')?.value || ''
+    phone: $('#la-phone')?.value || '',
+    loadAddress: $('#la-load-address')?.value || '',
+    loadContact: $('#la-load-contact')?.value || '',
+    loadDateFrom: $('#la-load-date-from')?.value || '',
+    loadDateTo: $('#la-load-date-to')?.value || '',
+    loadTime: $('#la-load-time')?.value || '',
+    unloadAddress: $('#la-unload-address')?.value || '',
+    unloadContact: $('#la-unload-contact')?.value || '',
+    unloadDateFrom: $('#la-unload-date-from')?.value || '',
+    unloadDateTo: $('#la-unload-date-to')?.value || '',
+    unloadTime: $('#la-unload-time')?.value || ''
   });
 }
 
@@ -354,7 +375,7 @@ async function closeLeadAppModal(force = false) {
   const box = $('#modal-lead-app');
   if (!box || !box.classList.contains('open')) return true;
   if (!force && leadAppSnapshot() !== _leadAppSnap) {
-    if (!await askConfirm('Закрыть заявку?', 'Изменения не сохранятся')) return false;
+    if (!await askConfirm('Закрыть заявку?', 'Изменения не сохранятся', 'primary')) return false;
   }
   box.classList.remove('open');
   return true;
@@ -576,7 +597,7 @@ async function closeLeadTagsModal() {
   const dirty = _tagModalSelected.size !== _tagModalInitial.size
     || [..._tagModalSelected].some(id => !_tagModalInitial.has(id))
     || (($('#tag-new-name')?.value || '').trim() !== '');
-  if (dirty && !await askConfirm('Закрыть без сохранения?', 'Отметки тегов не сохранятся')) return false;
+  if (dirty && !await askConfirm('Закрыть без сохранения?', 'Отметки тегов не сохранятся', 'primary')) return false;
   box.classList.remove('open');
   return true;
 }
@@ -629,6 +650,7 @@ async function saveLeadForm(_sync = false, keepalive = false, transferTo = 0) {
         await Store.load(true);
         if (UI.leadId) { await ensureLeadFull(UI.leadId); const fresh = Store.getLead(UI.leadId); if (fresh) { fresh._editRev = fresh.updatedAt; fillLeadForm(fresh, true); } }
         // После перечитывания форма совпадает с сервером — несохранённых изменений больше нет
+        UI.formDirty = false;
         if (UI.currentView === 'lead') updateLeadSaveUI('saved', Date.now());
       } else {
         Toast.error(res.error || 'Ошибка');
@@ -683,7 +705,7 @@ function leadTagsOf(id) {
 
 function renderBoard() {
   if (UI.currentView !== 'kanban') return;
-  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.map(l => [l.id, l.stage, l.title, l.logistPhone, l.manager, l.inn, l.applicationsCount, leadTagsOf(l.id)])]);
+  const dataHash = JSON.stringify([Store.state.stages, Store.state.leads.filter(l => !l._deleted).map(l => [l.id, l.stage, l.title, l.logistPhone, l.manager, l.inn, l.applicationsCount, leadTagsOf(l.id)])]);
   if (dataHash === _lastBoardHash) return; _lastBoardHash = dataHash;
 
   const board = $('#board'); if (!board) return; board.innerHTML = ''; const frag = document.createDocumentFragment();
@@ -713,7 +735,7 @@ let _clientsCache = [];
 let _clientsTotal = 0;
 
 async function loadClients() {
-  const res = await Net.req('get_clients', {});
+  const res = await Net.req('get_clients');
   _clientsCache = res?.success ? (res.clients || []) : [];
   _clientsTotal = res?.success ? (res.total || 0) : 0;
   renderClients();

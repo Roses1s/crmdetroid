@@ -416,6 +416,49 @@ R=$(get "$JI" "search_leads&filter=deleted"); check "§36: пустой запр
 R=$(get "$JI" "search_leads&q=Trash"); check "§36: без фильтра удалённые скрыты" "all(c.get('id')!='$LTRASH' for c in r.get('leads',[]))" "$R"
 R=$(get "$JI" "search_leads&q=7809&filter=mine"); check "§36: фильтр Мои режет пересечения" "r.get('intersections')==[] and r.get('leads')==[]" "$R"
 
+# --- §37: ревью-фиксы (бэкенд-сторона F3/F4/F5/G1/G2/G6/G18) ----------------
+# RFIX1: лог заявки замороженного лида — правка своим владельцем закрыта (F3)
+R=$(post "$JI" "$TI" save_lead '{"title":"РФИКС корзина лог"}'); LRFX=$(jget "$R" "r['id']")
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LRFX\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\"}"); ARFX=$(jget "$R" "r['application']['id']")
+upload "$JI" "$TI" -F app_id="$ARFX" -F text="запись до корзины" "$B?action=add_app_comment" >/dev/null
+R=$(get "$JI" "get_app_comments&id=$ARFX"); CRFX=$(jget "$R" "[c['id'] for c in r['comments'] if c.get('text')=='запись до корзины'][0]")
+post "$JI" "$TI" delete_lead "{\"id\":\"$LRFX\"}" >/dev/null
+R=$(post "$JI" "$TI" edit_app_comment "{\"id\":\"$CRFX\",\"text\":\"правка в корзине\"}"); check "§37: правка лога заявки в корзине закрыта" "r.get('error')=='Комментарий не найден'" "$R"
+# RFIX2: ИНН перевозчика — сохранение, чтение, валидация (F5)
+R=$(post "$JI" "$TI" save_direction '{"cityFrom":"ИННград","cityTo":"Тестбург"}'); DRFX=$(jget "$R" "r['id']")
+R=$(post "$JI" "$TI" save_carrier "{\"directionId\":\"$DRFX\",\"name\":\"ИП РФИКС\",\"inn\":\"7701000001\"}"); KRFX=$(jget "$R" "r['id']")
+R=$(get "$JI" "get_carrier&id=$KRFX"); check "§37: ИНН перевозчика читается карточкой" "r.get('carrier',{}).get('inn')=='7701000001'" "$R"
+R=$(post "$JI" "$TI" save_carrier "{\"id\":\"$KRFX\",\"directionId\":\"$DRFX\",\"name\":\"ИП РФИКС\",\"inn\":\"123\"}"); check "§37: короткий ИНН перевозчика отклонён" "r.get('error')=='ИНН 10 или 12 цифр'" "$R"
+# RFIX3: get_clients уважает ?as= (F4)
+R=$(get "$JA" "get_clients&as=$UA"); check "§37: get_clients с ?as= видит чужое как своё" "any(c.get('mine') is True for c in r.get('clients',[]))" "$R"
+# RFIX4: move удалённого закрыт (G1; save покрыт тестом §35 выше)
+R=$(post "$JI" "$TI" save_lead '{"title":"РФИКС корзина мув"}'); LRFX2=$(jget "$R" "r['id']")
+post "$JI" "$TI" delete_lead "{\"id\":\"$LRFX2\"}" >/dev/null
+R=$(post "$JI" "$TI" move_lead "{\"id\":\"$LRFX2\",\"stage\":\"Новый\"}"); check "§37: move удалённого закрыт" "r.get('error')=='Лид не найден'" "$R"
+# RFIX5: save_stages не трогает корзину (G2) — отдельный сотрудник, без побочек
+post "$JA" "$TA" register_user "{\"name\":\"РФИКС\",\"email\":\"rfix@test.local\",\"password\":\"RfixPass11\",\"role\":\"user\"}" >/dev/null
+JR="$TMP/jr"; TR=$(login "$JR" "rfix@test.local" "RfixPass11")
+R=$(post "$JR" "$TR" save_lead '{"title":"РФИКС этап корзина"}'); LR5=$(jget "$R" "r['id']")
+post "$JR" "$TR" delete_lead "{\"id\":\"$LR5\"}" >/dev/null
+R=$(post "$JR" "$TR" save_lead '{"title":"РФИКС этап актив"}'); LR5A=$(jget "$R" "r['id']")
+R=$(post "$JR" "$TR" save_stages '{"stages":["ТолькоОдин"]}'); check "§37: save_stages принял один этап" "r.get('success') is True" "$R"
+R=$(get "$JR" "get_lead&id=$LR5A"); check "§37: активный переехал на уцелевший этап" "r.get('lead',{}).get('stage')=='ТолькоОдин'" "$R"
+R=$(get "$JR" "get_lead&id=$LR5"); check "§37: удалённый держит старый этап" "r.get('lead',{}).get('stage')!='ТолькоОдин'" "$R"
+# RFIX6: увольнение с передачей лидов обнуляет авторство обоих логов (G6)
+post "$JA" "$TA" register_user "{\"name\":\"РФИКС Увол\",\"email\":\"rfixd@test.local\",\"password\":\"RfixPass22\",\"role\":\"user\"}" >/dev/null
+JE="$TMP/je"; TE=$(login "$JE" "rfixd@test.local" "RfixPass22")
+R=$(post "$JE" "$TE" save_lead '{"title":"РФИКС передача"}'); LRE=$(jget "$R" "r['id']")
+upload "$JE" "$TE" -F lead_id="$LRE" -F text="лог лида увольняемого" "$B?action=add_comment" >/dev/null
+R=$(post "$JE" "$TE" save_lead_app "{\"leadId\":\"$LRE\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\"}"); ARE=$(jget "$R" "r['application']['id']")
+upload "$JE" "$TE" -F app_id="$ARE" -F text="лог заявки увольняемого" "$B?action=add_app_comment" >/dev/null
+UE=$(jget "$(get "$JA" get_users)" "[u['id'] for u in r['users'] if u['email']=='rfixd@test.local'][0]")
+R=$(post "$JA" "$TA" delete_user "{\"id\":$UE,\"transferTo\":$UA}"); check "§37: увольнение с передачей" "r.get('success') is True and r.get('transferred')==1" "$R"
+R=$(get "$JI" "get_comments&id=$LRE"); check "§37: лог лида после передачи без dangling user_id" "any(c.get('text')=='лог лида увольняемого' and c.get('userId')==0 for c in r.get('comments',[]))" "$R"
+R=$(get "$JI" "get_app_comments&id=$ARE"); check "§37: лог заявки после передачи без dangling user_id" "any(c.get('text')=='лог заявки увольняемого' and c.get('userId')==0 for c in r.get('comments',[]))" "$R"
+# RFIX7: ИНН с пробелами (13 символов) принимается везде (G18)
+R=$(post "$JI" "$TI" save_lead '{"title":"РФИКС ИНН пробелы","inn":"7 701 000 001"}'); check "§37: ИНН лида с пробелами принят" "r.get('success') is True" "$R"
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LA1\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"carrierInn\":\"7 701 000 001\"}"); check "§37: ИНН перевозчика заявки с пробелами принят" "r.get('success') is True" "$R"
+
 # --- уборка ---------------------------------------------------------------
 post "$JI" "$TI" delete_lead "{\"id\":\"$LADM\"}" >/dev/null
 TP=$(login "$JP" "$B_EMAIL" "$B_PASS"); post "$JP" "$TP" delete_lead "{\"id\":\"$LA1\"}" >/dev/null; post "$JP" "$TP" delete_lead "{\"id\":\"$LB1\"}" >/dev/null

@@ -20,6 +20,8 @@ function localSearchLeads(q) {
   const digits = query.replace(/\D/g, '');
   if (!query) return [];
   return Store.state.leads.filter(l => {
+    // Транзит корзины (§35) в обычный поиск не попадает (ревью §37, G17)
+    if (!l || l._deleted) return false;
     const title = String(l.title || '').toLowerCase();
     const inn = String(l.inn || '').replace(/\D/g, '');
     return title.includes(query) || (digits.length >= 4 && inn.includes(digits));

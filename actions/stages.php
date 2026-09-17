@@ -21,7 +21,7 @@ function crm_action_save_stages(PDO $pdo, array $user, int $viewUid): never {
     $old = crm_stages($pdo, $uid);
     $pdo->beginTransaction();
     try {
-        $updL = $pdo->prepare('UPDATE crm_leads SET stage = ? WHERE stage = ? AND user_id = ?');
+        $updL = $pdo->prepare('UPDATE crm_leads SET stage = ? WHERE stage = ? AND user_id = ? AND deleted_at = 0');
         foreach (crm_stage_renames($old, $ns) as [$from, $to]) {
             $updL->execute([$to, $from, $uid]);
         }
@@ -29,7 +29,7 @@ function crm_action_save_stages(PDO $pdo, array $user, int $viewUid): never {
         $ins = $pdo->prepare('INSERT INTO crm_stages (user_id, name, position) VALUES (?,?,?)');
         foreach ($ns as $i => $name) $ins->execute([$uid, $name, $i]);
         $inQ = implode(',', array_fill(0, count($ns), '?'));
-        $pdo->prepare("UPDATE crm_leads SET stage = ? WHERE user_id = ? AND stage NOT IN ($inQ)")->execute(array_merge([$ns[0], $uid], $ns));
+        $pdo->prepare("UPDATE crm_leads SET stage = ? WHERE user_id = ? AND deleted_at = 0 AND stage NOT IN ($inQ)")->execute(array_merge([$ns[0], $uid], $ns));
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();

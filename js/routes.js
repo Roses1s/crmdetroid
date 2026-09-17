@@ -122,11 +122,12 @@ async function openCarrier(id, updateHash = true) {
   $('#cf-name').value = c.name || '';
   $('#cf-phone').value = c.phone || '';
   $('#cf-company').value = c.company || '';
+  $('#cf-inn').value = c.inn || '';
   if ($('#cf-note')) $('#cf-note').value = c.note || '';
   // Править карточку может создатель или админ (сервер проверяет can_manage_ref);
   // остальным поля показываем только для чтения — иначе автосейв сыпал бы ошибками при вводе.
   UI.carrierCanManage = !!c.canManage;
-  ['#cf-name', '#cf-phone', '#cf-company', '#cf-note'].forEach(sel => {
+  ['#cf-name', '#cf-phone', '#cf-company', '#cf-inn', '#cf-note'].forEach(sel => {
     const el = $(sel); if (el) el.readOnly = !c.canManage;
   });
   UI.carrierRev = c.updatedAt;
@@ -179,6 +180,7 @@ function fillCarrierFromForm() {
     name: $('#cf-name').value.trim() || 'Без названия',
     phone: $('#cf-phone').value.trim(),
     company: $('#cf-company').value.trim(),
+    inn: $('#cf-inn').value.replace(/\D/g, ''),
     note: ($('#cf-note') && $('#cf-note').value.trim()) || '',
     updatedAt: UI.carrierRev
   };

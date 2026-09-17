@@ -245,7 +245,7 @@ function crm_money_in(string $v): ?string {
 }
 
 /*
- * Версия сборки для баннера «Вышло обновление»: авто-хэш клиентских файлов.
+ * Версия сборки для баннера «Вышло обновление»: авто-хэш клиентских и серверных файлов.
  * Специально не константа: ручную версию забывают поднять, а хэш меняется сам
  * при любом деплое. Считается раз за запрос (static); отдаётся в get_data —
  * клиент сравнивает с версией, на которой загрузился.
@@ -255,6 +255,10 @@ function crm_build(): string {
     if ($b !== null) return $b;
     $files = [__DIR__ . '/index.html', __DIR__ . '/ui.html', __DIR__ . '/app.css', __DIR__ . '/noscript.css'];
     foreach (glob(__DIR__ . '/js/*.js') ?: [] as $f) $files[] = $f;
+    // Бэкенд тоже входит в хэш (ревью §37, G8): контракт API мог измениться —
+    // клиент со старым JS должен предложить перезагрузку, а не ломаться молча.
+    foreach (['api.php', 'db.php', 'http.php', 'security.php', 'files.php', 'migrations.php'] as $f) $files[] = __DIR__ . '/' . $f;
+    foreach (glob(__DIR__ . '/actions/*.php') ?: [] as $f) $files[] = $f;
     $h = '';
     foreach ($files as $f) {
         $m = is_readable($f) ? md5_file($f) : false;
@@ -572,7 +576,7 @@ function crm_transfer_lead(PDO $pdo, string $leadId, int $fromUid, int $toId, st
     $toStages = crm_stages($pdo, $toId);
     $newStage = in_array($stage, $toStages, true) ? $stage : ($toStages[0] ?? $stage);
     $now = now_ms();
-    $tr = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ?');
+    $tr = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, updated_at = ? WHERE id = ? AND user_id = ? AND updated_at = ? AND deleted_at = 0');
     $tr->execute([$toId, $newStage, $toName, $now, $leadId, $fromUid, $updatedAt]);
     if ($tr->rowCount() === 0) return null;
     // Теги личные (v17): при передаче привязки прежнего владельца снимаются —
@@ -638,6 +642,8 @@ function crm_purge_user(PDO $pdo, int $id, int $transferTo = 0): int {
         $pdo->prepare('UPDATE crm_carriers SET created_by = 0 WHERE created_by = ?')->execute([$id]);
         $pdo->prepare('UPDATE crm_carrier_comments SET user_id = 0 WHERE user_id = ?')->execute([$id]);
         $pdo->prepare('UPDATE crm_comments SET user_id = 0 WHERE user_id = ?')->execute([$id]);
+        // Лог заявок (v20) — как лог лидов: иначе user_id болтался бы после увольнения (ревью §37, G6)
+        $pdo->prepare('UPDATE crm_app_comments SET user_id = 0 WHERE user_id = ?')->execute([$id]);
         $pdo->prepare('DELETE FROM crm_users WHERE id = ?')->execute([$id]);
         $pdo->commit();
     } catch (Throwable $e) {
@@ -927,7 +933,8 @@ function crm_validate_app_fields(array $in): array {
     $unloadDateTo = crm_app_date(strv($in['unloadDateTo'] ?? '', 10), 'Дата выгрузки по');
     $unloadTime = strv($in['unloadTime'] ?? '', 120);
     $company = strv($in['carrierCompany'] ?? '', 200);
-    $inn = preg_replace('/\\D/', '', strv($in['carrierInn'] ?? '', 12)) ?? '';
+    // 20 символов до вырезания цифр: «7 701 000 001» с пробелами иначе резался и браковался (ревью §37, G18)
+    $inn = preg_replace('/\D/', '', strv($in['carrierInn'] ?? '', 20)) ?? '';
     if ($inn !== '' && strlen($inn) !== 10 && strlen($inn) !== 12) throw new CrmError('ИНН 10 или 12 цифр');
     return [
         'number' => $number,
@@ -988,9 +995,10 @@ function crm_comment_for_user(PDO $pdo, string $cid, int $userId): ?array {
 /**
  * Запись лога заявки, видимая сотруднику (v20): цепочка комментарий → заявка →
  * лид → владелец доски. Права на лог = права на лид (решение штурма).
+ * Заморозка §35, как у лога лида: лид в корзине — правки закрыты (ревью §37, F3).
  */
 function crm_app_comment_for_user(PDO $pdo, string $cid, int $userId): ?array {
-    $st = $pdo->prepare('SELECT c.* FROM crm_app_comments c INNER JOIN crm_lead_apps a ON a.id = c.app_id INNER JOIN crm_leads l ON l.id = a.lead_id WHERE c.id = ? AND l.user_id = ?');
+    $st = $pdo->prepare('SELECT c.* FROM crm_app_comments c INNER JOIN crm_lead_apps a ON a.id = c.app_id INNER JOIN crm_leads l ON l.id = a.lead_id WHERE c.id = ? AND l.user_id = ? AND l.deleted_at = 0');
     $st->execute([$cid, $userId]);
     $row = $st->fetch();
     return $row ?: null;

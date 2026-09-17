@@ -156,7 +156,7 @@ function renderActivity() {
       const count = c.months[m] || 0;
       totalTrips += count;
       if (count > 0) {
-        monthCells += `<td class="activity-cell active" title="${count} ${plural(count, 'поездка', 'поездки', 'поездок')}" data-inn="${esc(c.inn)}" data-month="${m}">${count}</td>`;
+        monthCells += `<td class="activity-cell active" title="${count} ${plural(count, 'поездка', 'поездки', 'поездок')}" >${count}</td>`;
       } else {
         monthCells += '<td class="activity-cell"></td>';
       }
