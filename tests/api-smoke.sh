@@ -386,6 +386,30 @@ upload "$JI" "$TI" -F app_id="$ACAS" -F text="лог каскада" -F "files[]
 post "$JI" "$TI" delete_lead "{\"id\":\"$LAPP\"}" >/dev/null
 R=$(get "$JA" integrity_check); check "v20: integrity_check без сирот лога заявок" "all(i[0] not in ('crm_app_comments','crm_app_attachments') for i in r.get('issues',[]))" "$R"
 
+# --- §35 корзина: мягкое удаление и «Взять в работу» ---
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke Del","inn":"7701000001"}'); LDEL=$(jget "$R" "r['id']")
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LDEL\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\"}"); APPDEL=$(jget "$R" "r['application']['id']")
+R=$(post "$JI" "$TI" delete_lead "{\"id\":\"$LDEL\"}"); check "§35: удаление мягкое" "r.get('success') is True" "$R"
+R=$(get "$JI" "get_data&hash=x"); check "§35: удалённый скрыт с доски" "all(l.get('id')!='$LDEL' for l in r.get('leads',[]))" "$R"
+R=$(get "$JI" "get_lead&id=$LDEL"); check "§35: свой удалённый читается" "r.get('lead',{}).get('deleted') is True" "$R"
+R=$(get "$JP" "get_lead&id=$LDEL"); check "§35: чужой удалённый читается любым" "r.get('lead',{}).get('deleted') is True and r.get('lead',{}).get('applications')==[]" "$R"
+R=$(post "$JI" "$TI" save_lead "{\"id\":\"$LDEL\",\"title\":\"X\"}"); check "§35: правка удалённого закрыта" "r.get('error')=='Лид не найден'" "$R"
+R=$(post "$JP" "$TP" restore_lead "{\"id\":\"$LDEL\"}"); check "§35: взятие в работу на этап Новый" "r.get('success') is True and r.get('stage')=='Новый'" "$R"
+R=$(get "$JP" "get_lead&id=$LDEL"); check "§35: забранный лид рабочий, заявка цела" "r.get('lead',{}).get('deleted') is False and len(r.get('lead',{}).get('applications',[]))==1" "$R"
+R=$(get "$JI" "get_lead&id=$LDEL"); check "§35: бывший владелец потерял доступ" "r.get('error')=='Лид не найден'" "$R"
+post "$JA" "$TA" register_user "{\"name\":\"Смоук Третий\",\"email\":\"smoke-c@test.local\",\"password\":\"SmokePassC1\",\"role\":\"user\"}" >/dev/null
+JC="$TMP/jc"; TC=$(login "$JC" "smoke-c@test.local" "SmokePassC1")
+R=$(post "$JC" "$TC" save_stages '{"stages":["Первичный"]}'); check "§35: этапы без Нового сохраняются" "r.get('success') is True" "$R"
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke Del3"}'); LDEL3=$(jget "$R" "r['id']")
+post "$JI" "$TI" delete_lead "{\"id\":\"$LDEL3\"}" >/dev/null
+R=$(post "$JC" "$TC" restore_lead "{\"id\":\"$LDEL3\"}"); check "§35: без Нового — на первый этап" "r.get('stage')=='Первичный'" "$R"
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke Del4"}'); LDEL4=$(jget "$R" "r['id']")
+post "$JI" "$TI" delete_lead "{\"id\":\"$LDEL4\"}" >/dev/null
+R=$(post "$JA" "$TA" purge_lead "{\"id\":\"$LDEL4\"}"); check "§35: админ стирает из корзины" "r.get('success') is True" "$R"
+R=$(get "$JI" "get_lead&id=$LDEL4"); check "§35: стёртый не читается" "r.get('error')=='Лид не найден'" "$R"
+R=$(post "$JA" "$TA" purge_lead "{\"id\":\"$LA1\"}"); check "§35: purge активного запрещён" "r.get('error')=='Лид не найден в удалённых'" "$R"
+R=$(post "$JI" "$TI" purge_lead "{\"id\":\"$LDEL3\"}"); check "§35: purge не-админу запрещён" "r.get('error')=='Нет прав'" "$R"
+
 # --- уборка ---------------------------------------------------------------
 post "$JI" "$TI" delete_lead "{\"id\":\"$LADM\"}" >/dev/null
 TP=$(login "$JP" "$B_EMAIL" "$B_PASS"); post "$JP" "$TP" delete_lead "{\"id\":\"$LA1\"}" >/dev/null; post "$JP" "$TP" delete_lead "{\"id\":\"$LB1\"}" >/dev/null

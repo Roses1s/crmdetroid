@@ -9,7 +9,7 @@ defined('CRM_API') || exit; // только через api.php
 
 function crm_action_get_comments(PDO $pdo, array $user, int $viewUid): never {
     $id = strv($_GET['id'] ?? '', 80);
-    if ($id === '' || !crm_lead_for_user($pdo, $id, $viewUid)) err('Лид не найден');
+    if ($id === '' || (!crm_lead_for_user($pdo, $id, $viewUid) && !crm_deleted_lead($pdo, $id))) err('Лид не найден');
     ok(['comments' => crm_lead_comments($pdo, $id)]);
 }
 

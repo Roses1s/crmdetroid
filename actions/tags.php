@@ -106,10 +106,10 @@ function crm_action_set_lead_tags(PDO $pdo, array $user, int $viewUid): never {
         // (crm_transfer_lead) держит ту же строку — либо мы вставим привязки до передачи
         // (и её чистка их снимет), либо дождёмся коммита и честно получим «Лид не найден».
         // Без FOR UPDATE проверка выше — TOCTOU: привязки могли вставиться уже после чистки.
-        $own = $pdo->prepare('SELECT user_id FROM crm_leads WHERE id = ? FOR UPDATE');
+        $own = $pdo->prepare('SELECT user_id, deleted_at FROM crm_leads WHERE id = ? FOR UPDATE');
         $own->execute([$leadId]);
         $ownerRow = $own->fetch();
-        if (!$ownerRow || (int) $ownerRow['user_id'] !== $viewUid) {
+        if (!$ownerRow || (int) $ownerRow['user_id'] !== $viewUid || (int) ($ownerRow['deleted_at'] ?? 0) !== 0) {
             $pdo->rollBack();
             err('Лид не найден');
         }

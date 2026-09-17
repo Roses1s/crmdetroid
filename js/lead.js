@@ -18,8 +18,16 @@ function renderAttHtml(a, c) {
 }
 
 async function ensureLeadFull(id) {
-  const lead = Store.getLead(id);
-  if (!lead) return null;
+  let lead = Store.getLead(id);
+  if (!lead) {
+    // Чужих активных в сторе нет и быть не должно; удалённый подгружаем
+    // напрямую (§35) транзитом — на доску он не попадёт (фильтр _deleted).
+    const res = await Net.req('get_lead', { id });
+    if (!res?.success || !res.lead?.deleted) return null;
+    lead = { ...res.lead, _full: true, _deleted: true, _editRev: res.lead.updatedAt };
+    Store.state.leads.push(lead);
+    return lead;
+  }
   if (lead._full) return lead;
   const res = await Net.req('get_lead', { id });
   if (!res || !res.success || !res.lead) return lead;
@@ -150,9 +158,9 @@ function ownLeadsOrdered() {
   const leads = Store.state.leads || [];
   const ordered = [];
   stages.forEach(stage => {
-    leads.forEach(l => { if (l.stage === stage) ordered.push(l); });
+    leads.forEach(l => { if (l.stage === stage && !l._deleted) ordered.push(l); });
   });
-  leads.forEach(l => { if (!stages.includes(l.stage)) ordered.push(l); });
+  leads.forEach(l => { if (!stages.includes(l.stage) && !l._deleted) ordered.push(l); });
   return ordered;
 }
 
@@ -189,6 +197,24 @@ function fillLeadForm(lead, fromServer = false) {
   $('#crumb-name').textContent = lead.title; setupPhoneMask($('#f-logist-phone'));
   renderLeadTagsRow();
   renderLeadApps();
+  applyDeletedMode(lead);
+}
+
+function applyDeletedMode(lead) {
+  const isDel = !!(lead.deleted || lead._deleted);
+  const bar = $('#deleted-bar');
+  if (bar) {
+    bar.hidden = !isDel;
+    if (isDel) {
+      const who = lead.deletedBy || '—';
+      const when = lead.deletedAt ? new Date(lead.deletedAt).toLocaleString('ru-RU') : '';
+      $('#deleted-bar-text').textContent = `Лид удалён · ${who}${when ? ` · ${when}` : ''}`;
+      const purgeBtn = $('#btn-purge-lead');
+      if (purgeBtn) purgeBtn.hidden = (Store.state.user?.role || '') !== 'admin';
+    }
+  }
+  $('#detail-view')?.classList.toggle('lead-deleted', isDel);
+  document.querySelectorAll('#detail-view .form-input, #detail-view .editable-title').forEach(el => { el.disabled = isDel; });
 }
 
 function leadAppsOf(lead) {
@@ -560,6 +586,7 @@ let _leadSaveChain = Promise.resolve();
 // См. saveCarrierForm: цепочка _leadSaveChain, первый аргумент ни на что не влияет.
 async function saveLeadForm(_sync = false, keepalive = false, transferTo = 0) {
   if (!UI.leadId) return null; const lead = Store.getLead(UI.leadId); if (!lead || !lead._full) return null;
+  if (lead.deleted || lead._deleted) { Toast.error('Лид удалён — сначала возьмите его в работу'); return null; }
   const run = async () => {
     const cur = Store.getLead(UI.leadId); if (!cur || !cur._full) return null;
     if (UI.currentView === 'lead') updateLeadSaveUI('saving');
@@ -661,7 +688,7 @@ function renderBoard() {
 
   const board = $('#board'); if (!board) return; board.innerHTML = ''; const frag = document.createDocumentFragment();
   Store.state.stages.forEach(stage => {
-    const leads = Store.state.leads.filter(l => l.stage === stage);
+    const leads = Store.state.leads.filter(l => l.stage === stage && !l._deleted);
     const col = document.createElement('div'); col.className = 'column'; col.dataset.stage = stage; col.draggable = true;
     col.innerHTML = `<div class="column-header"><div class="col-title"><span>${esc(stage)}</span><span class="col-edit" data-action="edit-stage">✎</span></div><span class="col-count">${leads.length}</span></div><div class="cards-container"></div>`;
     const cont = col.querySelector('.cards-container');

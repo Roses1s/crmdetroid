@@ -145,6 +145,15 @@
   .client-card::after { content: attr(data-owner); position: absolute; top: calc(100% + 6px); left: 12px; z-index: 5; display: none; background: var(--text); color: var(--panel); font-size: 12px; padding: 4px 8px; border-radius: 4px; white-space: nowrap; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; }
   .client-card:hover::after { display: block; }
   .clients-count { color: var(--muted); font-size: 13px; margin-left: auto; white-space: nowrap; }
+  /* Удалённый лид (§35): баннер + скрытие рабочих элементов карточки. */
+  .deleted-bar { display: flex; align-items: center; gap: 10px; padding: 10px 15px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 13px; }
+  .deleted-bar[hidden] { display: none; }
+  .deleted-bar-text { font-weight: 700; }
+  .lead-deleted #stages-row, .lead-deleted #lead-save-status, .lead-deleted #btn-save-lead,
+  .lead-deleted [data-action="delete-lead"], .lead-deleted #lead-nav,
+  .lead-deleted .section-title-row, .lead-deleted #lead-tags-row,
+  .lead-deleted #lead-apps-stats, .lead-deleted #lead-apps-stats-note, .lead-deleted #lead-apps-list,
+  .lead-deleted .comment-form { display: none; }
   .column { background: var(--column-bg); width: 260px; flex-shrink: 0; border-radius: 6px; display: flex; flex-direction: column; max-height: 100%; transition: opacity .2s; }
   .column.dragging { opacity: .4; }
   .column.drop-target { outline: 2px dashed var(--primary); outline-offset: -2px; }

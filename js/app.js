@@ -844,13 +844,33 @@ async function handleLeadCardAction(act, actEl) {
       }
 
       case 'delete-lead': {
-        if (!await askConfirm('Удалить лид?', 'Навсегда')) return;
+        if (!await askConfirm('Удалить лид?', 'Лид переместится в удалённые — его можно будет восстановить')) return;
         const delLead = Store.getLead(UI.leadId);
         const delRev = delLead ? (delLead._editRev ?? delLead.updatedAt) : 0;
         const resDL = await Net.req('delete_lead', { id: UI.leadId, updatedAt: delRev });
         if (resDL?.success) { goHome(true); await Store.load(true); }
         else if (resDL?.error === 'Карточка изменена в другом месте') { Toast.error('Карточку изменили в другой вкладке — обновляю'); await Store.load(true); }
         else Toast.error(resDL?.error || 'Ошибка');
+        break;
+      }
+
+      case 'take-lead': {
+        if (!UI.leadId) return;
+        const res = await Net.req('restore_lead', { id: UI.leadId });
+        if (!res?.success) { Toast.error(res?.error || 'Не удалось взять в работу'); return; }
+        Store.state.leads = Store.state.leads.filter(l => l.id !== UI.leadId);
+        await Store.load(true);
+        await openLead(UI.leadId, true);
+        break;
+      }
+
+      case 'purge-lead': {
+        if (!UI.leadId) return;
+        if (!await askConfirm('Удалить навсегда?', 'Лид, заявки, лог и файлы будут стёрты без возможности восстановления')) return;
+        const res = await Net.req('purge_lead', { id: UI.leadId });
+        if (!res?.success) { Toast.error(res?.error || 'Не удалось удалить'); return; }
+        Store.state.leads = Store.state.leads.filter(l => l.id !== UI.leadId);
+        goHome(true); await Store.load(true);
         break;
       }
 

@@ -123,6 +123,11 @@
     <button class="btn btn-primary btn-sm" id="btn-save-lead" data-action="save-lead-now" disabled>💾 Сохранить</button>
     <button class="btn btn-danger btn-sm" data-action="delete-lead" aria-label="Удалить лид">🗑️ Удалить</button>
   </div>
+  <div class="deleted-bar" id="deleted-bar" hidden>
+    <span class="deleted-bar-text" id="deleted-bar-text">Лид удалён</span>
+    <button type="button" class="btn btn-primary btn-sm" id="btn-take-lead" data-action="take-lead">Взять в работу</button>
+    <button type="button" class="btn btn-danger btn-sm" id="btn-purge-lead" data-action="purge-lead" hidden>Удалить навсегда</button>
+  </div>
   <div class="detail-body">
     <div class="form-panel">
       <input type="text" id="f-title" class="editable-title" placeholder="Название компании...">

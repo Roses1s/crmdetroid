@@ -12,7 +12,7 @@ function crm_action_get_data(PDO $pdo, array $user, int $viewUid): never {
     $stages = crm_stages($pdo, $uid);
     // Хэш ревизии — из лёгкой выборки (только id и времена), полные строки не грузим,
     // пока не станет ясно, что они нужны (п. 12 ревью: раньше каждый полл тянул всё).
-    $st = $pdo->prepare('SELECT id, created_at, updated_at FROM crm_leads WHERE user_id = ? ORDER BY created_at ASC');
+    $st = $pdo->prepare('SELECT id, created_at, updated_at FROM crm_leads WHERE user_id = ? AND deleted_at = 0 ORDER BY created_at ASC');
     $st->execute([$uid]);
     $allIds = []; $u = 0; $cr = 0; $idsConcat = '';
     foreach ($st as $r) {
@@ -42,7 +42,7 @@ function crm_action_get_data(PDO $pdo, array $user, int $viewUid): never {
     // этапов с присланным делает полную перезагрузку (см. Store.load).
     $since = intv($_GET['since'] ?? 0);
     if ($client !== '' && $since > 0) {
-        $chSt = $pdo->prepare('SELECT id, title, inn, phone, logist_phone, manager, applications_count, stage, created_at, updated_at FROM crm_leads WHERE user_id = ? AND (updated_at >= ? OR created_at >= ?) ORDER BY created_at ASC');
+        $chSt = $pdo->prepare('SELECT id, title, inn, phone, logist_phone, manager, applications_count, stage, created_at, updated_at FROM crm_leads WHERE user_id = ? AND deleted_at = 0 AND (updated_at >= ? OR created_at >= ?) ORDER BY created_at ASC');
         $chSt->execute([$uid, $since, $since]);
         $changed = [];
         foreach ($chSt as $r) $changed[] = crm_lead_row_to_api($r, false);
@@ -56,11 +56,28 @@ function crm_action_get_data(PDO $pdo, array $user, int $viewUid): never {
 function crm_action_get_lead(PDO $pdo, array $user, int $viewUid): never {
     $id = strv($_GET['id'] ?? '', 80);
     $row = $id === '' ? null : crm_lead_for_user($pdo, $id, $viewUid);
-    if (!$row) err('Лид не найден');
+    $deleted = null;
+    if (!$row) {
+        // Удалённый лид открывается любому менеджеру (§35) — только чтение + «Взять в работу».
+        $deleted = $id === '' ? null : crm_deleted_lead($pdo, $id);
+        if (!$deleted) err('Лид не найден');
+        $row = $deleted;
+    }
     $lead = crm_lead_row_to_api($row, true);
-    $lead['applications'] = crm_lead_apps($pdo, $id);
-    $lead['applicationsCount'] = count($lead['applications']);
-    $lead['appsStats'] = crm_apps_stats($pdo, $viewUid, $id, (string) ($row['inn'] ?? ''));
+    if ($deleted && (int) $row['user_id'] !== $viewUid) {
+        // Чужая корзина: заявки и статистику не отдаём (карточка показывает лид и лог).
+        $lead['applications'] = [];
+        $lead['applicationsCount'] = 0;
+        $lead['appsStats'] = null;
+    } else {
+        $lead['applications'] = crm_lead_apps($pdo, $id);
+        $lead['applicationsCount'] = count($lead['applications']);
+        $lead['appsStats'] = crm_apps_stats($pdo, $viewUid, $id, (string) ($row['inn'] ?? ''));
+    }
+    if ($deleted) {
+        $by = crm_user_by_id($pdo, (int) ($row['deleted_by'] ?? 0));
+        $lead['deletedBy'] = (string) ($by['name'] ?? '');
+    }
     ok(['lead' => $lead]);
 }
 
@@ -198,11 +215,10 @@ function crm_action_move_lead(PDO $pdo, array $user, int $viewUid): never {
 /**
  * Общий реестр «Клиенты» (§34): все лиды всех менеджеров, но БЕЗ контактов —
  * только название, ИНН и владелец. Свои помечаем mine (их можно открыть).
- * NOTE(soft-delete): когда появится флаг удаления — добавить AND deleted_at = 0.
  */
 function crm_action_get_clients(PDO $pdo, array $user, int $viewUid): never {
-    $total = (int) $pdo->query('SELECT COUNT(*) FROM crm_leads')->fetchColumn();
-    $st = $pdo->prepare('SELECT l.id, l.title, l.inn, u.name AS owner, (l.user_id = ?) AS mine FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id ORDER BY l.title ASC LIMIT 500');
+    $total = (int) $pdo->query('SELECT COUNT(*) FROM crm_leads WHERE deleted_at = 0')->fetchColumn();
+    $st = $pdo->prepare('SELECT l.id, l.title, l.inn, u.name AS owner, (l.user_id = ?) AS mine FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.deleted_at = 0 ORDER BY l.title ASC LIMIT 500');
     $st->execute([$viewUid]);
     $out = [];
     foreach ($st as $r) {
@@ -222,15 +238,61 @@ function crm_action_delete_lead(PDO $pdo, array $user, int $viewUid): never {
     $id = strv($in['id'] ?? '', 80);
     $uid = $viewUid;
     $row = crm_lead_for_user($pdo, $id, $uid);
-    if (!$row) err('Лид не найден');
+    if (!$row) {
+        // Идемпотентность: свой уже удалённый — ok (двойной клик, повтор).
+        $del = $id === '' ? null : crm_deleted_lead($pdo, $id);
+        if ($del && (int) $del['user_id'] === $uid) ok();
+        err('Лид не найден');
+    }
     // Оптимистическая блокировка: если лид изменили в другой вкладке — предупредить, а не удалять молча.
     if (array_key_exists('updatedAt', $in) && (int) $row['updated_at'] !== intv($in['updatedAt'])) {
         err('Карточка изменена в другом месте');
     }
-    crm_purge_lead($pdo, $id);
-    // Удаление необратимо (лог, файлы, заявки, теги) — след в аудите обязателен,
-    // иначе «кто удалил лид» восстановить нельзя (ревью №3, п. про слепоту аудита).
+    // Мягкое удаление (§35): лид уходит в корзину, заявки/лог/файлы целы.
+    $now = now_ms();
+    $pdo->prepare('UPDATE crm_leads SET deleted_at = ?, deleted_by = ?, updated_at = ? WHERE id = ? AND deleted_at = 0')->execute([$now, $uid, $now, $id]);
     crm_audit($pdo, $user, 'lead_delete', $id, (string) ($row['title'] ?? ''));
+    ok();
+}
+
+/**
+ * «Взять в работу» (§35): любой менеджер забирает удалённый лид себе.
+ * Этап — «Новый», если есть у берущего, иначе его первый этап.
+ * WHERE deleted_at <> 0 + rowCount — защита от двойного взятия.
+ */
+function crm_action_restore_lead(PDO $pdo, array $user, int $viewUid): never {
+    $in = body_json();
+    $id = strv($in['id'] ?? '', 80);
+    $uid = (int) ($user['id'] ?? 0);
+    $selfName = strv((string) ($user['name'] ?? ''), 80);
+    $row = $id === '' ? null : crm_deleted_lead($pdo, $id);
+    if (!$row) {
+        if ($id !== '' && crm_lead_for_user($pdo, $id, $viewUid)) err('Лид не удалён');
+        err('Лид не найден');
+    }
+    $stages = crm_stages($pdo, $uid);
+    $stage = in_array('Новый', $stages, true) ? 'Новый' : ($stages[0] ?? 'Новый');
+    $now = now_ms();
+    $upd = $pdo->prepare('UPDATE crm_leads SET user_id = ?, stage = ?, manager = ?, deleted_at = 0, deleted_by = 0, updated_at = ? WHERE id = ? AND deleted_at <> 0');
+    $upd->execute([$uid, $stage, $selfName, $now, $id]);
+    if ($upd->rowCount() === 0) err('Лид уже забрали');
+    crm_sys_comment($pdo, $id, 'Лид взят в работу: ' . $selfName);
+    crm_audit($pdo, $user, 'lead_restore', $id, (string) ($row['title'] ?? ''));
+    ok(['id' => $id, 'stage' => $stage]);
+}
+
+/**
+ * Стирание из корзины (§35): только админ, только уже удалённого.
+ * Активный лид сначала должен уйти в корзину обычным удалением.
+ */
+function crm_action_purge_lead(PDO $pdo, array $user, int $viewUid): never {
+    require_admin($user);
+    $in = body_json();
+    $id = strv($in['id'] ?? '', 80);
+    $row = $id === '' ? null : crm_deleted_lead($pdo, $id);
+    if (!$row) err('Лид не найден в удалённых');
+    crm_purge_lead($pdo, $id);
+    crm_audit($pdo, $user, 'lead_purge', $id, (string) ($row['title'] ?? ''));
     ok();
 }
 
@@ -368,7 +430,7 @@ function crm_action_delete_lead_app(PDO $pdo, array $user, int $viewUid): never 
  */
 function crm_action_get_apps(PDO $pdo, array $user, int $viewUid): never {
     $q = strv($_GET['q'] ?? '', 80);
-    $where = 'l.user_id = ?';
+    $where = 'l.user_id = ? AND l.deleted_at = 0';
     $params = [$viewUid];
     if ($q !== '') {
         $like = crm_like_pat($q);

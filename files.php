@@ -110,13 +110,13 @@ function crm_serve_file(PDO $pdo, string $name, array $user): never {
     $uid = (int) ($user['id'] ?? 0);
     $admin = (($user['role'] ?? '') === 'admin');
     // Файлы лидов: доступ только владельцу доски (или админу).
-    $st = $pdo->prepare('SELECT a.name, l.user_id FROM crm_attachments a
+    $st = $pdo->prepare('SELECT a.name, l.user_id, l.deleted_at FROM crm_attachments a
         INNER JOIN crm_comments c ON c.id = a.comment_id
         INNER JOIN crm_leads l ON l.id = c.lead_id
         WHERE a.data_url = ? LIMIT 1');
     $st->execute([$url]);
     $row = $st->fetch();
-    if ($row && !$admin && (int) $row['user_id'] !== $uid) {
+    if ($row && !$admin && (int) $row['user_id'] !== $uid && !(int) ($row['deleted_at'] ?? 0)) {
         $row = null;
     }
     // Файлы заявок: как у лидов — только владельцу доски (или админу).

@@ -755,8 +755,17 @@ function crm_stages(PDO $pdo, int $userId): array {
 }
 
 function crm_lead_for_user(PDO $pdo, string $id, int $userId): ?array {
-    $st = $pdo->prepare('SELECT * FROM crm_leads WHERE id = ? AND user_id = ?');
+    // §35: гейт видит только активные свои — все мутации автоматом закрыты для удалённых.
+    $st = $pdo->prepare('SELECT * FROM crm_leads WHERE id = ? AND user_id = ? AND deleted_at = 0');
     $st->execute([$id, $userId]);
+    $row = $st->fetch();
+    return $row ?: null;
+}
+
+/** Удалённый лид любого владельца (§35): только чтение + restore/purge. */
+function crm_deleted_lead(PDO $pdo, string $id): ?array {
+    $st = $pdo->prepare('SELECT * FROM crm_leads WHERE id = ? AND deleted_at <> 0');
+    $st->execute([$id]);
     $row = $st->fetch();
     return $row ?: null;
 }
@@ -855,7 +864,7 @@ function crm_apps_stats(PDO $pdo, int $userId, string $leadId, string $inn = '')
     $inn = preg_replace('/\D/', '', $inn) ?? '';
     if (strlen($inn) === 10 || strlen($inn) === 12) {
         try {
-            $st = $pdo->prepare("SELECT $sumSql FROM crm_lead_apps a INNER JOIN crm_leads l ON l.id = a.lead_id WHERE l.user_id = ? AND l.inn = ?");
+            $st = $pdo->prepare("SELECT $sumSql FROM crm_lead_apps a INNER JOIN crm_leads l ON l.id = a.lead_id WHERE l.user_id = ? AND l.inn = ? AND l.deleted_at = 0");
             $st->execute([$userId, $inn]);
             $all = $st->fetch() ?: ['c' => 0, 'm' => 0];
             $clientCount = (int) $all['c'];
@@ -970,7 +979,7 @@ function crm_sync_lead_apps_count(PDO $pdo, string $leadId): int {
 }
 
 function crm_comment_for_user(PDO $pdo, string $cid, int $userId): ?array {
-    $st = $pdo->prepare('SELECT c.* FROM crm_comments c INNER JOIN crm_leads l ON l.id = c.lead_id WHERE c.id = ? AND l.user_id = ?');
+    $st = $pdo->prepare('SELECT c.* FROM crm_comments c INNER JOIN crm_leads l ON l.id = c.lead_id WHERE c.id = ? AND l.user_id = ? AND l.deleted_at = 0');
     $st->execute([$cid, $userId]);
     $row = $st->fetch();
     return $row ?: null;
@@ -1006,12 +1015,14 @@ function crm_lead_row_to_api(array $r, bool $full = true): array {
         $out['email'] = $r['email'];
         $out['ati'] = $r['ati'] ?? '';
         $out['logistName'] = $r['logist_name'] ?? '';
+        $out['deleted'] = ((int) ($r['deleted_at'] ?? 0)) !== 0;
+        $out['deletedAt'] = (int) ($r['deleted_at'] ?? 0);
     }
     return $out;
 }
 
 function crm_leads_full(PDO $pdo, int $userId): array {
-    $st = $pdo->prepare('SELECT id, title, inn, phone, logist_phone, manager, applications_count, stage, created_at, updated_at FROM crm_leads WHERE user_id = ? ORDER BY created_at ASC');
+    $st = $pdo->prepare('SELECT id, title, inn, phone, logist_phone, manager, applications_count, stage, created_at, updated_at FROM crm_leads WHERE user_id = ? AND deleted_at = 0 ORDER BY created_at ASC');
     $st->execute([$userId]);
     $leads = [];
     foreach ($st as $r) $leads[] = crm_lead_row_to_api($r, false);
@@ -1220,7 +1231,7 @@ function crm_search_leads(PDO $pdo, int $userId, string $q): array {
     if ($q === '') return ['leads' => [], 'intersections' => []];
     $digits = preg_replace('/\D/', '', $q);
     $titlePat = crm_like_pat($q);
-    $ownSql = 'SELECT id, title, inn, stage, phone FROM crm_leads WHERE user_id = ? AND (title LIKE ?';
+    $ownSql = 'SELECT id, title, inn, stage, phone FROM crm_leads WHERE user_id = ? AND deleted_at = 0 AND (title LIKE ?';
     $ownParams = [$userId, $titlePat];
     // Свой поиск по ИНН — тоже от 4 цифр (раньше было 2): по двузначным фрагментам
     // перебирались все лиды с похожим ИНН, что при большом объёме замедляло поиск.
@@ -1254,7 +1265,7 @@ function crm_search_leads(PDO $pdo, int $userId, string $q): array {
     $byTitle = mb_strlen($q, 'UTF-8') >= CRM_SEARCH_MIN_CHARS;
     $byInn = strlen($digits) >= CRM_SEARCH_MIN_CHARS;
     if (!$byTitle && !$byInn) return ['leads' => $leads, 'intersections' => []];
-    $othSelect = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND (';
+    $othSelect = 'SELECT l.title, l.inn, u.name AS owner FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.user_id <> ? AND l.deleted_at = 0 AND (';
     $ftQuery = $byTitle ? crm_ft_query($q) : '';
     $st = null;
     if ($ftQuery !== '') {
@@ -1310,7 +1321,7 @@ function crm_reserved_user_name(string $name): bool {
  */
 function crm_client_activity(PDO $pdo, int $userId, int $year): array {
     // 1) Все клиенты (по ИНН) — включая тех, у кого нет заявок
-    $stClients = $pdo->prepare("SELECT inn, MAX(title) AS title FROM crm_leads WHERE user_id = ? AND inn <> '' GROUP BY inn ORDER BY inn");
+    $stClients = $pdo->prepare("SELECT inn, MAX(title) AS title FROM crm_leads WHERE user_id = ? AND deleted_at = 0 AND inn <> '' GROUP BY inn ORDER BY inn");
     $stClients->execute([$userId]);
     $clients = [];
     foreach ($stClients->fetchAll() as $r) {
@@ -1332,7 +1343,8 @@ function crm_client_activity(PDO $pdo, int $userId, int $year): array {
             INNER JOIN crm_leads l ON l.id = a.lead_id
             WHERE l.user_id = ?
               AND a.created_at >= ? AND a.created_at < ?
-              AND l.inn <> ''");
+              AND l.inn <> ''
+              AND l.deleted_at = 0");
     $stTrips->execute([$userId, $from, $to]);
     foreach ($stTrips->fetchAll() as $r) {
         $inn = (string) $r['inn'];

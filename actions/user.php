@@ -13,7 +13,7 @@ function crm_action_me(PDO $pdo, array $user, int $viewUid): never {
 
 function crm_action_get_users(PDO $pdo, array $user, int $viewUid): never {
     require_admin($user);
-    $rows = $pdo->query('SELECT u.id, u.name, u.email, u.role, (SELECT COUNT(*) FROM crm_leads l WHERE l.user_id = u.id) AS leads
+    $rows = $pdo->query('SELECT u.id, u.name, u.email, u.role, (SELECT COUNT(*) FROM crm_leads l WHERE l.user_id = u.id AND l.deleted_at = 0) AS leads
         FROM crm_users u ORDER BY u.id ASC')->fetchAll();
     foreach ($rows as &$r) { $r['id'] = (int) $r['id']; $r['leads'] = (int) $r['leads']; }
     unset($r);

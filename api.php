@@ -11,7 +11,7 @@
  *                         middleware ($user/$viewUid ещё нет), поэтому сигнатура другая:
  *                         crm_action_xxx(PDO $pdo, bool $hasSess): never
  *   actions/lead.php    — save_lead, move_lead, delete_lead, get_lead, get_data, get_clients, get_activity,
- *                         save_lead_app, delete_lead_app
+ *                         save_lead_app, delete_lead_app, restore_lead, purge_lead
  *   actions/app.php     — get_app, get_app_comments, save_app, set_app_status,
  *                         add_app_comment, edit_app_comment, delete_app_comment (v20)
  *   actions/tags.php    — save_tag, delete_tag, set_lead_tags (личные теги лидов, v17)
@@ -647,6 +647,10 @@ switch ($action) {
     case 'move_lead': crm_action_move_lead($pdo, $user, $viewUid);
 
     case 'delete_lead': crm_action_delete_lead($pdo, $user, $viewUid);
+
+    case 'restore_lead': crm_action_restore_lead($pdo, $user, $viewUid);
+
+    case 'purge_lead': crm_action_purge_lead($pdo, $user, $viewUid);
 
     case 'add_comment': crm_action_add_comment($pdo, $user, $viewUid);
 

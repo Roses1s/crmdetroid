@@ -10,7 +10,7 @@ declare(strict_types=1);
  * резолвятся в рантайме, когда все файлы уже подключены.
  */
 
-const CRM_SCHEMA_VERSION = 24;
+const CRM_SCHEMA_VERSION = 25;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -70,6 +70,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v22($pdo);
     crm_migrate_v23($pdo);
     crm_migrate_v24($pdo);
+    crm_migrate_v25($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -547,6 +548,17 @@ function crm_migrate_v24(PDO $pdo): void {
     if (crm_has_column($pdo, 'crm_lead_apps', 'unload_time_to')) {
         try { $pdo->exec('ALTER TABLE crm_lead_apps DROP COLUMN unload_time_to'); } catch (PDOException $e) { crm_log_fail('migrate_v24 drop unload_time_to', $e); }
     }
+}
+
+function crm_migrate_v25(PDO $pdo): void {
+    // Мягкое удаление лидов (§35): корзина + «Взять в работу».
+    if (!crm_has_column($pdo, 'crm_leads', 'deleted_at')) {
+        try { $pdo->exec('ALTER TABLE crm_leads ADD COLUMN deleted_at BIGINT NOT NULL DEFAULT 0'); } catch (PDOException $e) { crm_log_fail('migrate_v25 deleted_at', $e); }
+    }
+    if (!crm_has_column($pdo, 'crm_leads', 'deleted_by')) {
+        try { $pdo->exec('ALTER TABLE crm_leads ADD COLUMN deleted_by INT UNSIGNED NOT NULL DEFAULT 0'); } catch (PDOException $e) { crm_log_fail('migrate_v25 deleted_by', $e); }
+    }
+    try { $pdo->exec('ALTER TABLE crm_leads ADD KEY idx_deleted_at (deleted_at)'); } catch (PDOException $e) { crm_log_fail('migrate_v25 idx_deleted_at', $e); }
 }
 
 function crm_migrate_owners(PDO $pdo): void {
