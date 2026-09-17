@@ -11,6 +11,7 @@ parameters:
         - security.php
         - files.php
         - migrations.php
+        - health.php
         - actions
         - tools/backup.php
     bootstrapFiles:

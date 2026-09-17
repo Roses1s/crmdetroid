@@ -179,6 +179,24 @@ tools/deploy.sh --to /path      # «залить» в локальный кат�
 
 Доступы: `DEPLOY_URL`/`DEPLOY_PASS`/`SITE_URL` в окружении или в `tools/.deploy.env`.
 
+### Ручной деплой (без скрипта)
+
+Если заливаете руками через FTP-клиент или файловый менеджер хостинга —
+порядок тот же, что у скрипта (авария 2026-09-17: оборванная заливка одного
+PHP-файла роняла весь API пустым 500, т.к. `api.php` требует все actions
+на старте):
+
+1. Взять свежие файлы из ветки (все разом, не по одному).
+2. Залить в корень сайта **с перезаписью**: `api.php db.php http.php
+   security.php files.php migrations.php health.php index.html ui.html
+   app.css noscript.css icon.svg robots.txt .htaccess` и папки `actions/`,
+   `js/` целиком.
+3. Не трогать на сервере: `config.php`, `uploads/`, `data/` — живые данные.
+4. Дождаться конца заливки (оборванный файл = 500 на всём API).
+5. Открыть `https://crmdetroid.ru/health.php` — должен ответить
+   `{"ok":true,"v":"fixNN",...}` (`v` совпадает со свежим `?v=` из `index.html`).
+6. Обновить CRM через Ctrl+F5, войти.
+
 ## Локальный запуск
 
 Нужен PHP 8.1+ с `pdo_mysql` и `mbstring`, и MySQL/MariaDB. Создайте `config.php` и запустите

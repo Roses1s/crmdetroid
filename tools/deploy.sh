@@ -63,7 +63,7 @@ verify_deploy() {
 
 # Единый список заливаемого (папки — целиком)
 FILES=(
-  api.php db.php http.php security.php files.php migrations.php
+  api.php db.php http.php security.php files.php migrations.php health.php
   index.html ui.html app.css noscript.css icon.svg robots.txt .htaccess
 )
 DIRS=(actions js)
