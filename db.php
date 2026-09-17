@@ -595,7 +595,8 @@ function crm_transfer_lead(PDO $pdo, string $leadId, int $fromUid, int $toId, st
 function crm_transfer_user_leads(PDO $pdo, int $from, int $to, string $fromName, string $toName): int {
     $toStages = crm_stages($pdo, $to);
     $fallback = $toStages[0] ?? 'Новый';
-    $st = $pdo->prepare('SELECT id, stage FROM crm_leads WHERE user_id = ?');
+    // Только активные: корзина увольняемого допурживается вызывающим (ревью §37, G1)
+    $st = $pdo->prepare('SELECT id, stage FROM crm_leads WHERE user_id = ? AND deleted_at = 0');
     $st->execute([$from]);
     $rows = $st->fetchAll();
     if (!$rows) return 0;

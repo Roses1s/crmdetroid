@@ -18,7 +18,7 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@detroid.local';
 const ADMIN_PASS = process.env.ADMIN_PASS || '';
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').replace(/<script[^>]*src="[^"]*"[^>]*><\/script>/g, '');
 const appJs = ['util.js', 'net.js', 'search.js', 'lead.js', 'admin.js', 'routes.js', 'app.js'].map(f => fs.readFileSync(path.join(ROOT, 'js', f), 'utf8')).join('\n;\n')
-  + "\n;window.Store=Store;window.Net=Net;window.UI=UI;window.openLead=openLead;window.loadUsers=loadUsers;window.stopPolling=stopPolling;window.handleHashRouting=handleHashRouting;window.__pollActive=()=>!!pollTimer;";
+  + "\n;window.Store=Store;window.Net=Net;window.UI=UI;window.openLead=openLead;window.loadUsers=loadUsers;window.stopPolling=stopPolling;window.handleHashRouting=handleHashRouting;window.currentRoute=currentRoute;window.__pollActive=()=>!!pollTimer;";
 const themeJs = fs.readFileSync(path.join(ROOT, 'js', 'theme.js'), 'utf8');
 
 const results = [];
@@ -214,16 +214,22 @@ async function api(jar, action, data, csrf, as) {
 }
 
 // ---------- 37b: deep-link в корзину открывает карточку, а не доску (F2) ----------
+// Роутим внутри сессии: старт без сессии сносит hash (см. тест 5 «hash сброшен»),
+// поэтому deep-link через свежий вход проверить нельзя — только навигацией.
 {
-  const { w: w0, jar: jar0 } = await makeWindow();
-  await loginAs(w0, 'ivan@x.ru', 'IvanPass123');
-  const csrf0 = w0.Net.csrf;
-  const made2 = await api(jar0, 'save_lead', { title: 'E2E диплинк37' }, csrf0);
-  await api(jar0, 'delete_lead', { id: made2.id }, csrf0);
-  w0.stopPolling?.();
-  const { w } = await makeWindow('#lead/' + made2.id);
+  const { w, jar } = await makeWindow();
   await loginAs(w, 'ivan@x.ru', 'IvanPass123');
+  const csrf = w.Net.csrf;
+  const made2 = await api(jar, 'save_lead', { title: 'E2E диплинк37' }, csrf);
+  await api(jar, 'delete_lead', { id: made2.id }, csrf);
+  await w.Store.load(true);
+  w.location.hash = '#lead/' + made2.id;
+  console.log(`::warning::DBG37b made2id=${made2.id} hash=${w.location.hash} route=${w.currentRoute()}`);
+  w.handleHashRouting();
   for (let i = 0; i < 40 && w.UI.currentView !== 'lead'; i++) await sleep(100);
+  console.log(`::warning::DBG37b routed view=${w.UI.currentView} lead=${w.UI.leadId} transit=${w.Store.getLead(made2.id) ? 'yes' : 'no'}`);
+  await w.openLead(made2.id, false);
+  console.log(`::warning::DBG37b direct view=${w.UI.currentView} lead=${w.UI.leadId}`);
   ok('37 deep-link в корзину открыл карточку', w.UI.currentView === 'lead' && w.UI.leadId === made2.id, `view=${w.UI.currentView} lead=${w.UI.leadId}`);
   w.stopPolling?.();
 }
