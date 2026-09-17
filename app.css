@@ -663,6 +663,10 @@
   .apps-total { font-weight: 700; }
   /* Страница заявки: Погрузка и Выгрузка рядом, в духе Odoo. */
   .app-sheet-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
+  /* Шапка заявки в духе Odoo: статичное «Заявка №» + тот же инпут. */
+  .app-sheet-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .app-sheet-head-label { font-size: 24px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+  .app-sheet-head .editable-title { flex: 1; width: auto; min-width: 0; margin: 0; padding-left: 0; }
   .name-link[data-action="open-activity-client"] { cursor: pointer; color: var(--primary); }
   .name-link[data-action="open-activity-client"]:hover { text-decoration: underline; }
 
