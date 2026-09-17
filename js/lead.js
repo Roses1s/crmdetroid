@@ -733,9 +733,10 @@ function renderBoard() {
 // Свои карточки кликабельны (mine с сервера), чужие — статичны.
 let _clientsCache = [];
 let _clientsTotal = 0;
+let _clientsFilter = 'all'; // пилюля реестра: all/mine/deleted (§38)
 
 async function loadClients() {
-  const res = await Net.req('get_clients');
+  const res = await Net.req('get_clients', _clientsFilter === 'all' ? null : { filter: _clientsFilter });
   _clientsCache = res?.success ? (res.clients || []) : [];
   _clientsTotal = res?.success ? (res.total || 0) : 0;
   renderClients();
@@ -754,18 +755,32 @@ function renderClients() {
   const list = _clientsCache.filter(c => !q || c.title.toLowerCase().includes(q) || c.inn.toLowerCase().includes(q));
   grid.innerHTML = list.map(c => {
     const innLine = c.inn ? `ИНН ${esc(c.inn)}` : '';
-    const ownerTip = c.mine ? `${c.owner} (ваш лид)` : c.owner;
-    return `<div class="client-card${c.mine ? ' mine' : ''}" data-id="${esc(c.id)}" data-owner="${esc(ownerTip)}"><div class="client-icon">${clientIconSvg(c.title)}</div><div class="client-body"><div class="client-title">${esc(c.title)}</div><div class="client-inn">${innLine}</div></div></div>`;
+    const ownerTip = c.deleted
+      ? [`владелец: ${c.owner || '—'}`, c.deletedBy ? `удалил: ${c.deletedBy}` : ''].filter(Boolean).join(' · ')
+      : (c.mine ? `${c.owner} (ваш лид)` : c.owner);
+    const cls = c.deleted ? ' trash' : (c.mine ? ' mine' : '');
+    const title = c.deleted ? `🗑 ${esc(c.title)}` : esc(c.title);
+    return `<div class="client-card${cls}" data-id="${esc(c.id)}" data-owner="${esc(ownerTip)}"><div class="client-icon">${clientIconSvg(c.title)}</div><div class="client-body"><div class="client-title">${title}</div><div class="client-inn">${innLine}</div></div></div>`;
   }).join('');
   const cnt = $('#clients-count');
   if (cnt) cnt.textContent = _clientsTotal > _clientsCache.length ? `Показаны ${_clientsCache.length} из ${_clientsTotal}` : `Всего: ${_clientsTotal}`;
 }
 
 function initClientsEvents() {
+  const pills = $('#clients-pills');
+  if (pills && !pills.dataset.init) {
+    pills.dataset.init = '1';
+    pills.addEventListener('click', e => {
+      const b = e.target.closest('.search-pill'); if (!b) return;
+      _clientsFilter = b.dataset.filter || 'all';
+      pills.querySelectorAll('.search-pill').forEach(p => p.classList.toggle('active', p === b));
+      loadClients();
+    });
+  }
   $('#clients-search')?.addEventListener('input', renderClients);
   $('#clients-search-clear')?.addEventListener('click', () => { const i = $('#clients-search'); if (i) { i.value = ''; renderClients(); } });
   $('#clients-grid')?.addEventListener('click', e => {
-    const card = e.target.closest('.client-card.mine');
+    const card = e.target.closest('.client-card.mine, .client-card.trash');
     if (card) openLead(card.dataset.id, true);
   });
 }

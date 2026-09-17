@@ -184,23 +184,24 @@ async function api(jar, action, data, csrf, as) {
   w.stopPolling?.();
 }
 
-// ---------- 37: корзина: пилюли, выживание поллинга (F1), взятие, deep-link (F2) ----------
+// ---------- 37: корзина в «Клиентах»: пилюли, карточка, поллинг (F1), взятие ----------
 {
   const { w, jar } = await makeWindow();
   await loginAs(w, 'ivan@x.ru', 'IvanPass123');
   const csrf = w.Net.csrf;
-  const made = await api(jar, 'save_lead', { title: 'E2E корзина УникХвост37' }, csrf);
+  const made = await api(jar, 'save_lead', { title: 'E2E корзина УникХвост38' }, csrf);
   await w.Store.load(true);
   await api(jar, 'delete_lead', { id: made.id }, csrf);
-  const pill = w.document.querySelector('#board-search-pills .search-pill[data-filter="deleted"]');
+  w.document.querySelector('[data-action="go-clients"]')?.click(); await sleep(500);
+  ok('37 вкладка «Клиенты» открыта', w.UI.currentView === 'clients', `view=${w.UI.currentView}`);
+  const pill = w.document.querySelector('#clients-pills .search-pill[data-filter="deleted"]');
   ok('37 пилюля «Удалённые» есть', !!pill);
   pill?.click(); await sleep(800);
-  ok('37 клик переключил фильтр', w.UI.searchFilter === 'deleted', `filter=${w.UI.searchFilter}`);
-  const rows = [...w.document.querySelectorAll('#search-drop .search-item.trash')];
-  ok('37 корзина отдала удалённый строкой trash', rows.some(r => r.textContent.includes('УникХвост37')), `rows=${rows.length}`);
-  // карточка корзины переживает поллинг (F1-регресс: раньше выкидывало на доску)
-  await w.openLead(made.id, false); await sleep(300);
-  ok('37 карточка корзины открыта', w.UI.leadId === made.id && !!w.document.querySelector('#btn-take-lead'));
+  const cards = [...w.document.querySelectorAll('#clients-grid .client-card.trash')];
+  ok('37 корзина отдала удалённый карточкой trash', cards.some(r => r.textContent.includes('УникХвост38')), `cards=${cards.length}`);
+  // карточка корзины из реестра переживает поллинг (F1-регресс: раньше выкидывало на доску)
+  cards.find(r => r.textContent.includes('УникХвост38'))?.click(); await sleep(600);
+  ok('37 карточка корзины открыта из реестра', w.UI.leadId === made.id && !!w.document.querySelector('#btn-take-lead'), `lead=${w.UI.leadId}`);
   await w.Store.load(true); await sleep(500);
   ok('37 карточка пережила поллинг', w.UI.currentView === 'lead' && w.UI.leadId === made.id, `view=${w.UI.currentView}`);
   // взятие в работу из карточки

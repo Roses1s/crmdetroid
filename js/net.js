@@ -27,6 +27,11 @@ const Net = {
         url += `&id=${encodeURIComponent((data && data.id) || '')}`;
         data = null;
       }
+      if (action === 'get_clients') {
+        // Пилюли реестра (§38): фильтр — GET-параметр, тело не нужно.
+        if (data && data.filter) url += `&filter=${encodeURIComponent(data.filter)}`;
+        data = null;
+      }
       if (action === 'get_activity') {
         // year обязателен; as — локальный выбор сотрудника на вкладке «Активность»
         // (не Store.viewUserId, чтобы не влиять на «Лиды»)

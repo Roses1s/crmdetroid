@@ -463,6 +463,11 @@ R=$(post "$JI" "$TI" save_lead '{"title":"РФИКС ИНН пробелы","inn
 R=$(post "$JI" "$TI" save_lead '{"title":"РФИКС ИНН заявка"}'); LRFX7=$(jget "$R" "r['id']")
 R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LRFX7\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"carrierInn\":\"7 701 000 001\"}"); check "§37: ИНН перевозчика заявки с пробелами принят" "r.get('success') is True" "$R"
 
+# --- §38: пилюли в «Клиентах» (get_clients ?filter=) -------------------------
+R=$(get "$JI" "get_clients&filter=mine"); check "§38: Мои — только свои" "r.get('success') is True and len(r.get('clients',[]))>0 and all(c.get('mine') is True for c in r.get('clients',[]))" "$R"
+R=$(get "$JI" "get_clients&filter=deleted"); check "§38: Удалённые — корзина с владельцем" "any(c.get('id')=='$LTRASH' and c.get('deleted') is True and c.get('owner')=='$A_NAME' for c in r.get('clients',[]))" "$R"
+R=$(get "$JI" "get_clients&filter=bogus"); check "§38: левый фильтр → Все" "r.get('success') is True and any(c.get('mine') is False for c in r.get('clients',[])) and any(c.get('mine') is True for c in r.get('clients',[]))" "$R"
+
 # --- уборка ---------------------------------------------------------------
 post "$JI" "$TI" delete_lead "{\"id\":\"$LADM\"}" >/dev/null
 TP=$(login "$JP" "$B_EMAIL" "$B_PASS"); post "$JP" "$TP" delete_lead "{\"id\":\"$LA1\"}" >/dev/null; post "$JP" "$TP" delete_lead "{\"id\":\"$LB1\"}" >/dev/null

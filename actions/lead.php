@@ -218,9 +218,35 @@ function crm_action_move_lead(PDO $pdo, array $user, int $viewUid): never {
  * только название, ИНН и владелец. Свои помечаем mine (их можно открыть).
  */
 function crm_action_get_clients(PDO $pdo, array $user, int $viewUid): never {
-    $total = (int) $pdo->query('SELECT COUNT(*) FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.deleted_at = 0')->fetchColumn();
-    $st = $pdo->prepare('SELECT l.id, l.title, l.inn, u.name AS owner, (l.user_id = ?) AS mine FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE l.deleted_at = 0 ORDER BY l.title ASC LIMIT 500');
-    $st->execute([$viewUid]);
+    // Пилюли Все/Мои/Удаленные живут в «Клиентах» (§38, переехали с доски).
+    $filter = strv($_GET['filter'] ?? 'all', 10);
+    if (!in_array($filter, ['all', 'mine', 'deleted'], true)) $filter = 'all';
+    if ($filter === 'deleted') {
+        // Корзина в реестре: свежак первым, владелец + кто удалил. mine=false —
+        // взять в работу может любой (клик открывает карточку с кнопкой).
+        $total = (int) $pdo->query('SELECT COUNT(*) FROM crm_leads l LEFT JOIN crm_users u ON u.id = l.user_id WHERE l.deleted_at <> 0')->fetchColumn();
+        $st = $pdo->query('SELECT l.id, l.title, l.inn, u.name AS owner, d.name AS deleted_by FROM crm_leads l LEFT JOIN crm_users u ON u.id = l.user_id LEFT JOIN crm_users d ON d.id = l.deleted_by WHERE l.deleted_at <> 0 ORDER BY l.deleted_at DESC LIMIT 500');
+        $out = [];
+        foreach ($st as $r) {
+            $out[] = [
+                'id' => (string) $r['id'],
+                'title' => (string) $r['title'],
+                'inn' => (string) $r['inn'],
+                'owner' => (string) ($r['owner'] ?? ''),
+                'mine' => false,
+                'deleted' => true,
+                'deletedBy' => (string) ($r['deleted_by'] ?? ''),
+            ];
+        }
+        ok(['clients' => $out, 'total' => $total]);
+    }
+    $mineOnly = $filter === 'mine';
+    $where = $mineOnly ? 'l.deleted_at = 0 AND l.user_id = ?' : 'l.deleted_at = 0';
+    $tot = $pdo->prepare("SELECT COUNT(*) FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE $where");
+    $tot->execute($mineOnly ? [$viewUid] : []);
+    $total = (int) $tot->fetchColumn();
+    $st = $pdo->prepare("SELECT l.id, l.title, l.inn, u.name AS owner, (l.user_id = ?) AS mine FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id WHERE $where ORDER BY l.title ASC LIMIT 500");
+    $st->execute($mineOnly ? [$viewUid, $viewUid] : [$viewUid]);
     $out = [];
     foreach ($st as $r) {
         $out[] = [

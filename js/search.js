@@ -1,7 +1,7 @@
 'use strict';
 // Поиск: выпадающий список глобального поиска в шапке (liveSearch/renderSearchDrop, локальный + серверный), поиск по своим лидам и сотрудникам, поиск на дашборде. Вынесено из app.js (план CODE_REVIEW п. 10.9).
-/* global $, Net, Store, UI, debounce, esc, updateSearchPlaceholder */
-/* exported checkLeadDupDebounced, clearSearch, initDashboardSearch, initSearchFilters, liveSearch */
+/* global $, Net, Store, debounce, esc */
+/* exported checkLeadDupDebounced, clearSearch, initDashboardSearch, liveSearch */
 
 function closeSearchDrop() {
   $('#search-drop')?.classList.remove('open');
@@ -42,15 +42,6 @@ function ownersOf(lead, intersections) {
 
 function renderSearchDrop(payload) {
   const box = $('#search-drop'); if (!box) return;
-  if (payload.deleted) {
-    const rows = (payload.leads || []).map(l => {
-      const meta = [`ИНН ${l.inn || '—'}`, `владелец: ${l.owner || '—'}`, l.deletedBy ? `удалил: ${l.deletedBy}` : ''].filter(Boolean).join(' · ');
-      return `<div class="search-item trash" data-action="open-search-lead" data-id="${esc(l.id)}"><div class="search-item-title">🗑 ${esc(l.title)}</div><div class="search-item-meta">${esc(meta)}</div></div>`;
-    }).join('');
-    box.innerHTML = rows || '<div class="search-empty">Корзина пуста</div>';
-    box.classList.add('open');
-    return;
-  }
   const leads = payload.leads || [];
   const inter = payload.intersections || [];
   const emps = payload.employees || [];
@@ -87,23 +78,16 @@ function renderSearchDrop(payload) {
 let _searchGen = 0;
 
 async function liveSearch(q) {
+  // Пилюли переехали в «Клиенты» (§38): поиск доски снова простой.
   const wrap = $('#board-search-wrap');
   const query = String(q || '').trim();
-  const flt = UI.searchFilter || 'all';
   wrap?.classList.toggle('has-query', !!query);
-  if (!query && flt !== 'deleted') { closeSearchDrop(); return; }
-  if (flt === 'deleted') {
-    const gen = ++_searchGen;
-    const res = await Net.req('search_leads', { q: query, filter: 'deleted' });
-    if (gen !== _searchGen) return;
-    if (res && res.success) renderSearchDrop({ leads: res.leads || [], deleted: true });
-    return;
-  }
+  if (!query) { closeSearchDrop(); return; }
   const local = localSearchLeads(query);
-  const localEmp = flt === 'mine' ? [] : localSearchEmployees(query);
+  const localEmp = localSearchEmployees(query);
   renderSearchDrop({ leads: local, intersections: [], employees: localEmp });
   const gen = ++_searchGen;
-  const res = await Net.req('search_leads', flt === 'mine' ? { q: query, filter: 'mine' } : { q: query });
+  const res = await Net.req('search_leads', { q: query });
   if (gen !== _searchGen) return;
   if (res && res.success) {
     const leads = (res.leads && res.leads.length) ? res.leads : local;
@@ -209,15 +193,3 @@ async function checkLeadDup(inn) {
 
 const checkLeadDupDebounced = debounce(() => checkLeadDup($('#m-inn')?.value), 350);
 
-function initSearchFilters() {
-  const pills = $('#board-search-pills');
-  if (!pills || pills.dataset.init) return;
-  pills.dataset.init = '1';
-  pills.addEventListener('click', e => {
-    const b = e.target.closest('.search-pill'); if (!b) return;
-    UI.searchFilter = b.dataset.filter || 'all';
-    pills.querySelectorAll('.search-pill').forEach(p => p.classList.toggle('active', p === b));
-    updateSearchPlaceholder();
-    liveSearch($('#board-search')?.value || '');
-  });
-}

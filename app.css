@@ -142,6 +142,9 @@
   .client-card { display: flex; gap: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; position: relative; min-width: 0; }
   .client-card.mine { cursor: pointer; }
   .client-card.mine:hover { border-color: var(--primary); }
+  .client-card.trash { cursor: pointer; background: #faf6f6; }
+  .client-card.trash:hover { border-color: var(--primary); }
+  html[data-theme="dark"] .client-card.trash { background: #2b2323; }
   .client-icon { width: 44px; height: 44px; flex-shrink: 0; border-radius: 6px; background: var(--column-bg); color: var(--muted); display: flex; align-items: center; justify-content: center; }
   .client-icon svg { width: 28px; height: 28px; }
   .client-body { min-width: 0; flex: 1; }
