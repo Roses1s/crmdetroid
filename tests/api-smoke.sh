@@ -457,8 +457,6 @@ UE=$(jget "$(get "$JA" get_users)" "[u['id'] for u in r['users'] if u['email']==
 R=$(post "$JA" "$TA" delete_user "{\"id\":$UE,\"transferTo\":$UA}"); check "§37: увольнение с передачей" "r.get('success') is True and r.get('transferred')==1" "$R"
 R=$(get "$JI" "get_comments&id=$LRE"); check "§37: лог лида после передачи без dangling user_id" "any(c.get('text')=='лог лида увольняемого' and c.get('userId')==0 for c in r.get('comments',[]))" "$R"
 R=$(get "$JI" "get_app_comments&id=$ARE"); check "§37: лог заявки после передачи без dangling user_id" "any(c.get('text')=='лог заявки увольняемого' and c.get('userId')==0 for c in r.get('comments',[]))" "$R"
-echo "::warning::DBG LRED=[$LRED] UE=[$UE]"
-R=$(get "$JA" "get_lead&id=$LRED"); echo "::warning::DBG LRED-resp=[$R]"
 R=$(get "$JA" "get_lead&id=$LRED"); check "§37: корзина увольняемого допуржена, а не передана" "r.get('error')=='Лид не найден'" "$R"
 # RFIX7: ИНН с пробелами (13 символов) принимается везде (G18)
 R=$(post "$JI" "$TI" save_lead '{"title":"РФИКС ИНН пробелы","inn":"7 701 000 001"}'); check "§37: ИНН лида с пробелами принят" "r.get('success') is True" "$R"
