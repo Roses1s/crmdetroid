@@ -338,6 +338,9 @@ R=$(post "$JI" "$TI" save_lead '{"title":"Smoke заявка"}'); LAPP=$(jget "$
 R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LAPP\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\",\"rate\":\"10 000\",\"number\":\"SMK-A\"}"); APP=$(jget "$R" "r['application']['id']"); REV0=$(jget "$R" "r['application']['updatedAt']")
 check "v20: новая заявка со статусом 0" "r.get('application',{}).get('status')==0" "$R"
 R=$(get "$JI" "get_app&id=$APP"); check "v20: get_app отдаёт заявку и название лида" "r.get('application',{}).get('id')=='$APP' and r.get('leadTitle')=='Smoke заявка'" "$R"
+R=$(post "$JI" "$TI" save_lead '{"title":"Заказчик Смоук","inn":"1717171717","logistName":"Логист Смоук","logistPhone":"+7 (900) 000-00-01"}'); LCUST=$(jget "$R" "r['id']")
+R=$(post "$JI" "$TI" save_lead_app "{\"leadId\":\"$LCUST\",\"cityFrom\":\"Москва\",\"cityTo\":\"Уфа\"}"); APPCUST=$(jget "$R" "r['application']['id']")
+R=$(get "$JI" "get_app&id=$APPCUST"); check "§32: get_app отдаёт заказчика из лида" "r.get('leadInn')=='1717171717' and r.get('leadLogistName')=='Логист Смоук' and r.get('leadLogistPhone')=='+7 (900) 000-00-01'" "$R"
 R=$(get "$JP" "get_app&id=$APP"); check "v20: чужой get_app → Заявка не найдена" "r.get('error')=='Заявка не найдена'" "$R"
 R=$(get "$JI" "get_lead&id=$LAPP"); check "v20: заявки лида содержат status" "all('status' in a for a in r['lead'].get('applications',[]))" "$R"
 R=$(get "$JI" "get_app_comments&id=$APP"); check "v20: создание пишет «Заявка создана»" "any(c.get('author')=='Система' and 'Заявка создана' in c.get('text','') for c in r.get('comments',[]))" "$R"

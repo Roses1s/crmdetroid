@@ -766,7 +766,7 @@ async function openApp(id, updateHash = true) {
   $$('.view-section').forEach(el => el.classList.remove('active'));
   $('#nav-dashboard')?.classList.remove('active');
   $('#app-view').classList.add('active');
-  fillAppForm(a);
+  fillAppForm(a, res);
   await loadAppComments(id);
   renderAppLog();
   updateAppSaveUI('saved');
@@ -780,10 +780,14 @@ function updateAppCrumb(a) {
   $('#app-lead-crumb').textContent = UI.appLeadTitle || 'Лид';
 }
 
-function fillAppForm(a) {
+function fillAppForm(a, res) {
   if (!a) return;
   const set = (sel, v) => { const el = $(sel); if (el && document.activeElement !== el) el.value = v ?? ''; };
   set('#ap-number', a.number || '');
+  set('#ap-cust-company', res?.leadTitle || '');
+  set('#ap-cust-inn', res?.leadInn || '');
+  set('#ap-cust-name', res?.leadLogistName || '');
+  set('#ap-cust-phone', res?.leadLogistPhone || '');
   set('#ap-from', a.cityFrom || '');
   set('#ap-to', a.cityTo || '');
   set('#ap-rate', moneyToInput(a.rate || ''));

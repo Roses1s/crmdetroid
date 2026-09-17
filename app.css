@@ -669,6 +669,9 @@
   .app-sheet-head .editable-title { flex: 1; width: auto; min-width: 0; margin: 0; padding-left: 0; }
   /* Точечная правка: шапка заявки выше — верхний отступ панели вдвое меньше (25px -> 12px). */
   #app-view .form-panel { padding-top: 12px; }
+  /* Readonly-строки сторон сделки: в фокусе не притворяются редактируемыми. */
+  .form-input[readonly]:focus { border-color: transparent; background: transparent; }
+  html[data-theme="dark"] .form-input[readonly]:focus { border-color: transparent; background: transparent; }
   .name-link[data-action="open-activity-client"] { cursor: pointer; color: var(--primary); }
   .name-link[data-action="open-activity-client"]:hover { text-decoration: underline; }
 

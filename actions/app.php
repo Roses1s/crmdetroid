@@ -18,6 +18,9 @@ function crm_action_get_app(PDO $pdo, array $user, int $viewUid): never {
     ok([
         'application' => crm_lead_app_to_api($app),
         'leadTitle' => (string) ($lead['title'] ?? ''),
+        'leadInn' => (string) ($lead['inn'] ?? ''),
+        'leadLogistName' => (string) ($lead['logist_name'] ?? ''),
+        'leadLogistPhone' => (string) ($lead['logist_phone'] ?? ''),
     ]);
 }
 
