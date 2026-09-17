@@ -312,14 +312,12 @@ function openLeadAppModal(app) {
   $('#la-load-contact').value = app?.loadContact || '';
   $('#la-load-date-from').value = app?.loadDateFrom || '';
   $('#la-load-date-to').value = app?.loadDateTo || '';
-  $('#la-load-time-from').value = app?.loadTimeFrom || '';
-  $('#la-load-time-to').value = app?.loadTimeTo || '';
+  $('#la-load-time').value = app?.loadTime || '';
   $('#la-unload-address').value = app?.unloadAddress || '';
   $('#la-unload-contact').value = app?.unloadContact || '';
   $('#la-unload-date-from').value = app?.unloadDateFrom || '';
   $('#la-unload-date-to').value = app?.unloadDateTo || '';
-  $('#la-unload-time-from').value = app?.unloadTimeFrom || '';
-  $('#la-unload-time-to').value = app?.unloadTimeTo || '';
+  $('#la-unload-time').value = app?.unloadTime || '';
   setupPhoneMask($('#la-phone'));
   Modal.open('modal-lead-app');
   _leadAppSnap = leadAppSnapshot();
@@ -372,14 +370,12 @@ async function saveLeadAppFromModal() {
     loadContact: $('#la-load-contact').value || '',
     loadDateFrom: $('#la-load-date-from').value || '',
     loadDateTo: $('#la-load-date-to').value || '',
-    loadTimeFrom: $('#la-load-time-from').value || '',
-    loadTimeTo: $('#la-load-time-to').value || '',
+    loadTime: $('#la-load-time').value || '',
     unloadAddress: $('#la-unload-address').value || '',
     unloadContact: $('#la-unload-contact').value || '',
     unloadDateFrom: $('#la-unload-date-from').value || '',
     unloadDateTo: $('#la-unload-date-to').value || '',
-    unloadTimeFrom: $('#la-unload-time-from').value || '',
-    unloadTimeTo: $('#la-unload-time-to').value || ''
+    unloadTime: $('#la-unload-time').value || ''
   };
   if (editApp) payload.updatedAt = editApp.updatedAt;
   const res = await Net.req('save_lead_app', payload);
@@ -804,14 +800,12 @@ function fillAppForm(a, res) {
   set('#ap-load-contact', a.loadContact || '');
   set('#ap-load-date-from', a.loadDateFrom || '');
   set('#ap-load-date-to', a.loadDateTo || '');
-  set('#ap-load-time-from', a.loadTimeFrom || '');
-  set('#ap-load-time-to', a.loadTimeTo || '');
+  set('#ap-load-time', a.loadTime || '');
   set('#ap-unload-address', a.unloadAddress || '');
   set('#ap-unload-contact', a.unloadContact || '');
   set('#ap-unload-date-from', a.unloadDateFrom || '');
   set('#ap-unload-date-to', a.unloadDateTo || '');
-  set('#ap-unload-time-from', a.unloadTimeFrom || '');
-  set('#ap-unload-time-to', a.unloadTimeTo || '');
+  set('#ap-unload-time', a.unloadTime || '');
   setupPhoneMask($('#ap-phone'));
   updateAppCrumb(a);
   renderAppStatus(a.status);
@@ -896,14 +890,12 @@ async function saveAppForm(_sync = false, keepalive = false) {
       loadContact: ($('#ap-load-contact').value || '').trim(),
       loadDateFrom: ($('#ap-load-date-from').value || '').trim(),
       loadDateTo: ($('#ap-load-date-to').value || '').trim(),
-      loadTimeFrom: ($('#ap-load-time-from').value || '').trim(),
-      loadTimeTo: ($('#ap-load-time-to').value || '').trim(),
+      loadTime: ($('#ap-load-time').value || '').trim(),
       unloadAddress: ($('#ap-unload-address').value || '').trim(),
       unloadContact: ($('#ap-unload-contact').value || '').trim(),
       unloadDateFrom: ($('#ap-unload-date-from').value || '').trim(),
       unloadDateTo: ($('#ap-unload-date-to').value || '').trim(),
-      unloadTimeFrom: ($('#ap-unload-time-from').value || '').trim(),
-      unloadTimeTo: ($('#ap-unload-time-to').value || '').trim(),
+      unloadTime: ($('#ap-unload-time').value || '').trim(),
       updatedAt: UI.appRev
     };
     const extra = keepalive ? { keepalive: true } : {};

@@ -10,7 +10,7 @@ declare(strict_types=1);
  * резолвятся в рантайме, когда все файлы уже подключены.
  */
 
-const CRM_SCHEMA_VERSION = 23;
+const CRM_SCHEMA_VERSION = 24;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -69,6 +69,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v21($pdo);
     crm_migrate_v22($pdo);
     crm_migrate_v23($pdo);
+    crm_migrate_v24($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -528,6 +529,23 @@ function crm_migrate_v23(PDO $pdo): void {
     foreach ($cols as $col => $type) {
         if (crm_has_column($pdo, 'crm_lead_apps', $col)) continue;
         try { $pdo->exec("ALTER TABLE crm_lead_apps ADD COLUMN {$col} {$type} NOT NULL DEFAULT ''"); } catch (PDOException $e) { crm_log_fail("migrate_v23 {$col}", $e); }
+    }
+}
+
+function crm_migrate_v24(PDO $pdo): void {
+    // Время точки одной строкой (§33): «с/по» из v23 не релизились — схлопываем.
+    // CHANGE сохраняет значения и позицию колонки; всё идемпотентно.
+    if (crm_has_column($pdo, 'crm_lead_apps', 'load_time_from') && !crm_has_column($pdo, 'crm_lead_apps', 'load_time')) {
+        try { $pdo->exec("ALTER TABLE crm_lead_apps CHANGE COLUMN load_time_from load_time VARCHAR(120) NOT NULL DEFAULT ''"); } catch (PDOException $e) { crm_log_fail('migrate_v24 load_time', $e); }
+    }
+    if (crm_has_column($pdo, 'crm_lead_apps', 'load_time_to')) {
+        try { $pdo->exec('ALTER TABLE crm_lead_apps DROP COLUMN load_time_to'); } catch (PDOException $e) { crm_log_fail('migrate_v24 drop load_time_to', $e); }
+    }
+    if (crm_has_column($pdo, 'crm_lead_apps', 'unload_time_from') && !crm_has_column($pdo, 'crm_lead_apps', 'unload_time')) {
+        try { $pdo->exec("ALTER TABLE crm_lead_apps CHANGE COLUMN unload_time_from unload_time VARCHAR(120) NOT NULL DEFAULT ''"); } catch (PDOException $e) { crm_log_fail('migrate_v24 unload_time', $e); }
+    }
+    if (crm_has_column($pdo, 'crm_lead_apps', 'unload_time_to')) {
+        try { $pdo->exec('ALTER TABLE crm_lead_apps DROP COLUMN unload_time_to'); } catch (PDOException $e) { crm_log_fail('migrate_v24 drop unload_time_to', $e); }
     }
 }
 
