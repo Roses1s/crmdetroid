@@ -1226,6 +1226,40 @@ function crm_ft_query(string $q): string {
     return implode(' ', $parts);
 }
 
+/**
+ * Поиск по корзине (§36): удалённые лиды всех менеджеров. Пустой запрос —
+ * последние удалённые (просмотр корзины), иначе match по названию/ИНН.
+ */
+function crm_search_deleted(PDO $pdo, string $q): array {
+    $q = trim($q);
+    $digits = preg_replace('/\D/', '', $q) ?? '';
+    $sel = 'SELECT l.id, l.title, l.inn, l.deleted_at, u.name AS owner, d.name AS deleted_by FROM crm_leads l INNER JOIN crm_users u ON u.id = l.user_id LEFT JOIN crm_users d ON d.id = l.deleted_by WHERE l.deleted_at <> 0';
+    $params = [];
+    if ($q !== '') {
+        $sel .= ' AND (l.title LIKE ?';
+        $params[] = crm_like_pat($q);
+        if (strlen($digits) >= 2) {
+            $sel .= ' OR l.inn LIKE ?';
+            $params[] = crm_like_pat($digits);
+        }
+        $sel .= ')';
+    }
+    $st = $pdo->prepare($sel . ' ORDER BY l.deleted_at DESC LIMIT 40');
+    $st->execute($params);
+    $out = [];
+    foreach ($st as $r) {
+        $out[] = [
+            'id' => (string) $r['id'],
+            'title' => (string) $r['title'],
+            'inn' => (string) $r['inn'],
+            'owner' => (string) $r['owner'],
+            'deletedBy' => (string) ($r['deleted_by'] ?? ''),
+            'deletedAt' => (int) $r['deleted_at'],
+        ];
+    }
+    return ['leads' => $out, 'intersections' => []];
+}
+
 function crm_search_leads(PDO $pdo, int $userId, string $q): array {
     $q = trim($q);
     if ($q === '') return ['leads' => [], 'intersections' => []];

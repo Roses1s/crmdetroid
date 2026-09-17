@@ -1,8 +1,8 @@
 'use strict';
-/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeLeadTagsModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initClientsEvents, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadAppComments, loadClients, loadLeadComments, loadRoutes, loadUsers, openApp, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, refreshAppLog, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveAppDebounced, saveAppForm, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, syncLeadAppCache, updateAppSaveUI, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
+/* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeLeadTagsModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initClientsEvents, initDashboardSearch, initSearchFilters, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadAppComments, loadClients, loadLeadComments, loadRoutes, loadUsers, openApp, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, refreshAppLog, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveAppDebounced, saveAppForm, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, syncLeadAppCache, updateAppSaveUI, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
 /* exported syncAdminNav, updateSearchPlaceholder */
 
-const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], appId: null, appRev: null, appLeadId: null, appLeadTitle: '', appComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
+const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], appId: null, appRev: null, appLeadId: null, appLeadTitle: '', appComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false, searchFilter: 'all' };
 
 function syncAdminNav(user) {
   // Разделы переехали с шапки на дашборд: для админа осталось только показать/спрятать плитку «Сотрудники»
@@ -15,6 +15,7 @@ function isReservedUserName(name) {
 }
 function updateSearchPlaceholder() {
   const inp = $('#board-search'); if (!inp) return;
+  if ((UI.searchFilter || 'all') === 'deleted') { inp.placeholder = 'Поиск по удалённым лидам'; return; }
   inp.placeholder = Store.state.user?.role === 'admin'
     ? 'Поиск по названию, ИНН или сотруднику'
     : 'Поиск по названию или ИНН';
@@ -265,6 +266,7 @@ function initAppEvents() {
   initClientsEvents();
   initKeyboardShortcuts();
   initDashboardSearch();
+  initSearchFilters();
   initDragDrop();
 }
 
@@ -277,7 +279,7 @@ function initViewControlEvents() {
   const searchInp = $('#board-search');
   const runSearch = debounce(() => liveSearch(searchInp.value), 150);
   searchInp.addEventListener('input', runSearch);
-  searchInp.addEventListener('focus', () => { if (searchInp.value.trim()) liveSearch(searchInp.value); });
+  searchInp.addEventListener('focus', () => { if (searchInp.value.trim() || UI.searchFilter === 'deleted') liveSearch(searchInp.value); });
   searchInp.addEventListener('keydown', e => {
     if (e.key === 'Enter') {
       e.preventDefault();

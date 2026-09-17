@@ -20,6 +20,7 @@ const Net = {
       if (Store.viewUserId && asActions[action]) url += `&as=${encodeURIComponent(Store.viewUserId)}`;
       if (action === 'search_leads' || action === 'get_directions') {
         url += `&q=${encodeURIComponent((data && data.q) || '')}`;
+        if (data && data.filter) url += `&filter=${encodeURIComponent(data.filter)}`;
         data = null;
       }
       if (action === 'get_carriers' || action === 'get_carrier' || action === 'get_comments' || action === 'get_lead' || action === 'get_app' || action === 'get_app_comments') {

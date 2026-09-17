@@ -409,6 +409,12 @@ R=$(post "$JA" "$TA" purge_lead "{\"id\":\"$LDEL4\"}"); check "§35: админ 
 R=$(get "$JI" "get_lead&id=$LDEL4"); check "§35: стёртый не читается" "r.get('error')=='Лид не найден'" "$R"
 R=$(post "$JA" "$TA" purge_lead "{\"id\":\"$LA1\"}"); check "§35: purge активного запрещён" "r.get('error')=='Лид не найден в удалённых'" "$R"
 R=$(post "$JI" "$TI" purge_lead "{\"id\":\"$LDEL3\"}"); check "§35: purge не-админу запрещён" "r.get('error')=='Нет прав'" "$R"
+R=$(post "$JI" "$TI" save_lead '{"title":"Smoke Trash","inn":"7701000002"}'); LTRASH=$(jget "$R" "r['id']")
+post "$JI" "$TI" delete_lead "{\"id\":\"$LTRASH\"}" >/dev/null
+R=$(get "$JI" "search_leads&q=Trash&filter=deleted"); check "§36: корзина ищется фильтром" "any(c.get('title')=='Smoke Trash' and c.get('owner')=='$A_NAME' for c in r.get('leads',[]))" "$R"
+R=$(get "$JI" "search_leads&filter=deleted"); check "§36: пустой запрос отдаёт корзину" "any(c.get('id')=='$LTRASH' for c in r.get('leads',[]))" "$R"
+R=$(get "$JI" "search_leads&q=Trash"); check "§36: без фильтра удалённые скрыты" "all(c.get('id')!='$LTRASH' for c in r.get('leads',[]))" "$R"
+R=$(get "$JI" "search_leads&q=7809&filter=mine"); check "§36: фильтр Мои режет пересечения" "r.get('intersections')==[] and r.get('leads')==[]" "$R"
 
 # --- уборка ---------------------------------------------------------------
 post "$JI" "$TI" delete_lead "{\"id\":\"$LADM\"}" >/dev/null

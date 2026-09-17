@@ -9,7 +9,16 @@ defined('CRM_API') || exit; // только через api.php
 
 function crm_action_search_leads(PDO $pdo, array $user, int $viewUid): never {
     $q = strv($_GET['q'] ?? '', 120);
+    $filter = strv($_GET['filter'] ?? 'all', 10);
+    if (!in_array($filter, ['all', 'mine', 'deleted'], true)) $filter = 'all';
+    if ($filter === 'deleted') {
+        ok(crm_search_deleted($pdo, $q));
+    }
     $out = crm_search_leads($pdo, $viewUid, $q);
-    if (($user['role'] ?? '') === 'admin') $out['employees'] = crm_search_employees($pdo, $q);
+    if ($filter === 'mine') {
+        $out['intersections'] = [];
+    } elseif (($user['role'] ?? '') === 'admin') {
+        $out['employees'] = crm_search_employees($pdo, $q);
+    }
     ok($out);
 }

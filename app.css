@@ -99,6 +99,11 @@
     box-shadow: var(--shadow-lg); z-index: 8000; max-height: 360px; overflow-y: auto;
   }
   .search-drop.open { display: block; }
+  /* Пилюли фильтра поиска (§36) в духе Odoo: Все / Мои / Удаленные. */
+  .search-pills { display: flex; gap: 6px; padding: 6px 2px 0; }
+  .search-pill { border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer; }
+  .search-pill:hover { border-color: var(--primary); color: var(--text); }
+  .search-pill.active { background: var(--primary); border-color: var(--primary); color: #fff; }
   .search-item { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
   .search-item:last-child { border-bottom: 0; }
   .search-item:hover { background: #f7f5f7; }
