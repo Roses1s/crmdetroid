@@ -257,7 +257,7 @@ function renderApps() {
     const totalCell = a.rate ? `${esc(fmtMoneyKop(a.rate))} руб` : '<span class="apps-dim">—</span>';
     tr.innerHTML = `<td class="apps-num">${numCell}</td>`
       + `<td class="apps-date">${esc(fmtDateTime(a.createdAt))}</td>`
-      + `<td>${esc(APPS_COMPANY)}</td>`
+      + `<td class="apps-company">${esc(APPS_COMPANY)}</td>`
       + `<td><span class="apps-seller">${sellerAvatar(a.sellerName)}${esc(a.sellerName || '—')}</span></td>`
       + `<td>${clientCell}</td>`
       + `<td>${statusCell}</td>`

@@ -639,6 +639,7 @@
   .apps-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .apps-money { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
   .apps-num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .apps-company { white-space: nowrap; }
   .apps-vat { white-space: nowrap; color: var(--muted); }
   .apps-dim { color: var(--muted); }
   .apps-seller { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
