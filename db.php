@@ -625,6 +625,13 @@ function crm_purge_user(PDO $pdo, int $id, int $transferTo = 0): int {
             $to = crm_user_by_id($pdo, $transferTo);
             if (!$to || $transferTo === $id) throw new RuntimeException('bad transfer target');
             $moved = crm_transfer_user_leads($pdo, $id, $transferTo, (string) ($from['name'] ?? ''), (string) $to['name']);
+            // Корзина увольняемого новому владельцу не переходит (ревью §37, G1):
+            // чужой мусор в чужой корзине ни к чему — допурживаем вместе с файлами.
+            $del = $pdo->prepare('SELECT id FROM crm_leads WHERE user_id = ? AND deleted_at <> 0');
+            $del->execute([$id]);
+            foreach ($del->fetchAll(PDO::FETCH_COLUMN) as $lid) {
+                $urls = array_merge($urls, crm_purge_lead($pdo, (string) $lid, false));
+            }
         } else {
             $st = $pdo->prepare('SELECT id FROM crm_leads WHERE user_id = ?');
             $st->execute([$id]);
