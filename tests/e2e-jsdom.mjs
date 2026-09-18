@@ -268,6 +268,7 @@ async function api(jar, action, data, csrf, as) {
   await w.openApp(app.id, false); await sleep(400);
   const tbl = w.document.querySelector('#app-view .app-lines');
   ok('40 таблица позиций есть', !!tbl);
+  ok('43 наша компания скрыта из заявки', !w.document.querySelector('#ap-own-company'));
   ok('40 продукт фиксированный', tbl?.querySelector('.app-line-name')?.textContent.trim() === 'Транспортно-экспедиционное обслуживание');
   ok('40 поля в строке таблицы', ['ap-rate', 'ap-vat', 'ap-carrier-rate', 'ap-carrier-vat', 'ap-margin'].every(id => !!tbl?.querySelector('#' + id)));
   const nameEl = w.document.querySelector('#ap-name');
