@@ -345,6 +345,7 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
     $phone = $f['carrierPhone'];
     $loadAddress = $f['loadAddress'];
     $loadContact = $f['loadContact'];
+    $carrierInfo = $f['carrierInfo'];
     $loadDateFrom = $f['loadDateFrom'];
     $loadDateTo = $f['loadDateTo'];
     $loadTime = $f['loadTime'];
@@ -373,8 +374,8 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
                 $pdo->rollBack();
                 err('Слишком много заявок в одном лиде');
             }
-            $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, `number`, city_from, city_to, rate, margin, vat, carrier_rate, carrier_vat, carrier_company, carrier_inn, carrier_name, carrier_phone, load_address, load_contact, load_date_from, load_date_to, load_time, unload_address, unload_contact, unload_date_from, unload_date_to, unload_time, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-                ->execute([$id, $leadId, $number, $from, $to, $rate, $margin, $vat, $carrierRate, $carrierVat, $company, $inn, $name, $phone, $loadAddress, $loadContact, $loadDateFrom, $loadDateTo, $loadTime, $unloadAddress, $unloadContact, $unloadDateFrom, $unloadDateTo, $unloadTime, $now, $now]);
+            $pdo->prepare('INSERT INTO crm_lead_apps (id, lead_id, `number`, city_from, city_to, rate, margin, vat, carrier_rate, carrier_vat, carrier_company, carrier_inn, carrier_name, carrier_phone, load_address, load_contact, carrier_info, load_date_from, load_date_to, load_time, unload_address, unload_contact, unload_date_from, unload_date_to, unload_time, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$id, $leadId, $number, $from, $to, $rate, $margin, $vat, $carrierRate, $carrierVat, $company, $inn, $name, $phone, $loadAddress, $loadContact, $carrierInfo, $loadDateFrom, $loadDateTo, $loadTime, $unloadAddress, $unloadContact, $unloadDateFrom, $unloadDateTo, $unloadTime, $now, $now]);
             crm_sys_comment($pdo, $id, 'Заявка создана', 'crm_app_comments', 'app_id', 'ac_');
             // Маршрут новой заявки дублируется в справочник направлений (только создание:
             // правка маршрута существующей заявки справочник не трогает).
@@ -384,8 +385,8 @@ function crm_action_save_lead_app(PDO $pdo, array $user, int $viewUid): never {
             crm_ensure_carrier($pdo, $dirId, $f, (int) $user['id']);
         } else {
             $rev = (int) $existing['updated_at'];
-            $updApp = $pdo->prepare('UPDATE crm_lead_apps SET `number`=?, city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_rate=?, carrier_vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, load_address=?, load_contact=?, load_date_from=?, load_date_to=?, load_time=?, unload_address=?, unload_contact=?, unload_date_from=?, unload_date_to=?, unload_time=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
-            $updApp->execute([$number, $from, $to, $rate, $margin, $vat, $carrierRate, $carrierVat, $company, $inn, $name, $phone, $loadAddress, $loadContact, $loadDateFrom, $loadDateTo, $loadTime, $unloadAddress, $unloadContact, $unloadDateFrom, $unloadDateTo, $unloadTime, $now, $id, $leadId, $rev]);
+            $updApp = $pdo->prepare('UPDATE crm_lead_apps SET `number`=?, city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_rate=?, carrier_vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, load_address=?, load_contact=?, carrier_info=?, load_date_from=?, load_date_to=?, load_time=?, unload_address=?, unload_contact=?, unload_date_from=?, unload_date_to=?, unload_time=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
+            $updApp->execute([$number, $from, $to, $rate, $margin, $vat, $carrierRate, $carrierVat, $company, $inn, $name, $phone, $loadAddress, $loadContact, $carrierInfo, $loadDateFrom, $loadDateTo, $loadTime, $unloadAddress, $unloadContact, $unloadDateFrom, $unloadDateTo, $unloadTime, $now, $id, $leadId, $rev]);
             if ($updApp->rowCount() === 0) {
                 $pdo->rollBack();
                 err('Заявка изменена в другом месте');

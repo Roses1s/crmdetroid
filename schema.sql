@@ -187,6 +187,7 @@ CREATE TABLE IF NOT EXISTS crm_lead_apps (
   updated_at BIGINT NOT NULL DEFAULT 0,
   load_address VARCHAR(300) NOT NULL DEFAULT '',
   load_contact VARCHAR(120) NOT NULL DEFAULT '',
+  carrier_info TEXT NOT NULL,
   load_date_from VARCHAR(10) NOT NULL DEFAULT '',
   load_date_to VARCHAR(10) NOT NULL DEFAULT '',
   load_time VARCHAR(120) NOT NULL DEFAULT '',

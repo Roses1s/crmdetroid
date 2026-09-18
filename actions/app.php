@@ -64,8 +64,8 @@ function crm_action_save_app(PDO $pdo, array $user, int $viewUid): never {
     $now = now_ms();
     $pdo->beginTransaction();
     try {
-        $upd = $pdo->prepare('UPDATE crm_lead_apps SET `number`=?, city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_rate=?, carrier_vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, load_address=?, load_contact=?, load_date_from=?, load_date_to=?, load_time=?, unload_address=?, unload_contact=?, unload_date_from=?, unload_date_to=?, unload_time=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
-        $upd->execute([$f['number'], $f['cityFrom'], $f['cityTo'], $f['rate'], $f['margin'], $f['vat'], $f['carrierRate'], $f['carrierVat'], $f['carrierCompany'], $f['carrierInn'], $f['carrierName'], $f['carrierPhone'], $f['loadAddress'], $f['loadContact'], $f['loadDateFrom'], $f['loadDateTo'], $f['loadTime'], $f['unloadAddress'], $f['unloadContact'], $f['unloadDateFrom'], $f['unloadDateTo'], $f['unloadTime'], $now, $id, $leadId, (int) $app['updated_at']]);
+        $upd = $pdo->prepare('UPDATE crm_lead_apps SET `number`=?, city_from=?, city_to=?, rate=?, margin=?, vat=?, carrier_rate=?, carrier_vat=?, carrier_company=?, carrier_inn=?, carrier_name=?, carrier_phone=?, load_address=?, load_contact=?, carrier_info=?, load_date_from=?, load_date_to=?, load_time=?, unload_address=?, unload_contact=?, unload_date_from=?, unload_date_to=?, unload_time=?, updated_at=? WHERE id=? AND lead_id=? AND updated_at=?');
+        $upd->execute([$f['number'], $f['cityFrom'], $f['cityTo'], $f['rate'], $f['margin'], $f['vat'], $f['carrierRate'], $f['carrierVat'], $f['carrierCompany'], $f['carrierInn'], $f['carrierName'], $f['carrierPhone'], $f['loadAddress'], $f['loadContact'], $f['carrierInfo'], $f['loadDateFrom'], $f['loadDateTo'], $f['loadTime'], $f['unloadAddress'], $f['unloadContact'], $f['unloadDateFrom'], $f['unloadDateTo'], $f['unloadTime'], $now, $id, $leadId, (int) $app['updated_at']]);
         if ($upd->rowCount() === 0) {
             $pdo->rollBack();
             err('Заявка изменена в другом месте');
