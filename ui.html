@@ -304,25 +304,30 @@
           <div class="form-row"><label class="form-label" for="ap-unload-time">Время</label><input class="form-input" id="ap-unload-time" maxlength="120" placeholder="к 14:00"></div>
         </div>
       </div>
-      <h3 class="section-title">Заказчик</h3>
-      <div class="form-row"><label class="form-label" for="ap-rate">Ставка, ₽</label><input class="form-input" id="ap-rate" inputmode="decimal" placeholder="45000"></div>
-      <div class="form-row"><label class="form-label" for="ap-vat">Налоги</label><select id="ap-vat" class="form-input form-select">
-        <option value="22">НДС 22%</option>
-        <option value="">Без НДС</option>
-        <option value="5">НДС 5%</option>
-        <option value="7">НДС 7%</option>
-        <option value="0">НДС 0%</option>
-      </select></div>
-      <h3 class="section-title">Перевозчик</h3>
-      <div class="form-row"><label class="form-label" for="ap-carrier-rate">Ставка, ₽</label><input class="form-input" id="ap-carrier-rate" inputmode="decimal" placeholder="30000"></div>
-      <div class="form-row"><label class="form-label" for="ap-carrier-vat">Налоги</label><select id="ap-carrier-vat" class="form-input form-select">
-        <option value="22">НДС 22%</option>
-        <option value="">Без НДС</option>
-        <option value="5">НДС 5%</option>
-        <option value="7">НДС 7%</option>
-        <option value="0">НДС 0%</option>
-      </select></div>
-      <div class="form-row"><label class="form-label" for="ap-margin">Маржа, ₽</label><input class="form-input" id="ap-margin" inputmode="decimal" placeholder="17608,65"></div>
+      <h3 class="section-title">Позиции</h3>
+      <div class="app-lines-wrap"><table class="app-lines">
+        <thead><tr><th scope="col">Продукт</th><th scope="col">Цена зак., ₽</th><th scope="col">НДС зак.</th><th scope="col">Цена пер., ₽</th><th scope="col">НДС пер.</th><th scope="col">Маржа, ₽</th></tr></thead>
+        <tbody><tr>
+          <td class="app-line-name">Транспортно-экспедиционное обслуживание</td>
+          <td><input class="form-input app-line-input" id="ap-rate" inputmode="decimal" placeholder="45000" aria-label="Цена заказчика"></td>
+          <td><select id="ap-vat" class="form-input form-select app-line-input" aria-label="НДС заказчика">
+            <option value="22">НДС 22%</option>
+            <option value="">Без НДС</option>
+            <option value="5">НДС 5%</option>
+            <option value="7">НДС 7%</option>
+            <option value="0">НДС 0%</option>
+          </select></td>
+          <td><input class="form-input app-line-input" id="ap-carrier-rate" inputmode="decimal" placeholder="30000" aria-label="Цена перевозчика"></td>
+          <td><select id="ap-carrier-vat" class="form-input form-select app-line-input" aria-label="НДС перевозчика">
+            <option value="22">НДС 22%</option>
+            <option value="">Без НДС</option>
+            <option value="5">НДС 5%</option>
+            <option value="7">НДС 7%</option>
+            <option value="0">НДС 0%</option>
+          </select></td>
+          <td><input class="form-input app-line-input" id="ap-margin" inputmode="decimal" placeholder="17608,65" aria-label="Маржа"></td>
+        </tr></tbody>
+      </table></div>
       <div class="form-row"><label class="form-label" for="ap-company">Компания</label><input class="form-input" id="ap-company" placeholder="Название фирмы"></div>
       <div class="form-row"><label class="form-label" for="ap-inn">ИНН</label><input class="form-input" id="ap-inn" maxlength="12" inputmode="numeric" placeholder="10 или 12 цифр"></div>
       <div class="form-row"><label class="form-label" for="ap-phone">Телефон</label><input class="form-input" id="ap-phone" inputmode="tel"></div>

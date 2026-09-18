@@ -703,6 +703,12 @@
   .app-sheet-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
   .app-sheet-head-label { font-size: 24px; font-weight: 700; color: var(--muted); white-space: nowrap; }
   .app-sheet-head .editable-title { flex: 1; width: auto; min-width: 0; margin: 0; padding-left: 0; }
+  .app-lines-wrap { overflow-x: auto; margin: 0 0 8px; }
+  .app-lines { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .app-lines th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .app-lines td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .app-line-name { min-width: 180px; }
+  .app-lines .app-line-input { width: 100%; min-width: 90px; box-sizing: border-box; }
   /* Точечная правка: шапка заявки выше — верхний отступ панели вдвое меньше (25px -> 12px). */
   #app-view .form-panel { padding-top: 12px; }
   /* Readonly-строки сторон сделки: в фокусе не притворяются редактируемыми. */

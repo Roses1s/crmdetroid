@@ -258,6 +258,28 @@ async function api(jar, action, data, csrf, as) {
   w.stopPolling?.();
 }
 
+// ---------- 40: позиции заявки: одна строка, сейв через save_app ----------
+{
+  const { w, jar } = await makeWindow();
+  await loginAs(w, 'ivan@x.ru', 'IvanPass123');
+  const csrf = w.Net.csrf;
+  const lead = await api(jar, 'save_lead', { title: 'E2E позиции40' }, csrf);
+  const app = await api(jar, 'save_lead_app', { leadId: lead.id, cityFrom: 'Москва', cityTo: 'Уфа', rate: '200000', vat: '22', carrierRate: '170000', carrierVat: '', margin: '30000' }, csrf);
+  await w.openApp(app.id, false); await sleep(400);
+  const tbl = w.document.querySelector('#app-view .app-lines');
+  ok('40 таблица позиций есть', !!tbl);
+  ok('40 продукт фиксированный', tbl?.querySelector('.app-line-name')?.textContent.trim() === 'Транспортно-экспедиционное обслуживание');
+  ok('40 поля в строке таблицы', ['ap-rate', 'ap-vat', 'ap-carrier-rate', 'ap-carrier-vat', 'ap-margin'].every(id => !!tbl?.querySelector('#' + id)));
+  ok('40 ставка подтянулась', (w.document.querySelector('#ap-rate')?.value || '').replace(/\D/g, '') === '200000');
+  const set = (id, v) => { const el = w.document.querySelector('#' + id); el.value = v; el.dispatchEvent(new w.Event('input', { bubbles: true })); };
+  set('ap-rate', '210000'); set('ap-margin', '35000');
+  w.document.querySelector('#btn-save-app')?.click(); await sleep(900);
+  const got = await api(jar, 'get_app&id=' + app.id, null, csrf);
+  ok('40 цены сохранились', String(got?.application?.rate).includes('210000') && String(got?.application?.margin).includes('35000'), `rate=${got?.application?.rate} margin=${got?.application?.margin}`);
+  await api(jar, 'delete_lead', { id: lead.id }, csrf);
+  w.stopPolling?.();
+}
+
 for (const [s, n, e] of results) console.log(s, '|', n, e ? '|' + e : '');
 const fails = results.filter(r => r[0] === 'FAIL').length;
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');
