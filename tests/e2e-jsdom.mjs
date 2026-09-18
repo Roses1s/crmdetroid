@@ -270,6 +270,8 @@ async function api(jar, action, data, csrf, as) {
   ok('40 таблица позиций есть', !!tbl);
   ok('40 продукт фиксированный', tbl?.querySelector('.app-line-name')?.textContent.trim() === 'Транспортно-экспедиционное обслуживание');
   ok('40 поля в строке таблицы', ['ap-rate', 'ap-vat', 'ap-carrier-rate', 'ap-carrier-vat', 'ap-margin'].every(id => !!tbl?.querySelector('#' + id)));
+  const nameEl = w.document.querySelector('#ap-name');
+  ok('41 позиции в самом низу формы', !!(tbl && nameEl) && (nameEl.compareDocumentPosition(tbl) & w.Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
   ok('40 ставка подтянулась', (w.document.querySelector('#ap-rate')?.value || '').replace(/\D/g, '') === '200000');
   const set = (id, v) => { const el = w.document.querySelector('#' + id); el.value = v; el.dispatchEvent(new w.Event('input', { bubbles: true })); };
   set('ap-rate', '210000'); set('ap-margin', '35000');
