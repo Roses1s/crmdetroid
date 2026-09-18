@@ -99,6 +99,10 @@ async function api(jar, action, data, csrf, as) {
   const user2 = await loginAs(w, 'ivan@x.ru', 'IvanPass123');
   ok('5 повторный вход в той же вкладке: доска загружена', !!user2 && w.Store.state.leads.length === n1, `leads=${w.Store.state.leads.length} (было ${n1})`);
   ok('5 шапка с именем не упала', (w.document.querySelector('#user-display-name')?.textContent || '').includes('Иван') || !!user2?.name);
+  w.document.querySelector('#user-display-name')?.click(); await sleep(50);
+  const userMenu = w.document.querySelector('#user-menu');
+  ok('44 меню пользователя открывается по имени', !!userMenu && !userMenu.classList.contains('hidden'));
+  ok('44 в меню есть смена пароля и выход', ['Сменить пароль', 'Выйти'].every(label => userMenu?.textContent.includes(label)));
   w.stopPolling?.();
 }
 

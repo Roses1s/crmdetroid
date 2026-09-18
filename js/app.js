@@ -1,6 +1,6 @@
 'use strict';
 /* global $, $$, Modal, Net, Store, Theme, Toast, _confirmResolver:writable, _promptResolver:writable, activityShiftYear, askConfirm, askPrompt, addTagFromModal, autoGrowComposer, checkLeadDupDebounced, clearSearch, closeImageLightbox, closeLeadAppModal, closeLeadTagsModal, closeSearchDrop, confirmDeleteUser, debounce, deleteLeadApp, deleteTagFromModal, editingCommentAttCount, formatInnInput, formatMarginInput, goNeighborCarrier, goNeighborLead, initClientsEvents, initDashboardSearch, isValidEmail, leadAppsOf, liveSearch, loadActivity, loadApps, loadAppComments, loadClients, loadLeadComments, loadRoutes, loadUsers, openApp, openCarrier, openDeleteUser, openImageLightbox, openLead, openLeadAppModal, openLeadTagsModal, openRoute, passwordError, persistOk, pickTagColor, refreshAppLog, removeLeadAppCache, renderAppLog, renderAppStatus, renderBoard, renderCarrierLog, renderFiles, renderLog, resetBoardCache, saveAppDebounced, saveAppForm, saveCarrierDebounced, saveCarrierForm, saveLeadAppFromModal, saveLeadDebounced, saveLeadForm, setActivityUser, setAppsQuery, setAppsUser, syncLeadAppCache, updateAppSaveUI, updateCarrierSaveUI, updateLeadSaveUI, setRoutesFilter, setupPhoneMask, submitLeadTags, toggleTagInModal, withLock */
-/* exported syncAdminNav, updateSearchPlaceholder */
+/* exported syncAdminNav, toggleUserMenu, updateSearchPlaceholder */
 
 const UI = { leadId: null, routeId: null, carrierId: null, carrierRev: null, carrierCanManage: false, carrierComments: [], appId: null, appRev: null, appLeadId: null, appLeadTitle: '', appComments: [], pendingFiles: [], editFiles: [], drag: {}, currentView: 'kanban', formDirty: false, editingCommentId: null, lock: false, shellReady: false, appEvents: false };
 
@@ -18,6 +18,14 @@ function updateSearchPlaceholder() {
   inp.placeholder = Store.state.user?.role === 'admin'
     ? 'Поиск по названию, ИНН или сотруднику'
     : 'Поиск по названию или ИНН';
+}
+
+function toggleUserMenu() {
+  const menu = $('#user-menu');
+  const button = $('#user-display-name');
+  if (!menu || !button) return;
+  const open = menu.classList.toggle('hidden');
+  button.setAttribute('aria-expanded', String(!open));
 }
 
 function updateViewBanner() {
@@ -299,6 +307,13 @@ function initViewControlEvents() {
   $('#k-inn')?.addEventListener('input', e => formatInnInput(e.target));
   document.addEventListener('click', e => {
     if (!e.target.closest('#board-search-wrap') && !e.target.closest('#search-drop')) closeSearchDrop();
+    if (!e.target.closest('#user-menu-wrap')) {
+      const menu = $('#user-menu');
+      if (menu && !menu.classList.contains('hidden')) {
+        menu.classList.add('hidden');
+        $('#user-display-name')?.setAttribute('aria-expanded', 'false');
+      }
+    }
   });
 
   $('#btn-prev-lead').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goNeighborLead(-1); });
@@ -668,6 +683,7 @@ let _pwSelfService = false; // true — добровольная смена из
 async function handleSessionAction(act) {
   switch (act) {
       case 'toggle-theme': Theme.toggle(); break;
+      case 'toggle-user-menu': toggleUserMenu(); break;
       case 'submit-password': {
         const np = $('#pw-new')?.value || '', n2 = $('#pw-new2')?.value || '';
         const npErr = passwordError(np); if (npErr) return Toast.error(npErr);
@@ -684,9 +700,17 @@ async function handleSessionAction(act) {
         } else Toast.error(resPw?.error || 'Ошибка');
         break;
       }
-      case 'change-password': openPasswordModal(true); break;
+      case 'change-password':
+        $('#user-menu')?.classList.add('hidden');
+        $('#user-display-name')?.setAttribute('aria-expanded', 'false');
+        openPasswordModal(true);
+        break;
       case 'close-password-modal': Modal.close('modal-password'); break;
-      case 'logout': execLogout(); break;
+      case 'logout':
+        $('#user-menu')?.classList.add('hidden');
+        $('#user-display-name')?.setAttribute('aria-expanded', 'false');
+        execLogout();
+        break;
       // Баннер «Вышло обновление»: билд на сервере новее загруженного.
       case 'reload-app': location.reload(); break;
       case 'dismiss-update-banner': $('#update-banner')?.classList.add('hidden'); break;

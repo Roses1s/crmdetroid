@@ -69,8 +69,14 @@
   .user-info { display: flex; align-items: center; gap: 12px; font-size: 13px; }
   .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; transition: background .3s; }
   .conn-dot.offline { background: #ef4444; }
-  .logout-btn { cursor: pointer; opacity: 0.7; text-decoration: underline; }
-  .logout-btn:hover { opacity: 1; }
+  .user-menu-wrap { position: relative; }
+  .user-name-btn { border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 5px 2px; opacity: .9; }
+  .user-name-btn:hover, .user-name-btn[aria-expanded="true"] { opacity: 1; }
+  .user-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 1000; min-width: 170px; padding: 5px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+  .user-menu-item { display: block; width: 100%; border: 0; background: transparent; color: var(--text); cursor: pointer; padding: 9px 11px; text-align: left; font: inherit; font-size: 13px; border-radius: 4px; }
+  .user-menu-item:hover { background: var(--surface-2); }
+  html[data-theme="dark"] .user-menu { background: var(--panel); }
+  html[data-theme="dark"] .user-menu-item:hover { background: #3a3037; }
 
   .breadcrumb, .toolbar { background: var(--panel); padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; flex-shrink: 0; gap: 10px; flex-wrap: wrap; }
   .breadcrumb { font-size: 13px; color: #666; gap: 6px; }
