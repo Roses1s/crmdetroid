@@ -178,6 +178,10 @@ TG2=$(jget "$R" "r['tag']['id']")
 check "цвет не из палитры заменён на дефолтный" "r['tag']['color']=='#6366f1'" "$R"
 R=$(post "$JI" "$TI" save_tag '{"name":"Смоук срочно","color":"#3b82f6"}')
 check "дубль названия тега отклонён" "r.get('error')=='Тег с таким названием уже есть'" "$R"
+R=$(post "$JI" "$TI" save_tag '{"name":"Смоук свободный","color":"#123abc"}'); TG39=$(jget "$R" "r['tag']['id']")
+check "§39: свободный hex принят" "r.get('success') is True and r['tag']['color']=='#123abc'" "$R"
+R=$(post "$JI" "$TI" save_tag "{\"id\":$TG39,\"name\":\"Смоук свободный\",\"color\":\"#abcdef\"}"); check "§39: перекраска тега" "r.get('success') is True and r['tag']['color']=='#abcdef'" "$R"
+R=$(post "$JI" "$TI" save_tag '{"name":"Смоук регистр","color":"#ABCDEF"}'); check "§39: верхний регистр нормализуется" "r['tag']['color']=='#abcdef'" "$R"
 R=$(post "$JI" "$TI" save_lead '{"title":"Smoke лид с тегами"}'); LTG=$(jget "$R" "r['id']")
 R=$(post "$JI" "$TI" set_lead_tags "{\"leadId\":\"$LTG\",\"tagIds\":[$TG1,$TG2,999999]}")
 check "теги назначены лиду (несуществующий id отброшен)" "r.get('success') is True and sorted(t['id'] for t in r['leadTags'])==sorted([$TG1,$TG2])" "$R"

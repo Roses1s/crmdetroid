@@ -231,6 +231,33 @@ async function api(jar, action, data, csrf, as) {
   w.stopPolling?.();
 }
 
+// ---------- 39: свободный цвет тегов: палитра, создание, перекраска ----------
+{
+  const { w, jar } = await makeWindow();
+  await loginAs(w, 'ivan@x.ru', 'IvanPass123');
+  const csrf = w.Net.csrf;
+  const made = await api(jar, 'save_lead', { title: 'E2E теги39' }, csrf);
+  await w.Store.load(true);
+  await w.openLead(made.id, false); await sleep(300);
+  w.document.querySelector('[data-action="open-lead-tags"]')?.click(); await sleep(300);
+  const custom = w.document.querySelector('#tag-custom-color');
+  ok('39 свой цвет в палитре есть', !!custom);
+  custom.value = '#123abc'; custom.dispatchEvent(new w.Event('change', { bubbles: true })); await sleep(200);
+  w.document.querySelector('#tag-new-name').value = 'E2EColor39';
+  w.document.querySelector('#tag-palette [data-action="add-tag"]')?.click(); await sleep(500);
+  const chip = [...w.document.querySelectorAll('#tags-list .tag-chip')].find(c => c.textContent.includes('E2EColor39'));
+  ok('39 тег создан со своим цветом', !!chip && chip.dataset.color === '#123abc', `color=${chip?.dataset.color}`);
+  const bg = chip?.style?.background || '';
+  ok('39 чип покрашен через el.style', bg !== '' && (bg.includes('18, 58, 188') || bg.includes('#123abc')), `bg=${bg}`);
+  const rc = chip?.closest('.tag-row')?.querySelector('.tag-row-color');
+  ok('39 перекраска в строке есть', !!rc);
+  rc.value = '#abcdef'; rc.dispatchEvent(new w.Event('change', { bubbles: true })); await sleep(700);
+  const chip2 = [...w.document.querySelectorAll('#tags-list .tag-chip')].find(c => c.textContent.includes('E2EColor39'));
+  ok('39 перекраска применилась', !!chip2 && chip2.dataset.color === '#abcdef', `color=${chip2?.dataset.color}`);
+  await api(jar, 'delete_lead', { id: made.id }, csrf);
+  w.stopPolling?.();
+}
+
 for (const [s, n, e] of results) console.log(s, '|', n, e ? '|' + e : '');
 const fails = results.filter(r => r[0] === 'FAIL').length;
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');

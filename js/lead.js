@@ -494,8 +494,8 @@ function updateLeadSaveUI(state, ts = 0) {
 }
 
 /*
- * Теги лида (v17). Палитра дублирует серверную CRM_TAG_COLORS (db.php): сервер всё равно
- * отбрасывает цвет не из списка, здесь она нужна только для рисования кружков в модалке.
+ * Теги лида (v17; свободный цвет — §39). Пресеты для быстрого выбора; свой цвет —
+ * через нативный color-input. Сервер принимает любой #rrggbb (crm_tag_color).
  */
 const TAG_COLORS = ['#ef4444', '#f97316', '#f59e0b', '#22c55e', '#14b8a6', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#64748b'];
 let _tagModalSelected = new Set(); // id тегов, отмеченных в модалке
@@ -507,28 +507,48 @@ function renderLeadTagsRow() {
   const box = $('#lead-tags-chips');
   if (!box) return;
   box.innerHTML = UI.leadId ? tagChipsHtml(leadTagsOf(UI.leadId)) : '';
+  paintTagChips(box);
 }
 
 function renderTagPalette() {
   const pal = $('#tag-palette');
   if (!pal) return;
+  if (!pal.dataset.colorInit) {
+    pal.dataset.colorInit = '1';
+    // change (не input): перерисовка палитры во время выбора убила бы открытый пикер
+    pal.addEventListener('change', e => {
+      if (e.target && e.target.id === 'tag-custom-color') {
+        _tagModalColor = tagColorValue(e.target.value);
+        renderTagPalette();
+      }
+    });
+  }
   pal.innerHTML = TAG_COLORS.map(c =>
     `<span class="tag-color ${tagColorClass(c)}${c === _tagModalColor ? ' selected' : ''}" data-action="pick-tag-color" data-color="${c}" role="button" aria-label="Цвет ${c}"></span>`
-  ).join('') + `<button type="button" class="btn btn-secondary btn-sm" data-action="add-tag">+ Добавить</button>`;
+  ).join('') + `<input type="color" id="tag-custom-color" class="tag-custom-color${TAG_COLORS.includes(_tagModalColor) ? '' : ' selected'}" value="${esc(tagColorValue(_tagModalColor))}" title="Свой цвет">` + `<button type="button" class="btn btn-secondary btn-sm" data-action="add-tag">+ Добавить</button>`;
 }
 
 function renderTagList() {
   const list = $('#tags-list');
   if (!list) return;
+  if (!list.dataset.colorInit) {
+    list.dataset.colorInit = '1';
+    list.addEventListener('change', e => {
+      const inp = e.target?.closest?.('.tag-row-color');
+      if (inp) recolorTagFromModal(inp.dataset.id, inp.value);
+    });
+  }
   const tags = Store.state.tags || [];
   if (!tags.length) { list.innerHTML = '<div class="tags-empty">Тегов пока нет — создайте первый ниже</div>'; return; }
   list.innerHTML = tags.map(t => {
     const on = _tagModalSelected.has(Number(t.id));
     return `<div class="tag-row">
-      <span class="tag-chip tag-pick ${tagColorClass(t.color)}${on ? ' selected' : ''}" data-action="toggle-tag" data-id="${t.id}" role="checkbox" aria-checked="${on}">${on ? '✓ ' : ''}${esc(t.name)}</span>
+      <span class="tag-chip tag-pick ${tagColorClass(t.color)}${on ? ' selected' : ''}" data-color="${esc(t.color || '#6366f1')}" data-action="toggle-tag" data-id="${t.id}" role="checkbox" aria-checked="${on}">${on ? '✓ ' : ''}${esc(t.name)}</span>
+      <input type="color" class="tag-row-color" data-id="${t.id}" value="${esc(tagColorValue(t.color))}" title="Сменить цвет">
       <span class="tag-del" data-action="del-tag" data-id="${t.id}" title="Удалить тег из справочника">×</span>
     </div>`;
   }).join('');
+  paintTagChips(list);
 }
 
 function pickTagColor(c) {
@@ -684,7 +704,37 @@ function resetBoardCache() { _lastBoardHash = null; }
 // Чипы тегов лида (канбан-карточка и карточка лида). Цвет задаётся CSS-классом
 // .tag-c-<hex> (см. app.css): CSP style-src 'self' запрещает inline-атрибут style,
 // поэтому style="background:..." браузер отбрасывал — чипы оставались без фона.
-// Класс существует только для цветов палитры → мусор из БД сводится к дефолту.
+// Класс существует для цветов-пресетов (кружки палитры); произвольные цвета
+// красит paintTagChips через el.style (CSP разрешает) — §39.
+function tagTextColor(hex) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!m) return '#fff';
+  const n = parseInt(m[1], 16);
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return lum > 0.6 ? '#1e293b' : '#fff';
+}
+function paintTagChips(root) {
+  if (!root || !root.querySelectorAll) return;
+  root.querySelectorAll('.tag-chip[data-color]').forEach(el => {
+    const c = el.dataset.color || '#6366f1';
+    el.style.background = c;
+    el.style.color = tagTextColor(c);
+  });
+}
+function tagColorValue(color) {
+  const c = String(color || '').toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(c) ? c : '#6366f1';
+}
+async function recolorTagFromModal(id, color) {
+  const t = (Store.state.tags || []).find(x => Number(x.id) === Number(id));
+  if (!t) return;
+  const res = await Net.req('save_tag', { id: Number(id), name: t.name, color });
+  if (!res?.success) { Toast.error(res?.error || 'Ошибка'); renderTagList(); return; }
+  Store.state.tags = res.tags || Store.state.tags;
+  const m = Store.state.leadTags || {};
+  Object.keys(m).forEach(k => { (m[k] || []).forEach(x => { if (Number(x.id) === Number(id)) x.color = (res.tag && res.tag.color) || color; }); });
+  renderTagList(); renderLeadTagsRow(); renderBoard();
+}
 function tagColorClass(color) {
   const c = String(color || '').toLowerCase();
   return 'tag-c-' + (TAG_COLORS.includes(c) ? c.slice(1) : '6366f1');
@@ -693,7 +743,7 @@ function tagColorClass(color) {
 function tagChipsHtml(tags, extraClass = '') {
   if (!tags || !tags.length) return '';
   const chips = tags.map(t =>
-    `<span class="tag-chip ${tagColorClass(t.color)} ${extraClass}">${esc(t.name)}</span>`
+    `<span class="tag-chip ${tagColorClass(t.color)} ${extraClass}" data-color="${esc(t.color || '#6366f1')}">${esc(t.name)}</span>`
   ).join('');
   return `<div class="tag-chips">${chips}</div>`;
 }
@@ -726,6 +776,7 @@ function renderBoard() {
   });
   const add = document.createElement('div'); add.className = 'add-column'; add.textContent = '+ Добавить этап'; add.dataset.action = 'add-stage'; frag.appendChild(add);
   board.appendChild(frag);
+  paintTagChips(board);
 }
 
 /* === ОБЩИЙ РЕЕСТР «КЛИЕНТЫ» (§34) === */

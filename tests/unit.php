@@ -180,5 +180,13 @@ t_throw('date: 2026-9-7 отклонена', fn() => crm_app_date('2026-9-7', '�
 t_throw('date: 2026-02-30 отклонена', fn() => crm_app_date('2026-02-30', 'Д'), 'Д: нет такой даты');
 t_throw('date: мусор отклонён', fn() => crm_app_date('завтра', 'Д'), 'Д: ГГГГ-ММ-ДД');
 
+// --- crm_tag_color (§39): свободный #rrggbb, мусор — в дефолт -------------
+t('tag-color: пресет проходит', crm_tag_color('#ef4444'), '#ef4444');
+t('tag-color: свободный hex проходит', crm_tag_color('#123abc'), '#123abc');
+t('tag-color: верхний регистр нормализуется', crm_tag_color('#ABCDEF'), '#abcdef');
+t('tag-color: мусор → дефолт', crm_tag_color('#bad бяка'), '#6366f1');
+t('tag-color: короткий hex → дефолт', crm_tag_color('#abc'), '#6366f1');
+t('tag-color: пусто → дефолт', crm_tag_color(''), '#6366f1');
+
 echo "\n" . ($fails === 0 ? 'ALL PASSED' : "$fails FAILED") . "\n";
 exit($fails === 0 ? 0 : 1);
