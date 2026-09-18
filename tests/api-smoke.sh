@@ -268,6 +268,9 @@ R=$(get "$JA" "get_audit&limit=3"); check "get_audit: limit работает (с
 R=$(get "$JA" "get_audit&limit=99999"); check "get_audit: limit зажат до 500" "r.get('success') is True and len(r.get('events',[])) <= 500" "$R"
 
 # --- 13. HTTP-статусы ошибок (ревью, пп. 2.5 / 12.8) ------------------------
+# Сессия A к этому месту выбирает лимит 90 запросов/60 с (§39 добавил +3 save_tag —
+# без перелогина проверки упираются в 429, поймано CI). Тот же приём, что в §14/§15.
+TI=$(login "$JI" "$A_EMAIL" "$A_PASS")
 # err() отдаёт честные коды: 401 need_login, 403 права, 404 не найдено, 405 метод, 200 успех.
 scode() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 C=$(scode "$B?action=get_data"); check "без сессии → 401" "'$C'=='401'" "{\"_raw\":\"$C\"}"
