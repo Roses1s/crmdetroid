@@ -10,7 +10,7 @@ declare(strict_types=1);
  * резолвятся в рантайме, когда все файлы уже подключены.
  */
 
-const CRM_SCHEMA_VERSION = 26;
+const CRM_SCHEMA_VERSION = 27;
 
 function crm_schema_version(PDO $pdo): int {
     try {
@@ -72,6 +72,7 @@ function crm_run_migrations(PDO $pdo): void {
     crm_migrate_v24($pdo);
     crm_migrate_v25($pdo);
     crm_migrate_v26($pdo);
+    crm_migrate_v27($pdo);
     crm_seed($pdo);
     try {
         $pdo->prepare('INSERT INTO crm_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
@@ -566,6 +567,14 @@ function crm_migrate_v26(PDO $pdo): void {
     // Дополнительные сведения о перевозчике в блоке погрузки (§42).
     if (!crm_has_column($pdo, 'crm_lead_apps', 'carrier_info')) {
         try { $pdo->exec("ALTER TABLE crm_lead_apps ADD COLUMN carrier_info TEXT NOT NULL AFTER load_contact"); } catch (PDOException $e) { crm_log_fail('migrate_v26 carrier_info', $e); }
+    }
+}
+
+function crm_migrate_v27(PDO $pdo): void {
+    // Поле v26 больше не используется формой, но оставляем его безопасным для
+    // старых и новых INSERT без явного carrier_info.
+    if (crm_has_column($pdo, 'crm_lead_apps', 'carrier_info')) {
+        try { $pdo->exec("ALTER TABLE crm_lead_apps MODIFY COLUMN carrier_info VARCHAR(1000) NOT NULL DEFAULT ''"); } catch (PDOException $e) { crm_log_fail('migrate_v27 carrier_info default', $e); }
     }
 }
 
