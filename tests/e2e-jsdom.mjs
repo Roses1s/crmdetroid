@@ -264,23 +264,20 @@ async function api(jar, action, data, csrf, as) {
   await loginAs(w, 'ivan@x.ru', 'IvanPass123');
   const csrf = w.Net.csrf;
   const lead = await api(jar, 'save_lead', { title: 'E2E позиции40' }, csrf);
-  const app = await api(jar, 'save_lead_app', { leadId: lead.id, cityFrom: 'Москва', cityTo: 'Уфа', rate: '200000', vat: '22', carrierRate: '170000', carrierVat: '', margin: '30000', carrierInfo: 'Тент, пропуск на территорию' }, csrf);
+  const app = await api(jar, 'save_lead_app', { leadId: lead.id, cityFrom: 'Москва', cityTo: 'Уфа', rate: '200000', vat: '22', carrierRate: '170000', carrierVat: '', margin: '30000' }, csrf);
   await w.openApp(app.id, false); await sleep(400);
   const tbl = w.document.querySelector('#app-view .app-lines');
   ok('40 таблица позиций есть', !!tbl);
   ok('40 продукт фиксированный', tbl?.querySelector('.app-line-name')?.textContent.trim() === 'Транспортно-экспедиционное обслуживание');
   ok('40 поля в строке таблицы', ['ap-rate', 'ap-vat', 'ap-carrier-rate', 'ap-carrier-vat', 'ap-margin'].every(id => !!tbl?.querySelector('#' + id)));
-  const carrierInfo = w.document.querySelector('#ap-carrier-info');
-  ok('42 сведения о перевозчике в погрузке', !!carrierInfo && carrierInfo.value === 'Тент, пропуск на территорию');
   const nameEl = w.document.querySelector('#ap-name');
   ok('41 позиции в самом низу формы', !!(tbl && nameEl) && (nameEl.compareDocumentPosition(tbl) & w.Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
   ok('40 ставка подтянулась', (w.document.querySelector('#ap-rate')?.value || '').replace(/\D/g, '') === '200000');
   const set = (id, v) => { const el = w.document.querySelector('#' + id); el.value = v; el.dispatchEvent(new w.Event('input', { bubbles: true })); };
-  set('ap-rate', '210000'); set('ap-margin', '35000'); set('ap-carrier-info', 'Тент и пропуск обновлены');
+  set('ap-rate', '210000'); set('ap-margin', '35000');
   w.document.querySelector('#btn-save-app')?.click(); await sleep(900);
   const got = await api(jar, 'get_app&id=' + app.id, null, csrf);
   ok('40 цены сохранились', String(got?.application?.rate).includes('210000') && String(got?.application?.margin).includes('35000'), `rate=${got?.application?.rate} margin=${got?.application?.margin}`);
-  ok('42 сведения о перевозчике сохранились', got?.application?.carrierInfo === 'Тент и пропуск обновлены', `carrierInfo=${got?.application?.carrierInfo}`);
   await api(jar, 'delete_lead', { id: lead.id }, csrf);
   w.stopPolling?.();
 }

@@ -357,7 +357,6 @@ function openLeadAppModal(app) {
   $('#la-phone').value = app?.carrierPhone || '';
   $('#la-load-address').value = app?.loadAddress || '';
   $('#la-load-contact').value = app?.loadContact || '';
-  $('#la-carrier-info').value = app?.carrierInfo || '';
   $('#la-load-date-from').value = app?.loadDateFrom || '';
   $('#la-load-date-to').value = app?.loadDateTo || '';
   $('#la-load-time').value = app?.loadTime || '';
@@ -416,7 +415,6 @@ async function saveLeadAppFromModal() {
     carrierPhone: ($('#la-phone').value || '').trim(),
     loadAddress: $('#la-load-address').value || '',
     loadContact: $('#la-load-contact').value || '',
-    carrierInfo: $('#la-carrier-info').value || '',
     loadDateFrom: $('#la-load-date-from').value || '',
     loadDateTo: $('#la-load-date-to').value || '',
     loadTime: $('#la-load-time').value || '',
@@ -957,7 +955,6 @@ function fillAppForm(a, res) {
   set('#ap-phone', a.carrierPhone || '');
   set('#ap-load-address', a.loadAddress || '');
   set('#ap-load-contact', a.loadContact || '');
-  set('#ap-carrier-info', a.carrierInfo || '');
   set('#ap-load-date-from', a.loadDateFrom || '');
   set('#ap-load-date-to', a.loadDateTo || '');
   set('#ap-load-time', a.loadTime || '');
@@ -1048,7 +1045,6 @@ async function saveAppForm(_sync = false, keepalive = false) {
       carrierPhone: ($('#ap-phone').value || '').trim(),
       loadAddress: ($('#ap-load-address').value || '').trim(),
       loadContact: ($('#ap-load-contact').value || '').trim(),
-      carrierInfo: ($('#ap-carrier-info').value || '').trim(),
       loadDateFrom: ($('#ap-load-date-from').value || '').trim(),
       loadDateTo: ($('#ap-load-date-to').value || '').trim(),
       loadTime: ($('#ap-load-time').value || '').trim(),

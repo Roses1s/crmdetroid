@@ -813,7 +813,6 @@ function crm_lead_app_to_api(array $r): array {
         'carrierPhone' => $r['carrier_phone'],
         'loadAddress' => $r['load_address'],
         'loadContact' => $r['load_contact'],
-        'carrierInfo' => $r['carrier_info'] ?? '',
         'loadDateFrom' => $r['load_date_from'],
         'loadDateTo' => $r['load_date_to'],
         'loadTime' => $r['load_time'],
@@ -933,7 +932,6 @@ function crm_validate_app_fields(array $in): array {
     $carrierRate = crm_money_in($carrierRate);
     $loadAddress = strv($in['loadAddress'] ?? '', 300);
     $loadContact = strv($in['loadContact'] ?? '', 120);
-    $carrierInfo = strv($in['carrierInfo'] ?? '', 1000);
     $loadDateFrom = crm_app_date(strv($in['loadDateFrom'] ?? '', 10), 'Дата погрузки с');
     $loadDateTo = crm_app_date(strv($in['loadDateTo'] ?? '', 10), 'Дата погрузки по');
     $loadTime = strv($in['loadTime'] ?? '', 120);
@@ -961,7 +959,6 @@ function crm_validate_app_fields(array $in): array {
         'carrierPhone' => strv($in['carrierPhone'] ?? '', 40),
         'loadAddress' => $loadAddress,
         'loadContact' => $loadContact,
-        'carrierInfo' => $carrierInfo,
         'loadDateFrom' => $loadDateFrom,
         'loadDateTo' => $loadDateTo,
         'loadTime' => $loadTime,
@@ -1171,7 +1168,6 @@ function crm_app_sys_field_changes(PDO $pdo, string $appId, array $old, array $f
         ['Перевозчик', (string) ($old['carrier_company'] ?? ''), (string) ($f['carrierCompany'] ?? '')],
         ['Адрес погрузки', (string) ($old['load_address'] ?? ''), (string) ($f['loadAddress'] ?? '')],
         ['Контакт погрузки', (string) ($old['load_contact'] ?? ''), (string) ($f['loadContact'] ?? '')],
-        ['Сведения о перевозчике', (string) ($old['carrier_info'] ?? ''), (string) ($f['carrierInfo'] ?? '')],
         ['Дата погрузки с', (string) ($old['load_date_from'] ?? ''), (string) ($f['loadDateFrom'] ?? '')],
         ['Дата погрузки по', (string) ($old['load_date_to'] ?? ''), (string) ($f['loadDateTo'] ?? '')],
         ['Время погрузки', (string) ($old['load_time'] ?? ''), (string) ($f['loadTime'] ?? '')],
